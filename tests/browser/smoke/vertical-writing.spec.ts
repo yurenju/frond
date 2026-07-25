@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { documentWith } from "../support/document.js";
+import { screenshotGlyph } from "../support/glyph.js";
 import { analyseInk, type InkAnalysis } from "../support/ink.js";
 
 /**
@@ -10,8 +11,8 @@ import { analyseInk, type InkAnalysis } from "../support/ink.js";
  * 不變量與跨瀏覽器差分都建立在流沙上。
  */
 
-/** 一個字的方框大小。取得大是為了讓抗鋸齒相對於字面尺寸可以忽略。 */
-const GLYPH_BOX_PX = 200;
+/** 日文的句點。在直排下應由 vert / vrt2 換成位於右上的字符。 */
+const IDEOGRAPHIC_FULL_STOP = "。";
 
 test.describe("直排渲染", () => {
   test("行進軸是縱向：後續字元排在前一個字元下方，而不是右方", async ({
@@ -59,22 +60,12 @@ test.describe("直排渲染", () => {
   test("標點取到直排字符：句點在直排下位於右上，橫排下位於左下", async ({
     page,
   }) => {
-    const horizontal = await inkOfIdeographicFullStop(page, "horizontal-tb");
-    const vertical = await inkOfIdeographicFullStop(page, "vertical-rl");
-
-    // 先確認兩邊都真的畫出了東西。空白代表字型缺件或字根本沒渲染。
-    expect(horizontal.pixelCount).toBeGreaterThan(0);
-    expect(vertical.pixelCount).toBeGreaterThan(0);
-
-    const horizontalCentroid = horizontal.centroid;
-    const verticalCentroid = vertical.centroid;
-    if (!horizontalCentroid || !verticalCentroid) {
-      throw new Error("墨水重心不存在，但像素數大於零——ink 分析有問題");
-    }
+    const horizontal = await inkOfFullStop(page, "horizontal-tb");
+    const vertical = await inkOfFullStop(page, "vertical-rl");
 
     // 橫排：句點在字面方框的左下。
-    expect(horizontalCentroid.x).toBeLessThan(0.5);
-    expect(horizontalCentroid.y).toBeGreaterThan(0.5);
+    expect(horizontal.x).toBeLessThan(0.5);
+    expect(horizontal.y).toBeGreaterThan(0.5);
 
     // 直排：vert / vrt2 把句點搬到右上。
     //
@@ -84,29 +75,34 @@ test.describe("直排渲染", () => {
     // 標點是錯的。那種缺陷原本只有抽樣的視覺判讀那層抓得到——等於漏網。
     //
     // 沒有直排字符時，句點會留在左下，下面兩條就會紅。
-    expect(verticalCentroid.x).toBeGreaterThan(0.5);
-    expect(verticalCentroid.y).toBeLessThan(0.5);
+    expect(vertical.x).toBeGreaterThan(0.5);
+    expect(vertical.y).toBeLessThan(0.5);
   });
 });
 
-async function inkOfIdeographicFullStop(
+/**
+ * 句點的墨水重心，正規化到字面方框內的 [0, 1]。
+ *
+ * 沒有墨水時直接丟——那代表字根本沒渲染出來，而不是「重心在某處」。讓它成為
+ * 錯誤而不是一個假的座標，可以避免下游的象限斷言把空白誤判成通過。
+ */
+async function inkOfFullStop(
   page: Page,
   writingMode: "horizontal-tb" | "vertical-rl",
-): Promise<InkAnalysis> {
-  await page.setContent(
-    documentWith(`
-      <div id="glyph" lang="ja" style="
-        writing-mode: ${writingMode};
-        font-family: serif;
-        font-size: ${GLYPH_BOX_PX}px;
-        line-height: 1;
-        width: ${GLYPH_BOX_PX}px;
-        height: ${GLYPH_BOX_PX}px;
-        overflow: hidden;
-      ">。</div>
-    `),
+): Promise<{ x: number; y: number }> {
+  const ink: InkAnalysis = analyseInk(
+    await screenshotGlyph(page, {
+      char: IDEOGRAPHIC_FULL_STOP,
+      lang: "ja",
+      writingMode,
+    }),
   );
-  await page.evaluate(() => document.fonts.ready);
 
-  return analyseInk(await page.locator("#glyph").screenshot());
+  if (!ink.centroid) {
+    throw new Error(
+      `${writingMode} 下的字面方框沒有任何墨水——句點沒有渲染出來`,
+    );
+  }
+
+  return ink.centroid;
 }

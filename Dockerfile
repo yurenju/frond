@@ -38,7 +38,10 @@ RUN apt-get update \
 # 把 generic family 與區域字面綁死。只是「裝了字型」不夠：serif 與 sans-serif
 # 的解析順序仍可能因基底映像更新而改變，而區域字面（TC / SC / JP）的選用若
 # 交給各家瀏覽器自己的語言比對，三家可能對同一本日文書選到不同字面。
-COPY docker/fontconfig/10-frond-cjk.conf /etc/fonts/conf.d/10-frond-cjk.conf
+# 編號 70 是必要的，不是隨手取的：基底映像的 60-latin.conf 同樣對 serif /
+# sans-serif 做 prepend，而 fontconfig 依檔名順序處理、prepend 是插到最前面，
+# 所以編號小於 60 會被它蓋過去。細節見該檔開頭的註解。
+COPY docker/fontconfig/70-frond-cjk.conf /etc/fonts/conf.d/70-frond-cjk.conf
 RUN fc-cache --force --really-force
 
 # 建置期驗證字型綁定確實生效。放在這裡而不是留給測試，是因為綁定失敗的失敗

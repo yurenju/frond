@@ -51,9 +51,18 @@ echo "==> 以 ${ENGINE} 建置 ${IMAGE_NAME}"
 # 測試期完全不需要網路：所有頁面都由 page.setContent 供給，沒有外部資源。
 # 明確關掉網路，順便保證沒有測試偷偷依賴外部連線——那種依賴會在別人的環境
 # 變成無法重現的紅燈。
+run_args=(--rm --init --network=none)
+
+# CI 要進得去容器，否則 playwright.config.ts 裡看 process.env.CI 的分支
+# （forbidOnly、github reporter、html reporter）在 CI 上全都是死的。
+# 報告寫在容器內，不掛出來的話 --rm 一收就沒了，CI 的 artifact 會永遠是空的。
+if [[ -n "${CI:-}" ]]; then
+    mkdir -p "$REPO_ROOT/playwright-report"
+    run_args+=(
+        --env CI
+        --volume "${REPO_ROOT}/playwright-report:/work/playwright-report"
+    )
+fi
+
 echo "==> 執行測試"
-exec "$ENGINE" run --rm \
-    --network=none \
-    --init \
-    "$IMAGE_NAME" \
-    npx playwright test "$@"
+exec "$ENGINE" run "${run_args[@]}" "$IMAGE_NAME" npx playwright test "$@"

@@ -1,7 +1,10 @@
 import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
-  testDir: "./tests",
+  // 只認 tests/browser。ADR-0009 把測試切成兩個 runner：EpubBook 用 Vitest 跑
+  // Node，Renderer 用 Playwright 跑瀏覽器。testDir 若泛指 tests/，第一個放進來
+  // 的 Vitest spec 會被掃進三個瀏覽器 project 裡跑。
+  testDir: "./tests/browser",
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
 
@@ -9,7 +12,15 @@ export default defineConfig({
   // 會把不穩定的結果洗成綠燈——不穩定本身就是要抓的東西。
   retries: 0,
 
-  reporter: process.env.CI ? [["github"], ["list"]] : [["list"]],
+  reporter: process.env.CI
+    ? [
+        ["github"],
+        ["list"],
+        // CI 會把這份報告收成 artifact。要拿得到，跑測試的容器必須把這個目錄
+        // 掛出去——見 scripts/test-in-container.sh。
+        ["html", { outputFolder: "playwright-report", open: "never" }],
+      ]
+    : [["list"]],
 
   use: {
     // 固定 viewport 與 device scale factor。分頁幾何是這兩個值的函數，浮動的

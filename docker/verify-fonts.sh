@@ -80,8 +80,14 @@ EOF
       docker/fontconfig/10-frond-cjk.conf 與本檔的預期值，並在 commit
       訊息記下版本與名稱的對應。
 
-  * 名稱都在、但解析落到別的字面
-    → fontconfig 的 match 順序有問題。通則要寫在語言特化之前，因為
+  * 名稱都在、但 serif / sans-serif 落到拉丁字型（Noto Serif、DejaVu Serif…）
+    → conf.d 的檔名順序被蓋過去了。fontconfig 依檔名順序處理，mode="prepend"
+      是插到最前面，所以檔名較後者優先權較高。基底映像的 60-latin.conf 會對
+      同樣的 generic family 做 prepend，本專案的設定檔編號必須大於它（目前是
+      70）。用 `fc-match -v serif` 看實際的家族順序。
+
+  * 名稱都在、但解析落到別的區域字面
+    → 同一檔內的 match 順序有問題。通則要寫在語言特化之前，因為
       mode="prepend" 是後者蓋前者。
 
 EOF

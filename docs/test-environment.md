@@ -44,7 +44,10 @@ dev:100000:65536
 | --- | --- |
 | `mcr.microsoft.com` | Playwright 官方基底映像 |
 | `archive.ubuntu.com` | `fonts-noto-cjk` |
+| `security.ubuntu.com` | 同上。noble 的 `ubuntu.sources` 含 security pocket，`apt-get update` 一定會打到它，漏了這個 build 會停在 update 那一步 |
 | `registry.npmjs.org` | `npm ci` |
+
+以上是 amd64 的清單。若在 arm64 上建置，Ubuntu 的套件來源會換成 `ports.ubuntu.com`。
 
 基底映像已含三家瀏覽器，Dockerfile 設了 `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`，所以 build 不需要連 `cdn.playwright.dev`。
 
@@ -72,7 +75,11 @@ CJK 字型統一使用 **Noto CJK**（`fonts-noto-cjk`），繁體中文、簡�
 
 因為漢字統一，「骨」「直」這類共用碼位在 TC / SC / JP 有不同字形，Noto CJK 的 OTC 內實際裝著 `Noto Serif CJK TC` / `SC` / `JP` 等多個字面。取到哪一個取決於字面選擇，而字面選擇通常由文件的 `lang` 加上 fontconfig 的語言比對決定——**那正是三家瀏覽器可能各做各的地方**。
 
-`docker/fontconfig/10-frond-cjk.conf` 因此把兩件事都釘死：generic family（`serif` / `sans-serif` / `monospace`）解析到哪個字型，以及區域字面如何依 `lang` 選用。沒宣告 `lang` 的文件預設取 TC。
+`docker/fontconfig/70-frond-cjk.conf` 因此把兩件事都釘死：generic family（`serif` / `sans-serif` / `monospace`）解析到哪個字型，以及區域字面如何依 `lang` 選用。沒宣告 `lang` 的文件預設取 TC。`zh-TW` / `zh-Hant` 與 `zh-CN` / `zh-Hans` 都各自列出，只列一種的話另一種會靜默落回預設。
+
+**檔名的編號是有意義的。** fontconfig 依檔名順序處理 `/etc/fonts/conf.d/`，而 `mode="prepend"` 是把家族插到最前面，所以檔名較後者優先權較高。基底映像的 `60-latin.conf` 同樣對 `serif` / `sans-serif` 做 prepend，本檔編號若小於 60 會被它整個蓋掉，`fc-match serif` 會解析到拉丁字型。編號取 70 就是為了贏過它。
+
+副作用要知道：拉丁文字也會落到 Noto CJK 的拉丁字符上。對這個測試環境是可接受的，甚至是想要的——一個字型一個事實來源，三家瀏覽器沒有各自 fallback 的空間。
 
 ### 為什麼在 build 就驗證
 
@@ -82,10 +89,27 @@ CJK 字型統一使用 **Noto CJK**（`fonts-noto-cjk`），繁體中文、簡�
 
 ## 冒煙測試在測什麼
 
-`tests/smoke/` 下的測試不測 frond——frond 還沒有程式碼——而是證明「三家瀏覽器都能在這個容器裡正確排出直排」這個前提成立。
+`tests/browser/smoke/` 下的測試不測 frond——frond 還沒有程式碼——而是證明「三家瀏覽器都能在這個容器裡正確排出直排」這個前提成立。
 
 - **行進軸是縱向**：用幾何斷言後續字元排在前一個字元下方。刻意不讀 computed style，因為 computed style 會老實回報 `vertical-rl` 而畫面仍可能是橫的。
 - **標點取到直排字符**：句點在直排下應位於字面方框的右上，橫排下位於左下。這條擋掉最惡劣的失敗模式——裝了一套沒有 `vert` / `vrt2` 的字型，DOM 斷言與幾何不變量全數通過，但畫面上的直排標點是錯的。
-- **區域字面選對**：同一個碼位在 `lang=ja` 與 `lang=zh-TW` 下必須渲染出不同的字形，且同一個 `lang` 下的渲染是決定性的。
+- **區域字面選對**：`serif` 加 `lang=ja` 的渲染結果，必須與直接指名 `"Noto Serif CJK JP"` 的結果逐像素相同，且與 TC 字面不同；`lang=zh-TW` 反之。
 
 這幾條都是結構性斷言，不是 golden 截圖比對。frond 沒有參考實作可以當 oracle，「這個字應該長這樣」的期望值不存在（ADR-0001）。
+
+### 區域字面那條為什麼要對照具名字面
+
+比較直覺的寫法是「`lang=ja` 與 `lang=zh-TW` 渲染不同」。那個寫法不夠：任何兩個不同的字面都能讓它變綠，包括 ja 選到 SC、zh-TW 選到 JP 這種錯得剛好對稱的情況。
+
+更關鍵的是它不會 falsify。把 `70-frond-cjk.conf` 整個拿掉，Chromium 與 Firefox 仍會用自己的語言比對選出不同的字面，「兩者不同」照樣成立——於是這條測試對它要保護的東西完全沒有意見。對照具名字面才能真的釘住「解析到了哪一個」。
+
+## 怎麼證明字型斷言真的有在測東西
+
+兩條字型相關的斷言，各自有一個讓它變紅的方法。**這兩個實驗都還沒有跑過**（本機還沒有容器引擎），記在這裡是為了讓第一個跑得動的人可以照著驗，並把結果補進 PR。
+
+| 斷言 | 讓它變紅的方法 | 預期 |
+| --- | --- | --- |
+| 直排標點取到直排字符 | 把 Dockerfile 的 `fonts-noto-cjk` 換成一套無 `vert` / `vrt2` 的 CJK 字型 | 句點留在左下，直排那兩條斷言紅 |
+| 區域字面選對 | 移除 `COPY docker/fontconfig/70-frond-cjk.conf` 那一層 | `serif` 不再解析到具名的區域字面，兩條對照斷言紅 |
+
+第二個實驗同時會讓 `docker/verify-fonts.sh` 在 build 期就失敗，那是預期內的——兩層防線本來就都該擋下它。

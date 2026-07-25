@@ -20,8 +20,6 @@ export interface InkAnalysis {
   readonly pixelCount: number;
   /** 墨水重心，正規化到 [0, 1]，原點在左上角。沒有墨水時為 null。 */
   readonly centroid: { readonly x: number; readonly y: number } | null;
-  readonly width: number;
-  readonly height: number;
 }
 
 export function analyseInk(png: Buffer): InkAnalysis {
@@ -61,8 +59,6 @@ export function analyseInk(png: Buffer): InkAnalysis {
             x: weightedX / inkPixels / width,
             y: weightedY / inkPixels / height,
           },
-    width,
-    height,
   };
 }
 

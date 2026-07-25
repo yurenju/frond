@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "playwright test",
+    "test:browser": "playwright test",
     "test:container": "./scripts/test-in-container.sh"
   },
   "devDependencies": {
