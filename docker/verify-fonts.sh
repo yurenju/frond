@@ -81,14 +81,17 @@ EOF
       訊息記下版本與名稱的對應。
 
   * 名稱都在、但 serif / sans-serif 落到拉丁字型（Noto Serif、DejaVu Serif…）
-    → conf.d 的檔名順序被蓋過去了。fontconfig 依檔名順序處理，mode="prepend"
-      是插到最前面，所以檔名較後者優先權較高。基底映像的 60-latin.conf 會對
-      同樣的 generic family 做 prepend，本專案的設定檔編號必須大於它（目前是
-      70）。用 `fc-match -v serif` 看實際的家族順序。
+    → conf.d 的檔名順序被蓋過去了。基底映像的 60-latin.conf 與 fonts-noto-cjk
+      自帶的 70-fonts-noto-cjk.conf 都會動到同一組 generic family，本專案的
+      設定檔必須排在兩者之後（目前是 75）。
 
-  * 名稱都在、但解析落到別的區域字面
-    → 同一檔內的 match 順序有問題。通則要寫在語言特化之前，因為
-      mode="prepend" 是後者蓋前者。
+  * 名稱都在、但 lang 指定的區域字面沒生效（例如 lang=ja 拿到 TC）
+    → 檔案內的規則順序反了。mode="prepend" 不是插到清單最前面，而是插在被
+      <test> 命中的那個值前面，所以後套用的規則會排得更後面——先套用的優先權
+      較高。語言特化必須寫在通則之前。
+
+      用 `fc-pattern -c "serif:lang=ja"` 看套用設定後的完整 family 清單，
+      比 fc-match 更容易看出誰排在誰前面。
 
 EOF
     exit 1

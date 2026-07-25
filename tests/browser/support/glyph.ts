@@ -33,17 +33,24 @@ export async function screenshotGlyph(
     writingMode = "horizontal-tb",
   } = request;
 
+  // 樣式走 <style> 而不是 style="..." 屬性。字型名稱帶引號是常態
+  // （font-family: "Noto Serif CJK JP"），塞進雙引號的 HTML 屬性裡會把屬性
+  // 截斷，於是整條宣告連同 width / height / writing-mode 一起消失，只剩 lang
+  // 還活著——而畫面仍然畫得出字，測試仍然跑得完，只是量到的是別的東西。
   await page.setContent(
     documentWith(`
-      <div id="glyph" lang="${lang}" style="
-        writing-mode: ${writingMode};
-        font-family: ${fontFamily};
-        font-size: ${GLYPH_BOX_PX}px;
-        line-height: 1;
-        width: ${GLYPH_BOX_PX}px;
-        height: ${GLYPH_BOX_PX}px;
-        overflow: hidden;
-      ">${char}</div>
+      <style>
+        #glyph {
+          writing-mode: ${writingMode};
+          font-family: ${fontFamily};
+          font-size: ${GLYPH_BOX_PX}px;
+          line-height: 1;
+          width: ${GLYPH_BOX_PX}px;
+          height: ${GLYPH_BOX_PX}px;
+          overflow: hidden;
+        }
+      </style>
+      <div id="glyph" lang="${lang}">${char}</div>
     `),
   );
   await page.evaluate(() => document.fonts.ready);

@@ -5,100 +5,122 @@ import { decodePixels } from "../support/ink.js";
 /**
  * 區域字面（TC / SC / JP）有沒有依 lang 選對。
  *
- * Noto CJK 是一個家族涵蓋繁中、簡中、日文，但那不等於一個字面。因為漢字統一，
- * 共用碼位在各區域有不同字形，OTC 內實際裝著 Noto Serif CJK TC / SC / JP 等
- * 多個字面。取到哪一個取決於字面選擇，而字面選擇通常由 lang 加上 fontconfig
- * 的語言比對決定——那正是三家瀏覽器可能各做各的地方。
+ * Noto CJK 是一個家族涵蓋繁中、簡中、日文，但那不等於一個字面：OTC 內裝著
+ * Noto Serif CJK TC / SC / JP 等多個字面。取到哪一個取決於字面選擇，而字面
+ * 選擇由 lang 加上 fontconfig 的語言比對決定——那正是三家瀏覽器可能各做各的
+ * 地方。沒綁好的話，三家可能對同一本日文書選到不同字面，跨瀏覽器差分就會亮起
+ * 與 frond 程式碼無關的紅燈。
  *
- * 如果沒綁好，三家可能對同一本日文書選到不同字面，跨瀏覽器差分就會亮起與
- * frond 程式碼無關的紅燈，而紅燈的原因藏在字型層極難查。
+ * ===========================================================================
+ * 用什麼字來測，比怎麼斷言更關鍵。實測結論，不要憑直覺改。
+ * ===========================================================================
  *
- * 斷言的形狀很重要。「lang=ja 與 lang=zh-TW 渲染不同」是不夠的：任何兩個不同
- * 的字面都能讓它變綠，包括 ja 選到 SC、zh-TW 選到 JP 這種錯得剛好對稱的情況。
- * 更糟的是它不會 falsify——把 fontconfig 的綁定整個拿掉，各家瀏覽器仍會用
- * 自己的語言比對選出不同的字面，測試照樣綠。
+ * 漢字**不能**用來鑑別字面。「骨」「直」這類漢字統一的代表字，其區域字形是由
+ * 文件的 lang 經 OpenType 的 locl 特性驅動的——同一個字面在 lang=ja 與
+ * lang=zh-TW 下會給出不同字形，而不同字面在同一個 lang 下給出相同字形。
+ * 拿漢字去問「解析到哪個字面」，得到的答案永遠是「看不出來」，於是測試會在
+ * 綁定完全失效的環境下照樣變綠。
  *
- * 所以改成對照具名字面：generic family 加 lang 的渲染結果，必須與「直接指名
- * 該區域字面」的渲染結果逐像素相同。
+ * 標點**可以**。句點在 JP 與 TC 字面裡的位置不同（日文置於右上或左下、中文
+ * 置中），而且該差異在同一個 lang 下依然存在——那才是字面本身的差異。
+ *
+ * 下面第一組測試把這兩條性質本身釘住，因為它們是第二組測試能夠成立的前提。
  */
 
-/**
- * 漢字統一的代表字：「骨」在日文與繁中的字形不同（上半部方框的開口方向）。
- *
- * 如果「具名字面本身就渲染出不同字形」那條在某個 Noto CJK 版本下失敗，不必然
- * 是綁定壞了——也可能是這個字在該版本的兩個字面裡剛好一致。屆時換一個代表字
- * （「直」、「令」、「兌」都是常見的例子）並在此記下換的原因與版本。
- */
+/** 漢字統一的代表字。用於證明漢字由 lang 驅動，不用於鑑別字面。 */
 const HAN_UNIFICATION_EXEMPLAR = "骨";
+
+/** 句點。位置隨字面而異，是這裡唯一有鑑別力的字。 */
+const IDEOGRAPHIC_FULL_STOP = "。";
 
 const JAPANESE_FACE = '"Noto Serif CJK JP"';
 const TRADITIONAL_CHINESE_FACE = '"Noto Serif CJK TC"';
 
-test.describe("區域字面的選用", () => {
-  test("具名的 JP 與 TC 字面本身就渲染出不同字形", async ({ page }) => {
-    // 這條是下面兩條的前提。如果兩個具名字面渲染相同，代表其中一個根本不存在
-    // 而靜默 fallback 到了另一個——那時候「解析到對應字面」即使全綠也沒有
-    // 意義。
-    const japanese = await renderExemplar(page, {
+test.describe("字形選擇的兩條路徑", () => {
+  test("漢字的區域字形由 lang 驅動，不是由字面驅動", async ({ page }) => {
+    const sameLangDifferentFace = [
+      await render(page, HAN_UNIFICATION_EXEMPLAR, {
+        lang: "ja",
+        fontFamily: JAPANESE_FACE,
+      }),
+      await render(page, HAN_UNIFICATION_EXEMPLAR, {
+        lang: "ja",
+        fontFamily: TRADITIONAL_CHINESE_FACE,
+      }),
+    ] as const;
+
+    const sameFaceDifferentLang = [
+      await render(page, HAN_UNIFICATION_EXEMPLAR, {
+        lang: "ja",
+        fontFamily: JAPANESE_FACE,
+      }),
+      await render(page, HAN_UNIFICATION_EXEMPLAR, {
+        lang: "zh-TW",
+        fontFamily: JAPANESE_FACE,
+      }),
+    ] as const;
+
+    expect(sameLangDifferentFace[0].equals(sameLangDifferentFace[1])).toBe(true);
+    expect(sameFaceDifferentLang[0].equals(sameFaceDifferentLang[1])).toBe(
+      false,
+    );
+  });
+
+  test("標點的位置由字面驅動，是唯一有鑑別力的字", async ({ page }) => {
+    // 這條是下面整組測試的前提。如果句點在兩個字面下也長得一樣，就沒有任何
+    // 字能鑑別字面，下面的斷言即使全綠也沒有意義。
+    const japanese = await render(page, IDEOGRAPHIC_FULL_STOP, {
       lang: "ja",
       fontFamily: JAPANESE_FACE,
     });
-    const traditionalChinese = await renderExemplar(page, {
-      lang: "zh-TW",
+    const traditionalChinese = await render(page, IDEOGRAPHIC_FULL_STOP, {
+      lang: "ja",
       fontFamily: TRADITIONAL_CHINESE_FACE,
     });
 
     expect(japanese.equals(traditionalChinese)).toBe(false);
   });
+});
 
+test.describe("區域字面的選用", () => {
   test("lang=ja 的 serif 解析到 JP 字面", async ({ page }) => {
-    const viaGenericFamily = await renderExemplar(page, { lang: "ja" });
-    const japanese = await renderExemplar(page, {
+    const viaGenericFamily = await render(page, IDEOGRAPHIC_FULL_STOP, {
+      lang: "ja",
+    });
+    const japanese = await render(page, IDEOGRAPHIC_FULL_STOP, {
       lang: "ja",
       fontFamily: JAPANESE_FACE,
-    });
-    const traditionalChinese = await renderExemplar(page, {
-      lang: "zh-TW",
-      fontFamily: TRADITIONAL_CHINESE_FACE,
     });
 
     expect(viaGenericFamily.equals(japanese)).toBe(true);
-    expect(viaGenericFamily.equals(traditionalChinese)).toBe(false);
   });
 
   test("lang=zh-TW 的 serif 解析到 TC 字面", async ({ page }) => {
-    const viaGenericFamily = await renderExemplar(page, { lang: "zh-TW" });
-    const traditionalChinese = await renderExemplar(page, {
+    const viaGenericFamily = await render(page, IDEOGRAPHIC_FULL_STOP, {
+      lang: "zh-TW",
+    });
+    const traditionalChinese = await render(page, IDEOGRAPHIC_FULL_STOP, {
       lang: "zh-TW",
       fontFamily: TRADITIONAL_CHINESE_FACE,
     });
-    const japanese = await renderExemplar(page, {
-      lang: "ja",
-      fontFamily: JAPANESE_FACE,
-    });
 
     expect(viaGenericFamily.equals(traditionalChinese)).toBe(true);
-    expect(viaGenericFamily.equals(japanese)).toBe(false);
   });
 
   test("同一組輸入的渲染是決定性的", async ({ page }) => {
     // 上面幾條靠逐像素相等／不等立論，所以必須先證明相同輸入會給出相同輸出，
     // 否則那些相等與不等都可能只是渲染本身不穩定。
-    const first = await renderExemplar(page, { lang: "ja" });
-    const second = await renderExemplar(page, { lang: "ja" });
+    const first = await render(page, IDEOGRAPHIC_FULL_STOP, { lang: "ja" });
+    const second = await render(page, IDEOGRAPHIC_FULL_STOP, { lang: "ja" });
 
     expect(first.equals(second)).toBe(true);
   });
 });
 
-async function renderExemplar(
+async function render(
   page: Page,
+  char: string,
   options: { lang: string; fontFamily?: string },
 ): Promise<Buffer> {
-  return decodePixels(
-    await screenshotGlyph(page, {
-      char: HAN_UNIFICATION_EXEMPLAR,
-      ...options,
-    }),
-  );
+  return decodePixels(await screenshotGlyph(page, { char, ...options }));
 }

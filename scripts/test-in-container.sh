@@ -26,25 +26,18 @@ fi
 
 # --- build -----------------------------------------------------------------
 #
-# build 期的網路有一個容易踩的坑：映像的 RUN 步驟（apt-get、npm ci）跑在容器
-# 自己的 network namespace，那裡的 127.0.0.1 是容器的 loopback，不是外面的
-# proxy。在有 proxy 的環境下若不處理，RUN 會直接連不出去。
+# 這裡刻意不處理 proxy。
 #
-# 解法是讓 build 走 host 的 network namespace，並把 proxy 設定傳進去。沒有
-# proxy 的環境（例如 GitHub Actions）這些變數是空的，兩個參數都不會加上去。
-build_args=()
-if [[ -n "${HTTPS_PROXY:-${https_proxy:-}}" ]]; then
-    proxy="${HTTPS_PROXY:-${https_proxy:-}}"
-    build_args+=(
-        --network=host
-        --build-arg "https_proxy=${proxy}"
-        --build-arg "http_proxy=${HTTP_PROXY:-${http_proxy:-$proxy}}"
-        --build-arg "no_proxy=${NO_PROXY:-${no_proxy:-localhost,127.0.0.1}}"
-    )
-fi
-
+# 直覺的做法是把外面的 HTTP_PROXY 用 --build-arg 傳進去，但那是錯的：出口
+# proxy 通常掛在 127.0.0.1 上，而那個位址在容器的 network namespace 裡指向
+# 容器自己的 loopback，不是外面的 proxy。傳進去只會把引擎本來設對的值蓋掉，
+# 讓 apt-get 撞上 connection refused。
+#
+# proxy 屬於容器引擎的設定而不是測試腳本的責任。rootless docker 會自行把
+# daemon 的 proxy 設定注入每個容器（指向 slirp gateway 而非 loopback）。
+# 沒有 proxy 的環境（例如 GitHub Actions）本來就不需要任何處理。
 echo "==> 以 ${ENGINE} 建置 ${IMAGE_NAME}"
-"$ENGINE" build "${build_args[@]}" --tag "$IMAGE_NAME" "$REPO_ROOT"
+"$ENGINE" build --tag "$IMAGE_NAME" "$REPO_ROOT"
 
 # --- run -------------------------------------------------------------------
 #

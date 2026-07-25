@@ -11,7 +11,7 @@
     "test:container": "./scripts/test-in-container.sh"
   },
   "devDependencies": {
-    "@playwright/test": "1.62.0",
+    "@playwright/test": "1.61.1",
     "@types/node": "26.1.1",
     "@types/pngjs": "6.0.5",
     "pngjs": "7.0.0",

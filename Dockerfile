@@ -12,7 +12,12 @@
 # 基底釘死到明確版本，不用 floating tag。
 # 這裡的版本必須與 package.json 的 @playwright/test 一致，否則映像內的瀏覽器
 # 與測試套件期待的版本會對不上。
-FROM mcr.microsoft.com/playwright:v1.62.0-noble
+#
+# 版本上限由映像而非 npm 決定：MCR 的正式映像落後 npm 套件。撰寫當下 npm 的
+# @playwright/test 已經是 1.62.0，但 mcr.microsoft.com/playwright 只有
+# v1.62.0-next-canary-*，正式的最新是 v1.61.1。升級時先查 tag 再動 package.json：
+#   curl -s https://mcr.microsoft.com/v2/playwright/tags/list
+FROM mcr.microsoft.com/playwright:v1.61.1-noble
 
 # ---------------------------------------------------------------------------
 # 字型
@@ -38,10 +43,11 @@ RUN apt-get update \
 # 把 generic family 與區域字面綁死。只是「裝了字型」不夠：serif 與 sans-serif
 # 的解析順序仍可能因基底映像更新而改變，而區域字面（TC / SC / JP）的選用若
 # 交給各家瀏覽器自己的語言比對，三家可能對同一本日文書選到不同字面。
-# 編號 70 是必要的，不是隨手取的：基底映像的 60-latin.conf 同樣對 serif /
-# sans-serif 做 prepend，而 fontconfig 依檔名順序處理、prepend 是插到最前面，
-# 所以編號小於 60 會被它蓋過去。細節見該檔開頭的註解。
-COPY docker/fontconfig/70-frond-cjk.conf /etc/fonts/conf.d/70-frond-cjk.conf
+# 編號 75 是必要的，不是隨手取的：基底映像的 60-latin.conf 與 fonts-noto-cjk
+# 自帶的 70-fonts-noto-cjk.conf 都會動到同一組 generic family，本檔必須排在
+# 兩者之後。該檔開頭的註解記載了完整的順序規則——包含一條與直覺相反的：
+# mode="prepend" 是插在被 test 命中的值前面，所以先套用的規則優先權較高。
+COPY docker/fontconfig/75-frond-cjk.conf /etc/fonts/conf.d/75-frond-cjk.conf
 RUN fc-cache --force --really-force
 
 # 建置期驗證字型綁定確實生效。放在這裡而不是留給測試，是因為綁定失敗的失敗
