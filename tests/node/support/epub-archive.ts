@@ -191,7 +191,7 @@ export function openEpub(archive: Uint8Array): EpubArchive {
  *
  * 1. 宣告 3.x 時 `properties="nav"` 贏，NCX 完全忽略
  * 2. 宣告 2.x 時只有 NCX 這條路
- * 3. 宣告 3.x 卻找不到 nav 時**退回 NCX**，不丟錯——野書的封裝宣告與內容不一致
+ * 3. 宣告 3.x 卻找不到 nav 時**退回 NCX**，不丟錯——書的封裝宣告與內容不一致
  *    是常態，而讀者要的是書打得開
  */
 function findNavigation(
@@ -240,7 +240,7 @@ function findCover(
   const item = manifest.find((candidate) => candidate.id === id);
   if (item === undefined) {
     // 這一層讀的是**我們自己產生的** fixture，所以指不到的 id 只可能是產生器的
-    // bug，吵出來是對的。`EpubBook`（#8）的義務相反：ADR-0010 說野書的封裝宣告
+    // bug，吵出來是對的。`EpubBook`（#8）的義務相反：ADR-0010 說書的封裝宣告
     // 與內容不一致是常態，那邊要回報「這本書沒有封面」而不是丟錯。
     throw new Error(
       `<meta name="cover" content="${id}"> 指向 manifest 沒有的 id（content 要放 id，不是 href）`,

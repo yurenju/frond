@@ -8,7 +8,7 @@ import { documentWith } from "../support/document.js";
  * （環境性質），這邊問「書的宣告寫成這樣，瀏覽器收不收」（瀏覽器行為）。後者
  * 是 quirk，登記在 `docs/browser-quirks.md`。
  *
- * 觸發點是一本真書。ADR-0007 的觸發點之一《入境大廳》（Adobe InDesign 17.0.1
+ * 觸發點是一本實際的書。ADR-0007 的觸發點之一《入境大廳》（Adobe InDesign 17.0.1
  * 產、EPUB 3、繁中直排）在 `<body>` 上宣告的是 `-epub-writing-mode` 與
  * `-webkit-writing-mode`——**無前綴的 `writing-mode` 一次都沒出現**。實測
  * Firefox 兩種前綴都不認，於是那本書在 Firefox 上整本排成橫排。
@@ -79,7 +79,7 @@ test.describe("直排宣告的寫法", () => {
     }
   });
 
-  test("真書的形狀：只給前綴、不給標準屬性，Firefox 收不到這個宣告", async ({
+  test("實際出現的形狀：只給前綴、不給標準屬性，Firefox 收不到這個宣告", async ({
     page,
   }, testInfo) => {
     // 《入境大廳》OEBPS 樣式表裡那條宣告的實際形狀。
@@ -97,7 +97,7 @@ test.describe("直排宣告的寫法", () => {
 
     expect(layout.vertical).toBe(!ignores);
 
-    // 這條斷言記錄的是一個**真書在真瀏覽器上排錯**的事實，不是 frond 的 bug。
+    // 這條斷言記錄的是一個**實際的書在真瀏覽器上排錯**的事實，不是 frond 的 bug。
     // 它的處置見 docs/browser-quirks.md：frond 要把前綴宣告正規化成無前綴，
     // 否則直排是硬需求的專案會在三家裡有一家整本橫排。
     if (ignores) {
@@ -106,7 +106,7 @@ test.describe("直排宣告的寫法", () => {
   });
 
   test("舊語法 tb-rl：三家都認，且正規化成 vertical-rl", async ({ page }) => {
-    // `writing-mode: tb-rl` 是 SVG 1.1 / 早期 CSS3 的寫法。本機兩本真書
+    // `writing-mode: tb-rl` 是 SVG 1.1 / 早期 CSS3 的寫法。本機兩本書
     //（《我的公寓》《給力》）的樣式表裡仍然有它，與現代語法並存。
     for (const selector of ["html", "body"]) {
       const layout = await layoutOf(

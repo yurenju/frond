@@ -14,7 +14,7 @@ import {
  * 這一組要問的不是「病症在不在」，而是「這份產出物真的是那個 EPUB 版本嗎」。分開一個
  * 檔案的理由是失效方式不同：病症走偏會讓某一個 fixture 測錯東西，版本走偏會讓
  * **整批 EPUB 2 的 fixture 變成「EPUB 3 附一份 NCX」**——那是回溯相容那條路，
- * 不是野書那條，測了不算數（ADR-0010）。
+ * 不是書實際的形狀，測了不算數（ADR-0010）。
  */
 
 function open(name: AilmentName): EpubArchive {
@@ -33,7 +33,7 @@ describe("EPUB 2 這個版本", () => {
     expect(book.navigationPath).toBe("EPUB/toc.ncx");
     expect(book.entryPaths.filter((path) => path.endsWith("nav.xhtml"))).toEqual([]);
     // properties 是 EPUB 3 manifest 才有的屬性。EPUB 2 的書帶著它，就是「EPUB 3
-    // 附一份 NCX」那種合成物，而不是野書的形狀。
+    // 附一份 NCX」那種合成物，而不是書實際的形狀。
     expect(book.manifest.filter((item) => item.properties !== undefined)).toEqual([]);
   });
 
@@ -89,7 +89,7 @@ describe("EPUB 3 沒有被改動", () => {
   });
 
   test.for(epub3)("%s 裡沒有 NCX", (name) => {
-    // EPUB 3 的野書幾乎都同時帶一份 NCX（ADR-0010：33 本樣本裡 31 本兩者都有），
+    // 實際的 EPUB 3 幾乎都同時帶一份 NCX（ADR-0010：33 本樣本裡 31 本兩者都有），
     // 但那份 NCX 只有在「兩份導覽載體內容不一致」時才有測試價值，而那是 #23 的範圍。
     // 在它到之前，EPUB 3 的 fixture 不帶 NCX，好讓「NCX 出現」就等於 EPUB 2。
     expect(open(name).entryPaths.filter((path) => path.endsWith(".ncx"))).toEqual([]);

@@ -11,12 +11,13 @@ import { zip, type ZipEntry } from "./zip.ts";
  * ## EPUB 版本
  *
  * 這一層認得兩種**版本**（`EpubVersion`）：EPUB 3 與 EPUB 2。它們在封裝層是兩種
- * 不同的形狀，不是同一份骨架加一份 NCX——後者是回溯相容那條路，不是野書那條
- * （ADR-0010）。差異全部收在這個檔案裡，`ailments.ts` 只指定要哪一種。
+ * 不同的形狀，不是同一份骨架加一份 NCX——後者是照規格推出來的形狀，是範本書
+ * 而不是書實際的形狀（ADR-0010）。差異全部收在這個檔案裡，`ailments.ts` 只
+ * 指定要哪一種。
  *
  * **不叫「載體」**：CONTEXT.md 把載體這個詞留給**導覽文件**（`nav.xhtml` 與
  * `toc.ncx`），而版本與導覽載體是兩件事——ADR-0010 的規則 3 講的正是「宣告 3.x
- * 卻只有 NCX」那一格，兩個詞混用就講不出那句話。#22 的票面用了載體，那是
+ * 卻只有 NCX」那一格，兩個詞混用就講不出那句話。#22 票上寫的是載體，那是
  * CONTEXT.md 收窄這個詞之前寫的。
  *
  * 版本只管**封裝層**：封裝文件、導覽文件、封面的宣告寫法。內容文件（XHTML）
@@ -100,7 +101,7 @@ export interface ResourceSpec {
 
 export interface CoverSpec extends ResourceSpec {
   /**
-   * 用哪一種寫法宣告它，可以兩種都給——野書的常態是兩種都寫（樣本裡 30 本）。
+   * 用哪一種寫法宣告它，可以兩種都給——實際的書常態是兩種都寫（樣本裡 30 本）。
    * 空陣列等於「有圖但沒有任何宣告指向它」，那是沒有意義的形狀，會被擋下來。
    */
   readonly declaredBy: readonly CoverNotation[];
@@ -181,7 +182,7 @@ export function buildEpub(spec: EpubSpec): Uint8Array {
  * 版本與其他欄位的組合是不是講得通（EPUB 版本 × 封面宣告寫法）。
  *
  * 這裡丟錯而不是靜默修正：不合規的組合產生的書**看起來是好的**（多一個屬性、
- * 多一個欄位），沒有任何下游測試會紅，而它會被當成「野書的形狀」拿去測解析。
+ * 多一個欄位），沒有任何下游測試會紅，而它會被當成「書實際的形狀」拿去測解析。
  */
 function assertCoherent(spec: EpubSpec, epubVersion: EpubVersion): void {
   if (epubVersion === "epub2" && spec.pageProgressionDirection !== undefined) {
@@ -266,7 +267,7 @@ function packageDocument(
 
   const metadata = [
     // EPUB 2 的 dc:identifier 帶 opf:scheme 宣告它自稱是哪一種識別碼。frond 不
-    // 解讀它（ADR-0010），但野書會寫，而 calibre 產的書正是這個形狀。
+    // 解讀它（ADR-0010），但實際的書會寫，而 calibre 產的書正是這個形狀。
     `    <dc:identifier id="pub-id"${epub2 ? ' opf:scheme="uuid"' : ""}>${escapeXml(spec.identifier)}</dc:identifier>`,
     `    <dc:title>${escapeXml(spec.title)}</dc:title>`,
     `    <dc:language>${spec.language}</dc:language>`,
@@ -338,7 +339,7 @@ function navigationControlFile(spec: EpubSpec, navigationPath: string): string {
     .map((section, index) => {
       const src = section.navHref ?? relativeHref(section.path, navigationPath);
       // playOrder 是 NCX 自己宣告的閱讀順序，與 navPoint 的文件順序在合規的書
-      // 裡一致。frond 不靠它排序，但野書會寫，少了它就不是野書的形狀。
+      // 裡一致。frond 不靠它排序，但實際的書都會寫，少了它就與實際的書不同。
       return `    <navPoint id="navpoint-${index + 1}" playOrder="${index + 1}">
       <navLabel><text>${escapeXml(section.title)}</text></navLabel>
       <content src="${src}"/>

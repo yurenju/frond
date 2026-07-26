@@ -12,7 +12,8 @@ import { PROSE, proseBody } from "./prose.ts";
  *
  * 每個病症表達成對同一份健康骨架的**單點差異**——其餘部分保持健康。這條紀律
  * 是這批 fixture 的全部價值：測試紅燈時檔名就說明了是哪一種病復發。兩個病症
- * 一旦擠進同一個檔案，紅燈就要重新花時間查是哪一項造成的，那正是真書的缺點。
+ * 一旦擠進同一個檔案，紅燈就要重新花時間查是哪一項造成的——那正是拿實際的書
+ * 當 fixture 的缺點。
  *
  * ## EPUB 版本是第二個軸
  *
@@ -35,7 +36,7 @@ import { PROSE, proseBody } from "./prose.ts";
  * 需要可預期排版的 fixture 一律指名 `"Noto Serif CJK JP"`，不寫 generic
  * family、也不寫 generic 當 fallback。三家瀏覽器對 generic family 的 CJK 解析
  * 並不一致（#4），用 generic 的話量到的會是「瀏覽器挑了哪套字型」而不是「這本
- * 書排成什麼樣」。真書大多用 generic 宣告，那是 #4 的範圍，不該污染合成
+ * 書排成什麼樣」。實際的書大多用 generic 宣告，那是 #4 的範圍，不該污染合成
  * fixture 的可控性。
  */
 

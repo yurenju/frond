@@ -169,7 +169,7 @@ describe("一個 fixture 只帶一個病症", () => {
  * generic family（`serif` / `sans-serif` / …）在合成 fixture 裡是禁區。
  *
  * 三家瀏覽器對 generic family 的 CJK 解析並不一致（#4）——用 generic 的話量到
- * 的會是「瀏覽器挑了哪套字型」而不是「這本書排成什麼樣」。真書大多用 generic
+ * 的會是「瀏覽器挑了哪套字型」而不是「這本書排成什麼樣」。實際的書大多用 generic
  * 宣告，那是 #4 的範圍，不該污染合成 fixture 的可控性。
  *
  * 連 fallback 都不寫：`"Noto Serif CJK JP", serif` 在字型缺席時會靜默落回
