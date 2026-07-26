@@ -6,6 +6,14 @@
 
 登記的門檻是**實測**。從別人的原始碼或文件推得的行為要標明未經本專案驗證，不要與量測結果混在一起。
 
+## 這份文件裡的「墨水像素」是什麼
+
+底下有十幾處拿墨水像素數當證據（「總墨水差 0.01%」「752 對 1086」），所以定義寫在這裡，否則那些數字重量不出來——換一個門檻值，整批數字全部會變，而且是安靜地變。
+
+把截圖用 pngjs 解碼後逐像素數：**alpha 為 0 的不算；亮度 `0.299R + 0.587G + 0.114B` 小於 200 的算一點墨水。** 重心是所有墨水像素座標的算術平均，除以圖寬圖高正規化到 [0, 1]。
+
+門檻取 200 是為了把 CJK 字型的反鋸齒邊緣算進來——CJK 字符的筆畫細，門檻訂太嚴會把細筆畫整條漏掉，而那正是明體／黑體之類的差異所在。這個值是這份文件所有墨水數字的共同前提，改了就要全部重量。
+
 ---
 
 ## WebKit 在直排下不自動套用 `vert`
@@ -316,7 +324,22 @@ frond 以 foliate-js 為參考實作，取用它的**瀏覽器 quirk 知識**，
 
 **第一張表的每一條都跑過探針，第二張表的每一條都只從原始碼讀來。** 後者是**待驗證的線索，不是已知的事實**——照著它改程式碼等於相信一段別人寫在註解裡、可能已經過期的話。兩張表不合併，也不用一個欄位混在一起，因為欄位讀起來太容易被略過。
 
-探針跑在 `Dockerfile` 的映像內（Chromium 149.0.7827.0、Firefox 151.0、WebKit 26.5），以 `tests/fixtures/vertical-japanese.epub` 為主、`tests/fixtures/huge-single-section.epub`（橫排、80 頁）為輔，重跑方式見 `spike/foliate-vertical/README.md`。
+探針跑在 `Dockerfile` 的映像內（Chromium 149.0.7827.0、Firefox 151.0、WebKit 26.5），以 `tests/fixtures/vertical-japanese.epub` 為主、`tests/fixtures/huge-single-section.epub`（橫排、80 頁）為輔。
+
+<details>
+<summary>怎麼把這一節的數字重新量一次</summary>
+
+量測用的一次性腳本**沒有留在 repo 裡**。它需要 foliate-js 的原始碼才能跑，而 foliate-js 不進 repo、不進 dependency、不進 bundle（ADR-0001）；留著一支 CI 不跑、又依賴外部原始碼的腳本，只會爛掉。表一每一條的探針做法在下面〈已重現的兩條，量到的東西〉與各列的「探針結果」欄裡有敘述，重寫得出來。
+
+重寫時有三件事會踩到，記在這裡：
+
+- **foliate-js 的 commit 要釘死**在 `78914aef4466eb960965702401634c2cb348e9b1`（本節每一條的行號都指向這一版）。foliate 官方明說 API 隨時會變，用浮動的 `main` 會讓「量到的是哪一版」無法回答。取原始碼用 `gh api repos/johnfactotum/foliate-js/tarball/<commit>`——走 `api.github.com`，本機出口白名單通常放行，`codeload.github.com` 不一定。
+- **要在測試映像內跑**，理由與其他測試相同（`docs/test-environment.md`）：分頁是字型的函數，本機的字型解析與映像不同，量到的數字不可比。掛 volume 時要掛在 `/work` 底下（例如 `/work/spike`），因為腳本要從 `/work/node_modules` 解析 `@playwright/test` 與 `pngjs`；掛在 repo 根目錄以外會找不到套件。
+- **`--network=none` 是刻意的**。腳本自己在 loopback 起一個靜態伺服器餵頁面，容器的 loopback 在 `--network=none` 下仍然存在，關掉外部網路可以保證量到的東西不依賴任何外部連線。
+
+量測參數散在各條裡（viewport 800×600、`deviceScaleFactor` 1、讀者字級 `html { font-size: 64px !important }`），墨水像素的定義見本檔開頭。
+
+</details>
 
 ### 表一：本次 spike 跑過探針的六條
 
