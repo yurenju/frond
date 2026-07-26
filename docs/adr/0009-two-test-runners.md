@@ -1,6 +1,8 @@
 # 兩個 test runner：Vitest 跑 Node，Playwright 跑瀏覽器
 
-`EpubBook` 層（純 TypeScript、零 DOM）用 **Vitest 跑在 Node**。`Renderer` 層的不變量、跨瀏覽器差分、截圖與 agent 視覺判讀用 **Playwright**。
+`EpubBook` 層（純 TypeScript、零 DOM）用 **Vitest 跑在 Node**。`Renderer` 層的不變量、跨瀏覽器差分與截圖用 **Playwright**。
+
+agent 視覺判讀吃的是 Playwright 產的那些截圖，但它本身不是測試——它跑在開 PR 之前，由寫 PR 的 agent 執行（ADR-0001 的修訂、`docs/agents/pull-requests.md`）。
 
 不採用 Vitest browser mode 統一成單一 runner，是因為核心需求是**三瀏覽器矩陣加截圖**，而那是 Playwright 的主場：browser projects、trace viewer、截圖 API 都是原生的。Vitest browser mode 底層同樣驅動 Playwright，但在三家矩陣的設定上多隔一層。
 

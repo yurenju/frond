@@ -31,6 +31,12 @@ spine 的 `docs/research/epub-rendering-libraries.md` 記載「vertical writing 
 
 1. **純邏輯單元測試**（底層，Node，不開瀏覽器）—— 解析層與 CFI。這一層的 oracle 是 **EPUB 與 CFI 規格本身**，foliate 沒有特殊知識。foliate 的 `tests/epubcfi-tests.js`（280 行，上游唯一的測試）可作為驗收表使用。
 2. **headless browser 不變量 + 跨瀏覽器自我差分**（中層）—— 不變量是自我一致性，不需參考實作：翻到底再翻回位置不變、相鄰頁邊界字元在文件順序上相連（無內容遺失或重複）、CFI → page → CFI 為 identity、字級變動後用 CFI 能回到同一段文字。跨瀏覽器差分的 oracle 是 frond 自己：同書同 viewport 在 Chromium / Firefox / WebKit 三邊互比，差異即紅燈。
-3. **agent 視覺判讀**（頂層，數量最少）—— 由 VLM 而非人類判讀截圖，抓 layout 級的嚴重缺陷。這一層不可省略，因為它是**唯一抓得到「書寫方向渲染錯誤」這類缺陷的一層**：其形態是 computed style 老實回報 `vertical-rl`、內容也確實被切成 N 頁且無重複遺失，但畫出來的 pixel 是橫的——DOM 斷言與幾何不變量都會綠燈，只有看畫面才抓得到。為了對抗 LLM 判讀的非決定性，提問必須是封閉式缺陷清單、輸出結構化欄位（溢出／重疊／書寫方向／空白頁／裁切／severity），斷言下在欄位上，且只有 `severe` 擋 CI。
+3. **agent 視覺判讀**（頂層，數量最少）—— 由 VLM 而非人類判讀截圖，抓 layout 級的嚴重缺陷。這一層不可省略，因為它是**唯一抓得到「書寫方向渲染錯誤」這類缺陷的一層**：其形態是 computed style 老實回報 `vertical-rl`、內容也確實被切成 N 頁且無重複遺失，但畫出來的 pixel 是橫的——DOM 斷言與幾何不變量都會綠燈，只有看畫面才抓得到。為了對抗 LLM 判讀的非決定性，提問必須是封閉式缺陷清單、輸出結構化欄位（溢出／重疊／書寫方向／空白頁／裁切／severity），判讀落在欄位上。**這一層跑在開 PR 之前、由寫 PR 的 agent 執行，不是 CI 閘門**——見下方修訂與 `docs/agents/pull-requests.md`。
+
+> **修訂（2026-07-26）：第 3 層從 CI 閘門改為開 PR 前的作者側檢查。** 原文是「只有 `severe` 擋 CI」，現在改成：跟視覺有關的變更，開 PR 前在三家各跑一次，由寫 PR 的 agent 照封閉式清單判讀，結果寫進 PR 說明。
+>
+> 理由是**省掉一整串基礎建設換同一件事**：判讀的 agent 就是寫 PR 的那個，它本來就看得到圖。要把這層搬進 CI，得在 CI 裡呼叫 VLM——API key、額度、以及這台 instance 白名單制的網路出口，三樣都要處理，而換到的判讀品質並沒有比較高。
+>
+> **代價要講清楚，因為它是真的。** 作者側判讀**不擋任何東西**；實作者與判讀者是同一個 agent，等於自己批改自己的作業；而且它只在有人開 PR 時發生，**不守回歸**。本節說這一層「唯一抓得到書寫方向渲染錯誤這類缺陷」，那個缺陷類別因此在回歸上沒有自動化的守門員——守它的是「每一次動到版面的 PR 都照規則跑過三家」這個習慣。要收回這個取捨，補的形式是把判讀搬進 CI，不是把 PR 規則寫鬆。
 
 **foliate 的瀏覽器 quirk 知識必須被刻意搬運，不會自己出現。** `paginator.js` 裡有十二處瀏覽器 bug 的補丁（Firefox 的 `getBoundingClientRect`、Firefox ResizeObserver 失效、WebKit bug 218086 迫使 iframe 開 `allow-scripts`、WebKit 字符裁切、Chromium/WebKit 各自需要 `requestAnimationFrame` 等），幾乎全在 Firefox 與 WebKit。重新實作不會繼承這些補丁，只會重新撞上一次。因此以 `docs/browser-quirks.md` 逐條登記（瀏覽器／症狀／foliate 的繞法／frond 是否需要／哪個測試會抓到），這張表就是「以 foliate 為參考實作」的實體產出物——搬運的是知識而非程式碼，與 MIT 授權無涉。
