@@ -36,6 +36,27 @@ rootless podman 需要 `/etc/subuid` 與 `/etc/subgid` 內有該使用者的從�
 dev:100000:65536
 ```
 
+### 用 rootless docker 的話，記得接上 client
+
+上面反對的是 **rootful** docker——rootless docker 沒有那條升權路徑，是可以用的。但它有一個裝完不會有人提醒的收尾步驟。
+
+`dockerd-rootless-setuptool.sh install` 只把 daemon 跑起來，socket 開在 `$XDG_RUNTIME_DIR/docker.sock`。**client 端預設仍然指著 rootful 的 `/var/run/docker.sock`**，而那個檔案在只有 rootless 的機器上根本不存在。於是 daemon 明明跑得好好的，任何 docker 指令都回：
+
+```
+failed to connect to the docker API at unix:///var/run/docker.sock: ... no such file or directory
+```
+
+這個訊息讀起來像「沒裝 docker」或「daemon 沒起來」，兩個猜測都是錯的，而往那兩個方向查會浪費很多時間——這正是它值得寫在這裡的原因。接上 client：
+
+```bash
+docker context create rootless --docker host=unix://$XDG_RUNTIME_DIR/docker.sock
+docker context use rootless
+```
+
+選定的 context 記在 `~/.docker/config.json`，跨 shell 與重開機都有效，而且對所有會呼叫 docker 的工具生效，不只測試腳本。`DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock` 也可以，但那只在設了的那個 shell 裡有效，別的 session（例如 agent 開的新 shell）會再踩一次。
+
+`scripts/test-in-container.sh` 在動手 build 之前會先確認 daemon 連得到，連不到時就把上面這兩行印出來。它**只診斷不代打**：socket 位置屬於容器引擎的設定，腳本自己去猜會把設錯的機器靜默修好，於是沒有人知道它是錯的。
+
 ## 映像 build 需要的出口網域
 
 如果環境有出口白名單，build 需要以下網域。runtime 不需要網路——所有測試頁面都由 `page.setContent` 供給，腳本因此以 `--network=none` 執行測試。
