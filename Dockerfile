@@ -56,6 +56,18 @@ RUN fc-cache --force --really-force
 COPY docker/verify-fonts.sh /usr/local/bin/frond-verify-fonts
 RUN chmod +x /usr/local/bin/frond-verify-fonts && frond-verify-fonts
 
+# 行程的 locale 也是字型設定的一部分，所以顯式釘死。
+#
+# WebKit 問 fontconfig 要 generic family（serif / sans-serif）時**不帶文件的
+# lang**，缺的那格由 fontconfig 用行程的 locale 補上——於是整個 WebKit 行程
+# 的 CJK 區域字面由這個環境變數決定。實測 LANG=ja_JP.UTF-8 會讓 WebKit 的
+# serif 從 TC 全面變成 JP，連 lang=zh-TW 的文件也一樣（docs/browser-quirks.md）。
+#
+# 基底映像目前就是 C.UTF-8，所以這兩行今天是 no-op。寫出來是因為它一旦漂掉，
+# 症狀是三家的斷行與斷頁一起變，而原因藏在一個沒有人在看的環境變數裡。
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
 # ---------------------------------------------------------------------------
 # 測試套件
 # ---------------------------------------------------------------------------

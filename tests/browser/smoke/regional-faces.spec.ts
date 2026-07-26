@@ -1,6 +1,12 @@
-import { expect, test, type Page } from "@playwright/test";
-import { screenshotGlyph } from "../support/glyph.js";
+import { expect, test, type Browser, type Page } from "@playwright/test";
+import {
+  GLYPH_BOX_PX,
+  glyphMarkup,
+  screenshotGlyph,
+  screenshotGlyphInIsolation,
+} from "../support/glyph.js";
 import { decodePixels } from "../support/ink.js";
+import { documentWith } from "../support/document.js";
 
 /**
  * 區域字面（TC / SC / JP）有沒有依 lang 選對。
@@ -100,45 +106,133 @@ test.describe("指名字面", () => {
 });
 
 /**
- * generic family（serif / sans-serif）依 lang 解析到對應區域字面——**延後**。
+ * ===========================================================================
+ * generic family（serif / sans-serif）依 lang 的解析——三家不一致，不可解（#4）
+ * ===========================================================================
  *
- * 實測三家瀏覽器並不一致：Firefox 完全遵守 fontconfig 的綁定；WebKit 一律
- * 選 TC，連 lang=ja 也是；Chromium 的 CJK 落點不等於任何 Noto CJK 字面。
+ * 這一段原本標著 fixme，等的是「把三家喬成一致」。查完之後結論是**做不到**，
+ * 所以改成把每一家的實際行為釘住：分歧本身是這個測試環境的性質，它變了要有人
+ * 知道。理由與量測記在 docs/browser-quirks.md，結論記在 issue #4。
  *
- * 這是環境的真實分歧而不是測試寫壞了，範圍也超出「把測試環境架起來」這張票
- * ——所以 #3 收斂成只要求指名字面時的一致性，這一段獨立追蹤於 #4。
+ * 三家各自繞開 fontconfig 的 generic 綁定的方式不同：
  *
- * 這裡刻意用 fixme 而不是刪掉：刪掉會讓這件事從測試報告裡消失，而它是後續
- * 真書測試會撞上的東西——真書大多用 generic family 宣告。修好之後把 fixme
- * 拿掉即可。
+ *   Firefox   拿書的 lang 去問 fontconfig 要 serif → 綁定完全生效，答案正確。
+ *   WebKit    有問 fontconfig 要 serif，但不帶書的 lang；缺的 lang 由 fontconfig
+ *             用**行程的 locale** 補上，於是整個行程共用一個區域字面。容器的
+ *             locale 是 C.UTF-8，落在通則的 TC。
+ *   Chromium  根本沒問 fontconfig 要 serif——generic family 是 Blink 自己的字型
+ *             偏好，預設值是 "Times New Roman"，解析到沒有 CJK 的 Liberation
+ *             Serif；CJK 字元接著走逐字元 fallback，落到 Noto **Sans** CJK。
+ *             也就是說書宣告 serif，畫出來的 CJK 是黑體。
+ *
+ * frond 不介入（ADR-0003：書醜不是介入理由，三家不一致也不是）。跨瀏覽器自我
+ * 差分要成立就得由**讀者設定**指名字面——指名之後三家一致，那組測試在上面。
  */
-test.describe("generic family 依 lang 的解析（見 #4）", () => {
-  test.fixme(true, "三家瀏覽器解析不一致，見 #4");
 
-  test("lang=ja 的 serif 解析到 JP 字面", async ({ page }) => {
-    const viaGenericFamily = await render(page, IDEOGRAPHIC_FULL_STOP, {
-      lang: "ja",
-    });
-    const japanese = await render(page, IDEOGRAPHIC_FULL_STOP, {
-      lang: "ja",
-      fontFamily: JAPANESE_FACE,
-    });
+/**
+ * serif + 該 lang 實際落到的字面。改這張表要附上量測。
+ *
+ * Chromium 那兩格是**字型堆疊**而不是單一字面，因為它的 serif 是兩段式的：
+ * 主字型 Liberation Serif 決定行高與基線、但沒有 CJK 字符，CJK 再由逐字元
+ * fallback 補上。拿單一 Noto Sans CJK 字面去比會不相等——字符一樣，但基線由
+ * 主字型決定，位置差了幾個像素。堆疊寫法把這兩段都重現出來。
+ */
+const SERIF_LANDS_ON: Record<string, Record<string, string>> = {
+  chromium: {
+    ja: '"Liberation Serif", "Noto Sans CJK JP"',
+    "zh-TW": '"Liberation Serif", "Noto Sans CJK TC"',
+  },
+  firefox: { ja: JAPANESE_FACE, "zh-TW": TRADITIONAL_CHINESE_FACE },
+  webkit: {
+    ja: TRADITIONAL_CHINESE_FACE,
+    "zh-TW": TRADITIONAL_CHINESE_FACE,
+  },
+};
 
-    expect(viaGenericFamily.equals(japanese)).toBe(true);
-  });
+/** 書宣告 serif 時，依 lang 應該得到的字面。只有 Firefox 給得出來。 */
+const CORRECT_FACE: Record<string, string> = {
+  ja: JAPANESE_FACE,
+  "zh-TW": TRADITIONAL_CHINESE_FACE,
+};
 
-  test("lang=zh-TW 的 serif 解析到 TC 字面", async ({ page }) => {
-    const viaGenericFamily = await render(page, IDEOGRAPHIC_FULL_STOP, {
-      lang: "zh-TW",
-    });
-    const traditionalChinese = await render(page, IDEOGRAPHIC_FULL_STOP, {
-      lang: "zh-TW",
-      fontFamily: TRADITIONAL_CHINESE_FACE,
-    });
+test.describe("generic family 依 lang 的解析（#4：不可解，釘住現況）", () => {
+  for (const lang of ["ja", "zh-TW"]) {
+    test(`lang=${lang} 的 serif 落在哪個字面`, async ({ browser }, testInfo) => {
+      const landsOnFace = lookUp(
+        lookUp(SERIF_LANDS_ON, testInfo.project.name, "SERIF_LANDS_ON"),
+        lang,
+        "SERIF_LANDS_ON",
+      );
+      const correctFace = lookUp(CORRECT_FACE, lang, "CORRECT_FACE");
 
-    expect(viaGenericFamily.equals(traditionalChinese)).toBe(true);
+      const viaGenericFamily = await renderInIsolation(browser, lang);
+      const landsOn = await renderInIsolation(browser, lang, landsOnFace);
+      const correct = await renderInIsolation(browser, lang, correctFace);
+
+      expect(viaGenericFamily.equals(landsOn)).toBe(true);
+      // 同一條斷言順便回答「這個落點對不對」，兩者不會各自漂走。
+      expect(viaGenericFamily.equals(correct)).toBe(landsOnFace === correctFace);
+    });
+  }
+
+  /**
+   * Chromium 的字元 fallback 是**一頁一次**的，而 frond 一個 Section 一個
+   * iframe、整本書共用一頁——所以這一條不是實驗室裡的細節，是 frond 的實際
+   * 配置會撞上的東西：同一頁裡先渲染的 Section 決定了後面所有 Section 的
+   * 區域字面。
+   *
+   * 三家的簽名剛好互不相同，一條測試分得出來是誰壞了：
+   *
+   *   Chromium  同頁內兩個 iframe 拿到同一個字面（第一個贏），換順序結果跟著換
+   *   Firefox   各自依 lang，順序無關
+   *   WebKit    兩個都一樣但順序無關——它從頭到尾就沒看 lang
+   */
+  const FALLBACK_SIGNATURE: Record<
+    string,
+    { sameWithinPage: boolean; stableAcrossOrders: boolean }
+  > = {
+    chromium: { sameWithinPage: true, stableAcrossOrders: false },
+    firefox: { sameWithinPage: false, stableAcrossOrders: true },
+    webkit: { sameWithinPage: true, stableAcrossOrders: true },
+  };
+
+  test("同一頁的兩個 iframe 是否各自依 lang 解析", async ({
+    browser,
+  }, testInfo) => {
+    const signature = lookUp(
+      FALLBACK_SIGNATURE,
+      testInfo.project.name,
+      "FALLBACK_SIGNATURE",
+    );
+
+    const [japanese, chineseAfterJapanese] = await renderTwoFrames(browser, [
+      "ja",
+      "zh-TW",
+    ]);
+    const [chinese, japaneseAfterChinese] = await renderTwoFrames(browser, [
+      "zh-TW",
+      "ja",
+    ]);
+
+    expect(japanese.equals(chineseAfterJapanese)).toBe(
+      signature.sameWithinPage,
+    );
+    expect(chinese.equals(japaneseAfterChinese)).toBe(signature.sameWithinPage);
+    // 同一份 lang=zh-TW 的內容，只因為排在日文內容後面就換了字面。
+    expect(chineseAfterJapanese.equals(chinese)).toBe(
+      signature.stableAcrossOrders,
+    );
   });
 });
+
+/** 表裡沒有這一格時，錯誤訊息要指得出是哪張表少了什麼。 */
+function lookUp<T>(table: Record<string, T>, key: string, name: string): T {
+  const value = table[key];
+  if (value === undefined) {
+    throw new Error(`${name} 沒有 "${key}" 這一格——新增 browser project 或 lang 時要一起補上實測結果`);
+  }
+  return value;
+}
 
 async function render(
   page: Page,
@@ -146,4 +240,58 @@ async function render(
   options: { lang: string; fontFamily?: string },
 ): Promise<Buffer> {
   return decodePixels(await screenshotGlyph(page, { char, ...options }));
+}
+
+/** 一次一個全新的 page——理由見 screenshotGlyphInIsolation。 */
+async function renderInIsolation(
+  browser: Browser,
+  lang: string,
+  fontFamily?: string,
+): Promise<Buffer> {
+  return decodePixels(
+    await screenshotGlyphInIsolation(browser, {
+      char: IDEOGRAPHIC_FULL_STOP,
+      lang,
+      ...(fontFamily === undefined ? {} : { fontFamily }),
+    }),
+  );
+}
+
+/** 一頁兩個 iframe，各自宣告 serif 與自己的 lang，依宣告順序回傳兩者的像素。 */
+async function renderTwoFrames(
+  browser: Browser,
+  langs: readonly [string, string],
+): Promise<[Buffer, Buffer]> {
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    // srcdoc 用單引號包，內層的 lang="…" 才不會把屬性截斷。這裡一律走 generic
+    // family，所以標記裡沒有帶引號的字型名。
+    await page.setContent(
+      documentWith(
+        langs
+          .map(
+            (lang) =>
+              `<iframe id="frame-${lang}" width="${GLYPH_BOX_PX + 20}" height="${GLYPH_BOX_PX + 20}" style="border:0" srcdoc='${glyphMarkup(
+                { char: IDEOGRAPHIC_FULL_STOP, lang },
+              )}'></iframe>`,
+          )
+          .join(""),
+      ),
+    );
+
+    const [first, second] = langs;
+    return [
+      await screenshotFrame(page, first),
+      await screenshotFrame(page, second),
+    ];
+  } finally {
+    await context.close();
+  }
+}
+
+async function screenshotFrame(page: Page, lang: string): Promise<Buffer> {
+  return decodePixels(
+    await page.frameLocator(`#frame-${lang}`).locator("#glyph").screenshot(),
+  );
 }
