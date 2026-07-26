@@ -22,7 +22,18 @@
 | Firefox | (0.181, 0.865) | **(0.778, 0.210)** 右上 | (0.778, 0.210) |
 | WebKit | (0.181, 0.865) | **(0.251, 0.887)** 左下 | **(0.848, 0.330)** 右上 |
 
-WebKit 預設的直排渲染除了位置不對，墨水像素數也較少（752 對 1086），代表取到的不只是位置不同，而是不同的字符。
+WebKit 預設的直排渲染除了位置不對，墨水像素數也較少（752 對 1086）——從圖上看得出原因：**句點被字面方框的下緣裁掉了**。取到的不只是位置不同，而是不同的字符。
+
+`。`（Noto Serif CJK JP，200px 方框，灰框為方框邊界）：
+
+| | Chromium | Firefox | WebKit |
+| --- | --- | --- | --- |
+| 直排（預設） | ![](evidence/3/chromium-vertical-default.png) | ![](evidence/3/firefox-vertical-default.png) | ![](evidence/3/webkit-vertical-default.png) |
+| 直排 + `"vert" 1` | ![](evidence/3/chromium-vertical-vert-forced.png) | ![](evidence/3/firefox-vertical-vert-forced.png) | ![](evidence/3/webkit-vertical-vert-forced.png) |
+
+橫排三家一致，都在左下，作為對照：![](evidence/3/chromium-horizontal.png)
+
+圖以 `docs/evidence/3/` 保存。產生方式：`tests/browser/support/glyph.ts` 的同一組參數，加上 1px 邊框以顯示方框邊界。
 
 **繞法**
 
