@@ -3,8 +3,12 @@
 # 在測試容器內跑測試。CI 與本機共用同一個映像——這是刻意的，見
 # docs/test-environment.md。
 #
+# 兩個 runner 都在這裡跑（ADR-0009）：先 Vitest 的 Node 測試，再 Playwright 的
+# 三瀏覽器測試。Node 那半邊不依賴字型或瀏覽器，但仍然放進容器——一個入口、
+# 一套版本，本機與 CI 對「測試全綠」的定義才會是同一件事。
+#
 # 用法：
-#   ./scripts/test-in-container.sh                     # 三家瀏覽器跑全部測試
+#   ./scripts/test-in-container.sh                     # 兩個 runner 全跑
 #   ./scripts/test-in-container.sh --project=firefox   # 其餘參數原樣傳給 playwright
 #
 set -euo pipefail
@@ -57,5 +61,11 @@ if [[ -n "${CI:-}" ]]; then
     )
 fi
 
-echo "==> 執行測試"
+# Node 測試先跑。它幾秒就結束，而且蓋的是瀏覽器測試所依賴的東西（例如合成
+# fixture 的結構）——那一層壞掉時，先看到「fixture 不是一本合規的書」比先看到
+# 三家瀏覽器一起紅要好查得多。
+echo "==> 執行 Node 測試（Vitest）"
+"$ENGINE" run "${run_args[@]}" "$IMAGE_NAME" npx vitest run
+
+echo "==> 執行瀏覽器測試（Playwright）"
 exec "$ENGINE" run "${run_args[@]}" "$IMAGE_NAME" npx playwright test "$@"
