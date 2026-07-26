@@ -50,6 +50,21 @@ RUN apt-get update \
 COPY docker/fontconfig/75-frond-cjk.conf /etc/fonts/conf.d/75-frond-cjk.conf
 RUN fc-cache --force --really-force
 
+# 行程的 locale 也是字型設定的一部分，所以顯式釘死。
+#
+# WebKit 問 fontconfig 要 generic family（serif / sans-serif）時**不帶文件的
+# lang**，缺的那格由 fontconfig 用行程的 locale 補上——於是整個 WebKit 行程
+# 的 CJK 區域字面由這個環境變數決定。實測 LANG=ja_JP.UTF-8 會讓 WebKit 的
+# serif 從 TC 全面變成 JP，連 lang=zh-TW 的文件也一樣（docs/browser-quirks.md）。
+#
+# 基底映像目前就是 C.UTF-8，所以這兩行今天是 no-op。寫出來是因為它一旦漂掉，
+# 症狀是三家的斷行與斷頁一起變，而原因藏在一個沒有人在看的環境變數裡。
+#
+# 排在字型驗證之前，那支腳本的 fc-match 才是在釘死的 locale 下跑的——同一個
+# 變數也會改變 fc-match 對 generic family 的答案。
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
 # 建置期驗證字型綁定確實生效。放在這裡而不是留給測試，是因為綁定失敗的失敗
 # 模式是「靜默 fallback 到別的字型」——那不會報錯，只會讓後續每一個幾何數字
 # 都建立在錯的字型上。寧可在 build 就炸掉。

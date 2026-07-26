@@ -57,6 +57,144 @@ WebKit 預設的直排渲染除了位置不對，墨水像素數也較少（752 
 
 ## 三家對 generic family 的 CJK 解析不一致
 
-獨立追蹤於 [#4](https://github.com/yurenju/frond/issues/4)，量測結果記在該 issue。摘要：`font-family: serif` 在 Firefox 上正確依 `lang` 解析到 Noto Serif CJK 的對應區域字面，WebKit 一律選 TC，Chromium 的落點不等於任何 Noto CJK 字面。
+**症狀**
 
-同時登記一條量測方法上的陷阱：**漢字不能用來鑑別字面**。「骨」「直」這類漢字統一的代表字，其區域字形由 `lang` 經 OpenType `locl` 驅動——同一字面換 `lang` 會變，不同字面同一 `lang` 不變（三家一致）。拿漢字問「解析到哪個字面」永遠得到「看不出來」。標點才有鑑別力。
+書宣告 `font-family: serif` 或 `sans-serif`，三家瀏覽器對 CJK 字元各挑各的字面。fontconfig 的綁定（`docker/fontconfig/75-frond-cjk.conf`）在容器內的 `fc-match` 上完全正確，三家的分歧發生在**送進 fontconfig 之前**：各家決定「拿什麼去問」的方式不同。
+
+以 `。`（U+3002）量測實際落到的字面（容器 locale `C.UTF-8`，每次量測用全新的 page）：
+
+| 宣告 | 瀏覽器 | `lang=ja` | `lang=zh-TW` | 與另外兩家一致？ |
+| --- | --- | --- | --- | --- |
+| `serif` | Firefox | Noto Serif CJK JP | Noto Serif CJK TC | 這一家是對的 |
+| `serif` | WebKit | Noto Serif CJK **TC** | Noto Serif CJK TC | `lang=ja` 拿到 TC |
+| `serif` | Chromium | Noto **Sans** CJK JP | Noto **Sans** CJK TC | 區域對，但畫出來是黑體 |
+| `sans-serif` | Firefox | Noto Sans CJK JP | Noto Sans CJK TC | 這一家是對的 |
+| `sans-serif` | WebKit | Noto Sans CJK **TC** | Noto Sans CJK TC | `lang=ja` 拿到 TC |
+| `sans-serif` | Chromium | Noto Sans CJK JP | Noto Sans CJK TC | 字面對，但主字型是拉丁字型 |
+
+`sans-serif` 那三列說明分歧不會因為換一個 generic family 就消失：Chromium 的 `sans-serif` 剛好挑到正確的區域字面，但**主字型仍然是 Liberation Sans**——行高與基線由拉丁字型決定，斷行與另外兩家不同。三家一致的只有指名字面的情況。
+
+**看得到的樣子**
+
+書宣告 `serif`、`lang="ja"`，句點（唯一有鑑別力的字）落在哪：
+
+| | Chromium | Firefox | WebKit |
+| --- | --- | --- | --- |
+| 書宣告 `serif` | ![](evidence/4/chromium-fullstop-serif-ja.png) | ![](evidence/4/firefox-fullstop-serif-ja.png) | ![](evidence/4/webkit-fullstop-serif-ja.png) |
+| 對照：指名 `Noto Serif CJK JP` | ![](evidence/4/chromium-fullstop-named-jp-ja.png) | ![](evidence/4/firefox-fullstop-named-jp-ja.png) | ![](evidence/4/webkit-fullstop-named-jp-ja.png) |
+
+JP 字面的句點在左下，TC 字面置中。**只有 Firefox 的兩格相同**——它的 `serif` 解析到了 JP。WebKit 的第一格置中，是 TC。逐位元組比對：Firefox 的 `serif+ja` 與指名 JP 截圖 hash 相同，Chromium 與 WebKit 都不同。
+
+明體／黑體那一軸換漢字看（漢字鑑別不了字面，但看得出筆畫）：
+
+| | Chromium | Firefox | WebKit |
+| --- | --- | --- | --- |
+| 書宣告 `serif` | ![](evidence/4/chromium-kanji-serif-ja.png) | ![](evidence/4/firefox-kanji-serif-ja.png) | ![](evidence/4/webkit-kanji-serif-ja.png) |
+
+Chromium 的 `日` 沒有起筆收筆——書要的是明體，畫出來是黑體。
+
+圖以 `docs/evidence/4/` 保存。產生方式：`tests/browser/support/glyph.ts` 的同一組參數（單字元、200px 方框、每次量測用全新的 page），加上 1px 邊框以顯示方框邊界。**不要換成看起來比較有說服力的字串**：漢字的區域字形由 `lang` 驅動，樣本裡混進漢字會讓 WebKit 的 `serif+ja` 與指名 JP 的截圖變得逐位元組相同，看起來像 WebKit 是對的。
+
+**各家的機制**（以下每一條都由介入實驗確認，不是從原始碼推的）
+
+*Firefox*：拿文件的 `lang` 去問 fontconfig 要 generic family，等同 `fc-match serif:lang=ja`。綁定完全生效。文件沒有 `lang` 時才落到行程 locale 的預設。
+
+*WebKit*：有問 fontconfig 要 generic family（證據：`serif` 底下的拉丁字母畫出來的是 Noto Serif CJK 的拉丁字符，也就是本專案綁定的結果，不是基底映像的 Liberation Serif），**但不帶文件的 `lang`**。缺的那格由 fontconfig 用行程的 locale 補上，於是整個行程共用一個區域字面。證據是把容器的 `LANG` 換成 `ja_JP.UTF-8`：WebKit 的 `serif` 從頭到尾變成 JP，連 `lang=zh-TW` 的文件也是。`C.UTF-8` 落在本專案綁定的通則，所以看起來像「一律選 TC」。
+
+*Chromium*：**根本沒問 fontconfig 要 generic family。** 它問的是一個具名的拉丁字型——`serif` 問的是 `Times New Roman`。證據是掛一份只改寫 `Times New Roman`（`qual="first"`，不動 `serif`）的 fontconfig 設定進去：Chromium 的 `serif` 立刻跟著改，而同一份設定裡針對 `lang=ja` 的那條規則沒有生效——所以它問的是 `Times New Roman` 而且不帶文件的 `lang`。該名稱解析到 Liberation Serif，沒有 CJK 字符，CJK 字元接著走逐字元 fallback，落到 fontconfig 對該碼位的最佳字面 Noto **Sans** CJK。
+
+`sans-serif` 走同一條路，只是問的名字不同：拉丁字母落在 Liberation Sans 上，而 `fc-match Arial` 正是 Liberation Sans。**「那個名字就是 `Arial`」這一格沒有做介入實驗，是從落點推的**，與 `serif` 那條的證據強度不同。
+
+也就是說 Chromium 的 generic family 是兩段式的：**主字型（Liberation Serif／Sans）決定行高與基線，CJK 字符由另一套字型補上**。書宣告 serif，CJK 畫出來是黑體。
+
+**繞法**
+
+沒有。三家的分歧都發生在 CSS 管不到的層級：
+
+- WebKit 的 `lang` 從來沒進到查詢裡，任何 fontconfig 設定都補不回來。唯一能動的是行程 locale，而那是一個全域值——沒辦法讓同一個行程裡的日文書與中文書各拿各的字面。
+- Chromium 的 generic family 由瀏覽器偏好決定，網頁改不了；把 fontconfig 的 `Times New Roman` 綁到 CJK serif 可以救回 serif／sans 這一軸，但區域字面那一軸救不回來（該查詢同樣不帶 `lang`），而且那是拿一個特定瀏覽器版本的內部預設值當設定介面用。
+
+唯一能讓三家一致的做法是**指名字面**——而那在 frond 裡屬於讀者設定，見下。
+
+**frond 是否需要處理**
+
+不需要，而且**不可以**。對照 ADR-0003 的介入門檻：介入只有兩個理由，內容讀不到、或讀者設定被書擋住。這裡兩個都不成立——每個字都在，只是字面不是最合適的那一個，屬於「書醜」。
+
+**「三家渲染不一致」本身不是介入理由**：不一致的是平台的字型解析，不是書的宣告有問題，也不是 frond 有 bug。為了讓自己的差分測試好比對而改寫書的宣告，是把測試工具的需求偷渡成產品行為——那正是 ADR-0003 明確從 spine 移出來的 `rewriteGenericFonts`。
+
+代價要明講：**跨瀏覽器自我差分（ADR-0004）在「書用 generic family 且讀者沒設字型」的情況下不成立**。此時三家會因為挑到不同字面而斷行不同、斷頁不同，比出來的差異與 frond 的程式碼無關。所以差分的 oracle 有一個前提條件：**跑差分時必須由讀者設定指名字面**。讀者設定本來就贏過書的宣告，這條路不需要任何新的介入項目；ADR-0003 已經要求 frond 提供字型覆寫面，這裡只是說明那個 API 同時是差分測試的前提。
+
+> **ADR-0004 已依本條的量測修訂。** 它原本要求測試環境「確保書的 `serif` / `sans-serif` 在測試中解析到它們」——三家裡有兩家做不到，且無法從環境端補救，該句已移除，改以「差分必須在讀者設定指名字面的前提下執行」取代。見 ADR-0004 的〈差分要成立，字面必須由讀者設定指名〉。
+
+**哪個測試會抓到**
+
+`tests/browser/smoke/regional-faces.spec.ts` 的「generic family 依 lang 的解析」，`serif` 與 `sans-serif` 各兩條。它不再期待三家一致，改成把每一家的實際落點釘住——分歧是這個環境的性質，它變了要有人知道。已驗證有牙齒：把容器的 `LANG` 換成 `ja_JP.UTF-8`，WebKit 那幾條立刻紅。
+
+`Dockerfile` 因此顯式釘死 `LANG` / `LC_ALL`（今天與基底映像相同，是 no-op），理由是這個變數實際上是字型設定的一部分。
+
+**環境**
+
+`Dockerfile` 的映像（`mcr.microsoft.com/playwright:v1.61.1-noble`、`fonts-noto-cjk` `1:20230817+repack1-3`）。三家瀏覽器都是 Linux 建置，走 HarfBuzz + Fontconfig。**真 Safari 走 CoreText，這一條在 iOS 上的行為未經驗證**（ADR-0004 明列不做 iOS 驗證）；Windows 與 macOS 上的 Chromium / Firefox 也沒有 fontconfig，落點必然不同，同樣未驗證。
+
+**還沒查到的**
+
+「為什麼 Blink 的 headless 預設就是 `Times New Roman`」「WebKit 是在哪一層丟掉 `lang` 的」這兩件事只有行為證據，沒有原始碼佐證——本機的出口白名單連不到 `source.chromium.org` 與 WebKit 的原始碼瀏覽器。要補的話從 Blink 的 `web_preferences` 與 WebKit 的 `FontCacheFreeType` 下手。
+
+---
+
+## Chromium 的字元 fallback 是一頁一次的
+
+**症狀**
+
+某個碼位第一次需要 fallback 時解析出來的字面，會被**那一頁**記住，之後同一頁裡的文件即使宣告不同的 `lang`，也拿到同一個字面。快取以碼位為單位，不看 `lang`。
+
+這不是實驗室裡的細節：frond 一個 Section 一個 iframe、整本書共用一頁，所以**先渲染的 Section 決定後面所有 Section 的區域字面**。同一頁放兩個 iframe，各自宣告 `serif` 與自己的 `lang`：
+
+| 順序 | Chromium | Firefox | WebKit |
+| --- | --- | --- | --- |
+| `ja` 先 | 兩個都 JP | 各自正確 | 兩個都 TC |
+| `zh-TW` 先 | 兩個都 TC | 各自正確 | 兩個都 TC |
+
+Chromium 那一欄的意思是：**同一份 `lang=zh-TW` 的內容，只因為排在一份日文內容後面，字面就變了。** WebKit 兩欄相同是另一個原因——它從頭到尾沒看 `lang`。
+
+同一頁內換頁（`setContent`）不會清掉快取，開新的 page 會。
+
+**繞法**
+
+量測時一次一個全新的 page（`screenshotGlyphInIsolation`）。這是測試方法上的繞法，不是產品上的——真書渲染時 frond 沒辦法一個 Section 開一個 page。
+
+**frond 是否需要處理**
+
+這一條只在「書用 generic family」時才碰得到，因為指名字面根本不會走 fallback。所以處置與上一條相同：不介入，差分測試靠讀者設定指名字面。但登記在這裡，因為它會讓上一條的量測結果看起來像另一回事——共用一個 page 連續量好幾個 `lang`，量到的全是第一個 `lang` 的答案，於是很容易得出「Chromium 完全不理會 `lang`」這個錯誤結論。
+
+**哪個測試會抓到**
+
+`tests/browser/smoke/regional-faces.spec.ts` 的「同一頁的兩個 iframe」。三家的簽名互不相同，一條測試分得出來是誰變了。該測試把兩個 iframe **先後**掛上去而不是一次寫進 `setContent`：主題就是「誰先渲染」，同時掛的話誰先跑完並不保證。
+
+**環境**
+
+`Dockerfile` 的映像（`mcr.microsoft.com/playwright:v1.61.1-noble`）。快取的存續範圍是實測的（同頁換文件仍在、開新 page 就沒了），沒有查過它在 Chromium 內部是掛在哪一層，所以**別的 Chromium 版本上範圍可能不同**。
+
+---
+
+## 量測方法：漢字不能用來鑑別字面
+
+**症狀**
+
+「骨」「直」這類漢字統一的代表字，其區域字形由 `lang` 經 OpenType `locl` 驅動——**同一字面換 `lang` 會變，不同字面同一 `lang` 不變**（三家一致）。拿漢字問「解析到哪個字面」永遠得到「看不出來」，而測試會在字型綁定完全失效的環境下照樣變綠。
+
+**繞法**
+
+用標點。實測 `。` 分得出 TC／HK 與 JP／SC／KR，`：` 分得出 SC 與其餘；兩者合起來足以區分 TC／SC／JP。TC 與 HK、JP 與 KR 目前沒有找到分得開的字——需要用到那兩組時要另外找。
+
+**frond 是否需要處理**
+
+不需要——這一條是量測方法，不是渲染行為。登記在這裡是因為它決定了本檔其餘每一條的可信度：用錯字量，整批結論會在綁定完全失效的環境下照樣看起來是綠的。
+
+**哪個測試會抓到**
+
+`tests/browser/smoke/regional-faces.spec.ts` 的「字形選擇的兩條路徑」。那一組把這兩條性質本身釘成測試，因為它們是同檔案裡其他斷言能夠成立的前提。
+
+**環境**
+
+`Dockerfile` 的映像（`fonts-noto-cjk` `1:20230817+repack1-3`）。哪些字分得開哪些字面是**這一版字型**的性質，換字型或換版本要重新量。

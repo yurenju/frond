@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Browser, Page } from "@playwright/test";
 import { documentWith } from "./document.js";
 
 /**
@@ -27,10 +27,16 @@ export interface GlyphRequest {
   readonly fontFeatureSettings?: string;
 }
 
-export async function screenshotGlyph(
-  page: Page,
-  request: GlyphRequest,
-): Promise<Buffer> {
+/**
+ * 一個字面方框的標記。獨立出來是為了讓 iframe 內的版本（見
+ * regional-faces.spec.ts 的 Chromium fallback 快取那組）與這裡走同一份樣式。
+ *
+ * 樣式走 <style> 而不是 style="..." 屬性。字型名稱帶引號是常態
+ * （font-family: "Noto Serif CJK JP"），塞進雙引號的 HTML 屬性裡會把屬性
+ * 截斷，於是整條宣告連同 width / height / writing-mode 一起消失，只剩 lang
+ * 還活著——而畫面仍然畫得出字，測試仍然跑得完，只是量到的是別的東西。
+ */
+export function glyphMarkup(request: GlyphRequest): string {
   const {
     char,
     lang,
@@ -39,12 +45,7 @@ export async function screenshotGlyph(
     fontFeatureSettings = "normal",
   } = request;
 
-  // 樣式走 <style> 而不是 style="..." 屬性。字型名稱帶引號是常態
-  // （font-family: "Noto Serif CJK JP"），塞進雙引號的 HTML 屬性裡會把屬性
-  // 截斷，於是整條宣告連同 width / height / writing-mode 一起消失，只剩 lang
-  // 還活著——而畫面仍然畫得出字，測試仍然跑得完，只是量到的是別的東西。
-  await page.setContent(
-    documentWith(`
+  return `
       <style>
         #glyph {
           writing-mode: ${writingMode};
@@ -58,9 +59,46 @@ export async function screenshotGlyph(
         }
       </style>
       <div id="glyph" lang="${lang}">${char}</div>
-    `),
-  );
+    `;
+}
+
+export async function screenshotGlyph(
+  page: Page,
+  request: GlyphRequest,
+): Promise<Buffer> {
+  await page.setContent(documentWith(glyphMarkup(request)));
   await page.evaluate(() => document.fonts.ready);
 
   return page.locator("#glyph").screenshot();
+}
+
+/**
+ * 同上，但每次量測都給一個全新的 page。
+ *
+ * **量 generic family 時必須用這個。** Chromium 的字元 fallback 結果是一頁一次
+ * 的：某個碼位第一次需要 fallback 時解析出來的字面，會被那一頁記住，後續文件
+ * 即使換了 lang 也拿到同一個字面（見 docs/browser-quirks.md）。共用一個 page
+ * 連續量好幾個 lang，量到的會是第一個 lang 的答案，而且看起來很像「Chromium
+ * 不理會 lang」——那是量測方法造成的，不是瀏覽器的行為。
+ *
+ * 指名字面時不需要這個：字面自己涵蓋該碼位，根本不會走 fallback。
+ */
+export async function screenshotGlyphInIsolation(
+  browser: Browser,
+  request: GlyphRequest,
+): Promise<Buffer> {
+  return withFreshPage(browser, (page) => screenshotGlyph(page, request));
+}
+
+/** 一個用完就丟的 context 與 page。同上，理由是那份 fallback 快取。 */
+export async function withFreshPage<T>(
+  browser: Browser,
+  use: (page: Page) => Promise<T>,
+): Promise<T> {
+  const context = await browser.newContext();
+  try {
+    return await use(await context.newPage());
+  } finally {
+    await context.close();
+  }
 }

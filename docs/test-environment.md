@@ -98,7 +98,9 @@ CJK 字型統一使用 **Noto CJK**（`fonts-noto-cjk`），繁體中文、簡�
 
 `docker/fontconfig/75-frond-cjk.conf` 因此把兩件事都釘死：generic family（`serif` / `sans-serif` / `monospace`）解析到哪個字型，以及區域字面如何依 `lang` 選用。沒宣告 `lang` 的文件預設取 TC。`zh-TW` / `zh-Hant` 與 `zh-CN` / `zh-Hans` 都各自列出，只列一種的話另一種會靜默落回預設。
 
-這份綁定在容器內的 `fc-match` 上完全生效，但**瀏覽器只有 Firefox 完整遵守**——那部分獨立追蹤於 [#4](https://github.com/yurenju/frond/issues/4)。
+這份綁定在容器內的 `fc-match` 上完全生效，但**瀏覽器只有 Firefox 完整遵守**。WebKit 問 fontconfig 時不帶文件的 `lang`、Chromium 根本沒問 fontconfig 要 generic family，兩家都不是設定寫錯而且從環境端補不回來。量測與結論記在 `browser-quirks.md` 的「三家對 generic family 的 CJK 解析不一致」（#4）。
+
+WebKit 那條的直接後果是**行程的 locale 也是字型設定的一部分**：`LANG` 決定整個 WebKit 行程的 CJK 區域字面。`Dockerfile` 因此顯式釘死 `LANG` / `LC_ALL`（今天與基底映像相同，是 no-op）。
 
 **順序有兩層，而且方向不一樣。** 第一層是檔名：fontconfig 依檔名順序處理 `/etc/fonts/conf.d/`，後處理的有機會覆蓋先處理的。基底映像的 `60-latin.conf` 與 `fonts-noto-cjk` 套件自帶的 `70-fonts-noto-cjk.conf` 都會動到同一組 generic family，所以編號取 75。不用 70 是因為那會變成靠 `fonts` 與 `frond` 的第五個字母決定勝負。
 
@@ -120,8 +122,11 @@ CJK 字型統一使用 **Noto CJK**（`fonts-noto-cjk`），繁體中文、簡�
 - **標點取到直排字符**：句點在直排下應位於字面方框的右上，橫排下位於左下。這條擋掉最惡劣的失敗模式——裝了一套沒有 `vert` / `vrt2` 的字型，DOM 斷言與幾何不變量全數通過，但畫面上的直排標點是錯的。
 - **字形選擇的兩條路徑**：漢字的區域字形由 `lang` 驅動（同一字面換 `lang` 會變、不同字面同一 `lang` 不變），標點的位置由字面驅動。這兩條是其他斷言能夠成立的前提。
 - **指名字面時的決定性**：同一組輸入重複渲染必須逐像素相同。
+- **generic family 的落點**：`serif` / `sans-serif` 在每一家各落到哪個字面，以及同一頁的兩個 iframe 會不會互相污染。這一組不期待三家一致——查完確認做不到，改成把分歧本身釘住。
 
-冒煙測試**一律指名字面**，不使用 generic family。用 `serif` 的話量到的會是「瀏覽器挑了哪套字型」而不是「這套字型對不對」——三家對 generic family 的 CJK 解析並不一致（[#4](https://github.com/yurenju/frond/issues/4)）。這是測試環境的選擇，不是 frond 的規則：frond 仍然尊重書自己的宣告（ADR-0003）。
+除了 generic family 那一組以外，冒煙測試**一律指名字面**。用 `serif` 的話量到的會是「瀏覽器挑了哪套字型」而不是「這套字型對不對」——三家對 generic family 的 CJK 解析並不一致，而且查完確認**不可解**（[#4](https://github.com/yurenju/frond/issues/4)）。所以另有一組測試專門用 generic family，目的正好相反：不是驗證字型對不對，而是把三家各自的落點釘住，分歧變了要有人知道。
+
+這是測試環境的選擇，不是 frond 的規則：frond 仍然尊重書自己的宣告（ADR-0003）。代價是**跨瀏覽器自我差分在「書用 generic family 且讀者沒設字型」時不成立**，差分要跑就得由讀者設定指名字面。
 
 這幾條都是結構性斷言，不是 golden 截圖比對。frond 沒有參考實作可以當 oracle，「這個字應該長這樣」的期望值不存在（ADR-0001）。
 
