@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
+import { sha256 } from "../support/hash.ts";
 import {
   buildFixture,
   syntheticFixtures,
@@ -33,10 +33,6 @@ async function temporaryDirectory(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "frond-fixtures-"));
   temporaryDirectories.push(directory);
   return directory;
-}
-
-function sha256(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
 }
 
 describe("決定性", () => {

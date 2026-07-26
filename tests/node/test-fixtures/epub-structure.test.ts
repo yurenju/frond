@@ -4,7 +4,11 @@ import {
   openEpub,
   type EpubArchive,
 } from "../support/epub-archive.ts";
-import { buildFixture, syntheticFixtures } from "../../../src/test-fixtures/index.ts";
+import {
+  buildFixture,
+  syntheticFixtures,
+  type AilmentName,
+} from "../../../src/test-fixtures/index.ts";
 
 /**
  * 產生器的驗收不能只是「腳本沒丟例外」。這一組把「產出物是一本合規的書」拆成
@@ -18,7 +22,7 @@ import { buildFixture, syntheticFixtures } from "../../../src/test-fixtures/inde
 
 const fixtureNames = syntheticFixtures.map((fixture) => fixture.name);
 
-function open(name: string): EpubArchive {
+function open(name: AilmentName): EpubArchive {
   return openEpub(buildFixture(name));
 }
 

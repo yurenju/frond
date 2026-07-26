@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { AILMENTS, specFor } from "./ailments.ts";
+import { AILMENTS, specFor, type AilmentName } from "./ailments.ts";
 import { buildEpub } from "./epub.ts";
 
 /**
@@ -22,11 +22,8 @@ import { buildEpub } from "./epub.ts";
  * `tests/node/test-fixtures/determinism.test.ts` 用重複產生比 hash 證明它。
  */
 
-export type { Ailment } from "./ailments.ts";
+export type { Ailment, AilmentName } from "./ailments.ts";
 export type { EpubSpec, SectionSpec, ResourceSpec } from "./epub.ts";
-
-/** 病症名。也是 `<name>.epub` 這個檔名。 */
-export type AilmentName = string;
 
 export interface SyntheticFixture {
   readonly name: AilmentName;

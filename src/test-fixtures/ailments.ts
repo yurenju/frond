@@ -92,16 +92,18 @@ export interface Ailment {
   readonly name: string;
   /** 一句話說明這個檔案編碼的是哪一種病。 */
   readonly description: string;
-  /** 對健康骨架的單點差異。 */
-  readonly spec: (base: EpubSpec) => EpubSpec;
+  /** 把病加到健康的骨架上。改動限於單點——那是這批 fixture 的全部價值。 */
+  readonly afflict: (base: EpubSpec) => EpubSpec;
 }
 
-export const AILMENTS: readonly Ailment[] = [
+// `as const satisfies` 而不是 `: readonly Ailment[]`：後者會把 name 放寬成
+// string，於是 buildFixture("typo") 通得過型別檢查、留到執行期才炸。
+export const AILMENTS = [
   {
     name: "vertical-japanese",
     description:
       "健康的直排日文書——直排三個病症的對照組，也是 Renderer 直排測試與 foliate spike 的用書",
-    spec: (base) => ({
+    afflict: (base) => ({
       ...base,
       stylesheet: base.stylesheet + VERTICAL_ON_HTML,
     }),
@@ -110,7 +112,7 @@ export const AILMENTS: readonly Ailment[] = [
     name: "writing-mode-on-body",
     description:
       "直排宣告在 <body> 而非 <html>（InDesign 產出的書），只讀 <html> 的 library 會判成橫排",
-    spec: (base) => ({
+    afflict: (base) => ({
       ...base,
       stylesheet: base.stylesheet + VERTICAL_ON_BODY,
     }),
@@ -119,7 +121,7 @@ export const AILMENTS: readonly Ailment[] = [
     name: "font-size-important",
     description:
       "書用 font-size !important 蓋掉讀者的字級——讀者的能力被書擋掉，frond 必須贏",
-    spec: (base) => ({
+    afflict: (base) => ({
       ...base,
       stylesheet: `${base.stylesheet}
 body {
@@ -135,7 +137,7 @@ p {
   {
     name: "fixed-width-800",
     description: "固定寬度 800px，小螢幕上右半邊的內容被裁掉讀不到",
-    spec: (base) => ({
+    afflict: (base) => ({
       ...base,
       stylesheet: `${base.stylesheet}
 body {
@@ -148,7 +150,7 @@ body {
     name: "toc-href-percent-comma",
     description:
       "nav 的 href 把檔名裡的逗號編碼成 %2c，manifest 用字面的逗號——沒有正規化就點目錄靜默無反應",
-    spec: (base) => {
+    afflict: (base) => {
       const path = "section-2,continued.xhtml";
       return {
         ...base,
@@ -170,7 +172,7 @@ body {
     name: "toc-href-parent-prefix",
     description:
       "導覽文件在子目錄，TOC 的 href 帶 ../ 前綴——相對於封裝文件解析就會對不上",
-    spec: (base) => ({
+    afflict: (base) => ({
       ...base,
       navigationPath: "nav/nav.xhtml",
     }),
@@ -178,7 +180,7 @@ body {
   {
     name: "ppd-rtl-vertical",
     description: "直排且 page-progression-direction=rtl——翻頁方向與定位軸都要鏡射",
-    spec: (base) => ({
+    afflict: (base) => ({
       ...base,
       stylesheet: base.stylesheet + VERTICAL_ON_HTML,
       pageProgressionDirection: "rtl",
@@ -187,7 +189,7 @@ body {
   {
     name: "hardcoded-colors",
     description: "寫死前景與背景色，讀者的夜間模式失效",
-    spec: (base) => ({
+    afflict: (base) => ({
       ...base,
       stylesheet: `${base.stylesheet}
 body {
@@ -201,7 +203,7 @@ body {
     name: "huge-single-section",
     description:
       "整本書只有一個巨大的 Section——分頁效能與整書索引（fraction）的壓力點",
-    spec: (base) => ({
+    afflict: (base) => ({
       ...base,
       readingOrder: [
         {
@@ -216,7 +218,7 @@ body {
     name: "empty-and-image-only-sections",
     description:
       "一個空的 Section 與一個只有圖片的 Section——分頁與定位在沒有文字時的邊界",
-    spec: (base) => ({
+    afflict: (base) => ({
       ...base,
       readingOrder: [
         base.readingOrder[0]!,
@@ -236,7 +238,10 @@ body {
       ],
     }),
   },
-];
+] as const satisfies readonly Ailment[];
+
+/** 病症名。也是 `<name>.epub` 這個檔名。 */
+export type AilmentName = (typeof AILMENTS)[number]["name"];
 
 const IMAGE_PATH = "images/plate.png";
 
@@ -264,7 +269,7 @@ function hugeBody(): string {
   ].join("\n");
 }
 
-/** 依名稱組出這個病症的完整 EpubSpec。 */
+/** 把病加到健康的骨架上，組出這個病症的完整 EpubSpec。 */
 export function specFor(ailment: Ailment): EpubSpec {
-  return ailment.spec(baseSpec(ailment.name));
+  return ailment.afflict(baseSpec(ailment.name));
 }

@@ -13,7 +13,15 @@ import { XMLParser, XMLValidator } from "fast-xml-parser";
  * 產出物是不是一本合規的書」。
  */
 
-const OPF_NAMESPACE_ROOT = "package";
+/** 封裝文件的根元素名稱。 */
+const PACKAGE_ELEMENT = "package";
+
+/**
+ * readingOrder 在 EPUB 封裝格式裡的元素名稱。CONTEXT.md 把 `spine` 列為
+ * _Avoid_——這個常數是規格的線上格式用詞，不是識別字，所以它出現在這裡一次，
+ * 其餘地方一律叫 readingOrder。
+ */
+const READING_ORDER_ELEMENT = "spine";
 
 /** 解析相對 href 用的假 origin。只用來借 WHATWG URL 的解析規則。 */
 const RESOLUTION_ORIGIN = "https://frond.invalid/";
@@ -70,13 +78,11 @@ export function openEpub(archive: Uint8Array): EpubArchive {
 
   const container = parseXml(text("META-INF/container.xml"), "META-INF/container.xml");
   const packageDocumentPath = String(
-    pick(pick(pick(container, "container"), "rootfiles"), "rootfile")[
-      "@_full-path"
-    ],
+    pickPath(container, "container", "rootfiles", "rootfile")["@_full-path"],
   );
 
   const packageDocument = parseXml(text(packageDocumentPath), packageDocumentPath);
-  const packageElement = pick(packageDocument, OPF_NAMESPACE_ROOT);
+  const packageElement = pick(packageDocument, PACKAGE_ELEMENT);
   const metadata = pick(packageElement, "metadata");
 
   const manifest: ManifestItem[] = asArray(
@@ -95,8 +101,8 @@ export function openEpub(archive: Uint8Array): EpubArchive {
     };
   });
 
-  const spine = pick(packageElement, "spine");
-  const readingOrder = asArray(spine["itemref"]).map((itemref) => {
+  const readingOrderElement = pick(packageElement, READING_ORDER_ELEMENT);
+  const readingOrder = asArray(readingOrderElement["itemref"]).map((itemref) => {
     const idref = String(itemref["@_idref"]);
     const item = manifest.find((candidate) => candidate.id === idref);
     if (item === undefined) {
@@ -132,9 +138,9 @@ export function openEpub(archive: Uint8Array): EpubArchive {
     manifest,
     readingOrder,
     pageProgressionDirection:
-      spine["@_page-progression-direction"] === undefined
+      readingOrderElement["@_page-progression-direction"] === undefined
         ? undefined
-        : String(spine["@_page-progression-direction"]),
+        : String(readingOrderElement["@_page-progression-direction"]),
     navigationPath: navigationItem.archivePath,
     toc,
     stylesheet: text(stylesheetItem.archivePath),
@@ -184,6 +190,11 @@ function pick(node: XmlNode, key: string): XmlNode {
     throw new Error(`XML 內找不到 ${key}`);
   }
   return (Array.isArray(value) ? value[0] : value) as XmlNode;
+}
+
+/** 一路往下取。多層的 pick 疊在一起讀起來是反的。 */
+function pickPath(node: XmlNode, ...keys: readonly string[]): XmlNode {
+  return keys.reduce((current, key) => pick(current, key), node);
 }
 
 function pickText(node: XmlNode, key: string): string {

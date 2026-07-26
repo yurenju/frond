@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { PNG } from "pngjs";
 import { openEpub, type EpubArchive } from "../support/epub-archive.ts";
-import { buildFixture } from "../../../src/test-fixtures/index.ts";
+import {
+  buildFixture,
+  type AilmentName,
+} from "../../../src/test-fixtures/index.ts";
 
 /**
  * 每個 fixture 到底有沒有帶著它名字上的那個病。
@@ -11,7 +14,7 @@ import { buildFixture } from "../../../src/test-fixtures/index.ts";
  * 樣式表的產生器也會全綠。
  */
 
-function open(name: string): EpubArchive {
+function open(name: AilmentName): EpubArchive {
   return openEpub(buildFixture(name));
 }
 

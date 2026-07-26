@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { describe, expect, test } from "vitest";
+import { sha256 } from "../support/hash.ts";
 import { buildFixture, syntheticFixtures } from "../../../src/test-fixtures/index.ts";
 
 /**
@@ -21,10 +21,6 @@ const FIXTURE_DIRECTORY = join(
   "..",
   "fixtures",
 );
-
-function sha256(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
-}
 
 describe("repo 裡的 fixture", () => {
   test.for(syntheticFixtures)(

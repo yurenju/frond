@@ -23,6 +23,11 @@ const LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50;
 const CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
 const END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
 
+/** 三種記錄的固定長度，都不含後面接的檔名與 extra field。 */
+const LOCAL_FILE_HEADER_SIZE = 30;
+const CENTRAL_DIRECTORY_RECORD_SIZE = 46;
+const END_OF_CENTRAL_DIRECTORY_SIZE = 22;
+
 const STORED = 0;
 const VERSION_NEEDED_TO_EXTRACT = 10; // 1.0 — stored、無 ZIP64
 const VERSION_MADE_BY = 20;
@@ -51,7 +56,7 @@ export function zip(entries: readonly ZipEntry[]): Uint8Array {
     const path = encoder.encode(entry.path);
     const crc = crc32(entry.contents);
 
-    const header = new Uint8Array(30 + path.length);
+    const header = new Uint8Array(LOCAL_FILE_HEADER_SIZE + path.length);
     const headerView = new DataView(header.buffer);
     headerView.setUint32(0, LOCAL_FILE_HEADER_SIGNATURE, true);
     headerView.setUint16(4, VERSION_NEEDED_TO_EXTRACT, true);
@@ -64,9 +69,9 @@ export function zip(entries: readonly ZipEntry[]): Uint8Array {
     headerView.setUint32(22, entry.contents.length, true);
     headerView.setUint16(26, path.length, true);
     headerView.setUint16(28, 0, true); // extra field length
-    header.set(path, 30);
+    header.set(path, LOCAL_FILE_HEADER_SIZE);
 
-    const record = new Uint8Array(46 + path.length);
+    const record = new Uint8Array(CENTRAL_DIRECTORY_RECORD_SIZE + path.length);
     const recordView = new DataView(record.buffer);
     recordView.setUint32(0, CENTRAL_DIRECTORY_SIGNATURE, true);
     recordView.setUint16(4, VERSION_MADE_BY, true);
@@ -87,7 +92,7 @@ export function zip(entries: readonly ZipEntry[]): Uint8Array {
     // 跟著產生檔案的 umask 走的——又一個決定性的破口。
     recordView.setUint32(38, 0, true);
     recordView.setUint32(42, offset, true);
-    record.set(path, 46);
+    record.set(path, CENTRAL_DIRECTORY_RECORD_SIZE);
 
     local.push(header, entry.contents);
     central.push(record);
@@ -95,7 +100,7 @@ export function zip(entries: readonly ZipEntry[]): Uint8Array {
   }
 
   const centralSize = central.reduce((total, record) => total + record.length, 0);
-  const end = new Uint8Array(22);
+  const end = new Uint8Array(END_OF_CENTRAL_DIRECTORY_SIZE);
   const endView = new DataView(end.buffer);
   endView.setUint32(0, END_OF_CENTRAL_DIRECTORY_SIGNATURE, true);
   endView.setUint16(4, 0, true); // this disk

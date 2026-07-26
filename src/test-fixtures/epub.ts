@@ -35,8 +35,6 @@ export interface SectionSpec {
    * 病症 fixture 用它表達「TOC 的 href 與 Section 的實際位置寫法不同」。
    */
   readonly navHref?: string;
-  /** 這個 Section 不進 TOC。用於「TOC 不必涵蓋整個 readingOrder」的情形。 */
-  readonly omitFromToc?: boolean;
 }
 
 export interface ResourceSpec {
@@ -157,7 +155,6 @@ ${readingOrder}
 
 function navigationDocument(spec: EpubSpec, navigationPath: string): string {
   const items = spec.readingOrder
-    .filter((section) => !section.omitFromToc)
     .map(
       (section) =>
         `        <li><a href="${section.navHref ?? relativeHref(section.path, navigationPath)}">${escapeXml(section.title)}</a></li>`,

@@ -5,6 +5,9 @@
   "license": "MIT",
   "private": true,
   "type": "module",
+  "exports": {
+    "./test-fixtures": "./src/test-fixtures/index.ts"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "fixtures": "node scripts/generate-fixtures.ts",

@@ -17,6 +17,17 @@ const BIT_DEPTH_8 = 8;
 const COLOR_TYPE_GRAYSCALE = 0;
 const FILTER_NONE = 0;
 
+/** IHDR 的內容長度，由格式固定。 */
+const IHDR_SIZE = 13;
+
+/** 每個 chunk 的框架：4 bytes 長度 + 4 bytes 型別 + 4 bytes CRC。 */
+const CHUNK_FRAME_SIZE = 12;
+const CHUNK_TYPE_OFFSET = 4;
+const CHUNK_DATA_OFFSET = 8;
+
+/** stored 區塊的框架：1 byte 的 BFINAL/BTYPE + LEN + NLEN。 */
+const STORED_BLOCK_HEADER_SIZE = 5;
+
 /** deflate 的 stored 區塊有 16 bit 的長度欄位。 */
 const MAX_STORED_BLOCK = 0xffff;
 
@@ -28,7 +39,7 @@ export interface GrayscaleImage {
 }
 
 export function encodePng(image: GrayscaleImage): Uint8Array {
-  const header = new Uint8Array(13);
+  const header = new Uint8Array(IHDR_SIZE);
   const headerView = new DataView(header.buffer);
   headerView.setUint32(0, image.width);
   headerView.setUint32(4, image.height);
@@ -61,12 +72,12 @@ export function encodePng(image: GrayscaleImage): Uint8Array {
 
 function chunk(type: string, data: Uint8Array): Uint8Array {
   const typeBytes = new TextEncoder().encode(type);
-  const out = new Uint8Array(12 + data.length);
+  const out = new Uint8Array(CHUNK_FRAME_SIZE + data.length);
   const view = new DataView(out.buffer);
   view.setUint32(0, data.length);
-  out.set(typeBytes, 4);
-  out.set(data, 8);
-  view.setUint32(8 + data.length, crc32(concat([typeBytes, data])));
+  out.set(typeBytes, CHUNK_TYPE_OFFSET);
+  out.set(data, CHUNK_DATA_OFFSET);
+  view.setUint32(CHUNK_DATA_OFFSET + data.length, crc32(concat([typeBytes, data])));
   return out;
 }
 
@@ -79,12 +90,15 @@ function zlibStored(data: Uint8Array): Uint8Array {
   for (let offset = 0; offset < data.length || offset === 0; offset += MAX_STORED_BLOCK) {
     const length = Math.min(MAX_STORED_BLOCK, data.length - offset);
     const isFinal = offset + length >= data.length;
-    const block = new Uint8Array(5 + length);
+    const block = new Uint8Array(STORED_BLOCK_HEADER_SIZE + length);
     block[0] = isFinal ? 1 : 0; // BFINAL + BTYPE=00（stored）
     const view = new DataView(block.buffer);
     view.setUint16(1, length, true);
     view.setUint16(3, ~length & 0xffff, true);
-    block.set(data.subarray(offset, offset + length), 5);
+    block.set(
+      data.subarray(offset, offset + length),
+      STORED_BLOCK_HEADER_SIZE,
+    );
     parts.push(block);
     if (isFinal) break;
   }
