@@ -1,4 +1,9 @@
-import type { EpubSpec, SectionSpec } from "./epub.ts";
+import {
+  DEFAULT_EPUB_VERSION,
+  type EpubSpec,
+  type EpubVersion,
+  type SectionSpec,
+} from "./epub.ts";
 import { encodePng } from "./png.ts";
 import { PROSE, proseBody } from "./prose.ts";
 
@@ -8,6 +13,15 @@ import { PROSE, proseBody } from "./prose.ts";
  * 每個病症表達成對同一份健康骨架的**單點差異**——其餘部分保持健康。這條紀律
  * 是這批 fixture 的全部價值：測試紅燈時檔名就說明了是哪一種病復發。兩個病症
  * 一旦擠進同一個檔案，紅燈就要重新花時間查是哪一項造成的，那正是真書的缺點。
+ *
+ * ## EPUB 版本是第二個軸
+ *
+ * 病症之外還有 **EPUB 版本**：EPUB 3（預設）與 EPUB 2（ADR-0010）。版本寫在
+ * **檔名的後綴**上——沒有後綴就是 EPUB 3，`-epub2` 就是 EPUB 2。這讓 committed
+ * fixture 與檔名維持一對一（那是紅燈可讀性的來源），也讓同一個病症在兩種版本
+ * 上的兩份檔案並排時看得出是一對。
+ *
+ * 後綴與 `epubVersion` 欄位是兩處事實，靠 `epub-version.test.ts` 釘住它們一致。
  *
  * ## 對照組
  *
@@ -75,21 +89,39 @@ const healthySections: readonly SectionSpec[] = PROSE.map((prose, index) => ({
 }));
 
 /**
+ * 這份 fixture 的 EPUB 版本。
+ *
+ * 存在的理由是型別而不是預設值：`AILMENTS` 用 `as const` 保留字面型別，所以
+ * 省略了 `epubVersion` 的那幾筆連這個屬性都沒有，`ailment.epubVersion` 在
+ * 那個聯集型別上讀不出來。這個函式把它放寬成 `Ailment` 再讀。預設值本身只有
+ * `epub.ts` 的 `DEFAULT_EPUB_VERSION` 一個定義。
+ */
+export function epubVersionOf(ailment: Ailment): EpubVersion {
+  return ailment.epubVersion ?? DEFAULT_EPUB_VERSION;
+}
+
+/**
  * 健康的骨架。identifier 固定不取亂數——UUID 是決定性最容易被破壞的地方。
  */
-function baseSpec(name: string): EpubSpec {
+function baseSpec(ailment: Ailment): EpubSpec {
   return {
-    title: `frond fixture — ${name}`,
+    epubVersion: epubVersionOf(ailment),
+    title: `frond fixture — ${ailment.name}`,
     language: "ja",
-    identifier: `urn:uuid:frond-fixture-${name}`,
+    identifier: `urn:uuid:frond-fixture-${ailment.name}`,
     stylesheet: HEALTHY_STYLESHEET,
     readingOrder: healthySections,
   };
 }
 
 export interface Ailment {
-  /** 病症名，也是檔名（不含 `.epub`）。 */
+  /** 病症名，也是檔名（不含 `.epub`）。版本不是預設值時，名字要帶後綴。 */
   readonly name: string;
+  /**
+   * 封裝版本。省略時是 `"epub3"`——省略而不是每一筆都寫，是為了讓既有的十份
+   * fixture 不因為這一軸的出現而改變位元組。
+   */
+  readonly epubVersion?: EpubVersion;
   /** 一句話說明這個檔案編碼的是哪一種病。 */
   readonly description: string;
   /** 把病加到健康的骨架上。改動限於單點——那是這批 fixture 的全部價值。 */
@@ -238,12 +270,59 @@ body {
       ],
     }),
   },
+  {
+    name: "healthy-epub2",
+    epubVersion: "epub2",
+    description:
+      "健康的 EPUB 2 骨架（OPF 2.0 + NCX，沒有頁面推進方向）——EPUB 2 這條路上所有病症的對照組",
+    // 差異在版本本身而不在內容上：這一份與 EPUB 3 的健康骨架之間只差版本，
+    // 所以 afflict 什麼也不加。
+    afflict: (base) => base,
+  },
+  {
+    name: "cover-image-property",
+    description:
+      "封面走 EPUB 3 的 manifest properties=\"cover-image\"——書櫃縮圖的主要來源",
+    afflict: (base) => ({
+      ...base,
+      cover: { ...COVER_RESOURCE, declaredBy: ["cover-image-property"] },
+    }),
+  },
+  {
+    name: "cover-meta-name-epub2",
+    epubVersion: "epub2",
+    description:
+      "封面走 EPUB 2 的 <meta name=\"cover\">——EPUB 2 沒有 properties，只有這條路",
+    afflict: (base) => ({
+      ...base,
+      cover: { ...COVER_RESOURCE, declaredBy: ["meta-name"] },
+    }),
+  },
 ] as const satisfies readonly Ailment[];
 
 /** 病症名。也是 `<name>.epub` 這個檔名。 */
 export type AilmentName = (typeof AILMENTS)[number]["name"];
 
 const IMAGE_PATH = "images/plate.png";
+
+const COVER_PATH = "images/cover.png";
+
+/**
+ * 封面圖。與內文的圖版（`PLATE_IMAGE`）刻意**不同尺寸也不同圖樣**——書櫃縮圖
+ * 抓錯圖片時，抓到的是內文插圖這件事必須一眼看得出來，兩張長一樣就看不出來。
+ * 直立的長寬比也是書封的形狀。
+ */
+const COVER_RESOURCE = {
+  path: COVER_PATH,
+  mediaType: "image/png",
+  contents: encodePng({
+    width: 100,
+    height: 160,
+    // 一個帶邊框的漸層：邊框證明圖沒有被裁掉，漸層的方向證明沒有被上下翻轉。
+    sample: (x, y) =>
+      x < 6 || y < 6 || x >= 94 || y >= 154 ? 0x10 : 0x40 + Math.floor(y * 0.75),
+  }),
+} as const;
 
 /**
  * 圖版。市松模様——一眼看得出有沒有畫出來、也看得出有沒有被拉伸，而且不必
@@ -271,5 +350,5 @@ function hugeBody(): string {
 
 /** 把病加到健康的骨架上，組出這個病症的完整 EpubSpec。 */
 export function specFor(ailment: Ailment): EpubSpec {
-  return ailment.afflict(baseSpec(ailment.name));
+  return ailment.afflict(baseSpec(ailment));
 }

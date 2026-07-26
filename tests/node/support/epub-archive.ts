@@ -44,16 +44,39 @@ export interface TocEntry {
   readonly archivePath: string;
 }
 
+/** 承載 TOC 的那份檔案是哪一種。EPUB 3 是 `nav.xhtml`，EPUB 2 是 `toc.ncx`。 */
+export type NavigationVehicle = "nav" | "ncx";
+
+export interface CoverDeclaration {
+  readonly item: ManifestItem;
+  /**
+   * 是哪一種寫法**找到**它的，依 ADR-0010 的順序：先 properties，再 meta。
+   *
+   * 刻意不叫 `declaredBy`——產生器那一側的 `CoverSpec.declaredBy` 是一份清單
+   * （這本書用了哪幾種寫法宣告封面），這裡是單一值（依優先順序先命中的那一
+   * 種）。同名會讓兩個不同的問題看起來只是基數不同。
+   */
+  readonly foundBy: "cover-image-property" | "meta-name";
+}
+
 export interface EpubArchive {
   readonly entryPaths: readonly string[];
   readonly packageDocumentPath: string;
+  /** `<package version>` 原樣照抄。EPUB 版本的判準，`"3.0"` 或 `"2.0"`。 */
+  readonly packageVersion: string;
   readonly manifest: readonly ManifestItem[];
   /** readingOrder——封裝文件的 `<spine>` 解析成 manifest item。 */
   readonly readingOrder: readonly ManifestItem[];
+  /** `<spine toc>` 指向的 manifest id。EPUB 3 沒有這個屬性時是 undefined。 */
+  readonly readingOrderTocId: string | undefined;
   /** 沒宣告時是 undefined，與宣告成 `"ltr"` 有別。 */
   readonly pageProgressionDirection: string | undefined;
   readonly navigationPath: string;
+  /** TOC 是從哪一種載體讀出來的。ADR-0010 要 frond 回報這件事。 */
+  readonly navigationVehicle: NavigationVehicle;
   readonly toc: readonly TocEntry[];
+  /** 兩種寫法都找不到就是這本書沒有封面——那不是錯誤（ADR-0010）。 */
+  readonly cover: CoverDeclaration | undefined;
   readonly stylesheet: string;
   readonly language: string;
   text(archivePath: string): string;
@@ -111,20 +134,28 @@ export function openEpub(archive: Uint8Array): EpubArchive {
     return item;
   });
 
-  const navigationItem = manifest.find((item) =>
-    (item.properties ?? "").split(/\s+/).includes("nav"),
-  );
-  if (navigationItem === undefined) {
-    throw new Error("manifest 內沒有標記 properties=\"nav\" 的導覽文件");
-  }
+  const packageVersion = String(packageElement["@_version"]);
+  const readingOrderTocId =
+    readingOrderElement["@_toc"] === undefined
+      ? undefined
+      : String(readingOrderElement["@_toc"]);
 
-  const navigationDocument = parseXml(
-    text(navigationItem.archivePath),
-    navigationItem.archivePath,
+  const navigation = findNavigation(
+    manifest,
+    packageVersion,
+    readingOrderTocId,
   );
-  const toc = collectTocEntries(navigationDocument).map((entry) => ({
+  const navigationDocument = parseXml(
+    text(navigation.item.archivePath),
+    navigation.item.archivePath,
+  );
+  const toc = (
+    navigation.vehicle === "ncx"
+      ? collectNcxEntries(navigationDocument)
+      : collectNavEntries(navigationDocument)
+  ).map((entry) => ({
     ...entry,
-    archivePath: resolve(entry.href, navigationItem.archivePath),
+    archivePath: resolve(entry.href, navigation.item.archivePath),
   }));
 
   const stylesheetItem = manifest.find((item) => item.mediaType === "text/css");
@@ -135,20 +166,92 @@ export function openEpub(archive: Uint8Array): EpubArchive {
   return {
     entryPaths: Object.keys(entries),
     packageDocumentPath,
+    packageVersion,
     manifest,
     readingOrder,
+    readingOrderTocId,
     pageProgressionDirection:
       readingOrderElement["@_page-progression-direction"] === undefined
         ? undefined
         : String(readingOrderElement["@_page-progression-direction"]),
-    navigationPath: navigationItem.archivePath,
+    navigationPath: navigation.item.archivePath,
+    navigationVehicle: navigation.vehicle,
     toc,
+    cover: findCover(manifest, metadata),
     stylesheet: text(stylesheetItem.archivePath),
     language: pickText(metadata, "dc:language"),
     text,
     bytes,
     has: (archivePath: string) => entries[archivePath] !== undefined,
   };
+}
+
+/**
+ * 承載 TOC 的是哪一份檔案。順序照 ADR-0010：
+ *
+ * 1. 宣告 3.x 時 `properties="nav"` 贏，NCX 完全忽略
+ * 2. 宣告 2.x 時只有 NCX 這條路
+ * 3. 宣告 3.x 卻找不到 nav 時**退回 NCX**，不丟錯——野書的封裝宣告與內容不一致
+ *    是常態，而讀者要的是書打得開
+ */
+function findNavigation(
+  manifest: readonly ManifestItem[],
+  packageVersion: string,
+  readingOrderTocId: string | undefined,
+): { readonly item: ManifestItem; readonly vehicle: NavigationVehicle } {
+  const nav = manifest.find((item) => hasProperty(item, "nav"));
+  if (nav !== undefined && packageVersion.startsWith("3")) {
+    return { item: nav, vehicle: "nav" };
+  }
+
+  // NCX 的指法是 `<spine toc>`。這裡刻意**不**加「找不到就掃 media type」的
+  // 後援：ADR-0010 的四條規則裡沒有那一條，而在這一層多發明一條規則，等於讓
+  // 支援層對一本封裝宣告有問題的書比 EpubBook 還寬容——於是產生器漏寫
+  // `<spine toc>` 時沒有任何東西會紅。
+  const ncx = manifest.find((item) => item.id === readingOrderTocId);
+  if (ncx !== undefined) {
+    return { item: ncx, vehicle: "ncx" };
+  }
+
+  throw new Error(
+    `找不到導覽文件：version="${packageVersion}" 既沒有 properties="nav" 的項目，<spine toc> 也沒有指到 NCX`,
+  );
+}
+
+/**
+ * 封面。**先 properties，再 `<meta name="cover">`，兩者都沒有就是沒有封面**
+ * ——不按版本分派（ADR-0010：樣本裡有一本 EPUB 3 只用舊寫法）。
+ */
+function findCover(
+  manifest: readonly ManifestItem[],
+  metadata: XmlNode,
+): CoverDeclaration | undefined {
+  const byProperty = manifest.find((item) => hasProperty(item, "cover-image"));
+  if (byProperty !== undefined) {
+    return { item: byProperty, foundBy: "cover-image-property" };
+  }
+
+  const meta = asArray(metadata["meta"]).find(
+    (candidate) => candidate["@_name"] === "cover",
+  );
+  if (meta === undefined) return undefined;
+
+  const id = String(meta["@_content"]);
+  const item = manifest.find((candidate) => candidate.id === id);
+  if (item === undefined) {
+    // 這一層讀的是**我們自己產生的** fixture，所以指不到的 id 只可能是產生器的
+    // bug，吵出來是對的。`EpubBook`（#8）的義務相反：ADR-0010 說野書的封裝宣告
+    // 與內容不一致是常態，那邊要回報「這本書沒有封面」而不是丟錯。
+    throw new Error(
+      `<meta name="cover" content="${id}"> 指向 manifest 沒有的 id（content 要放 id，不是 href）`,
+    );
+  }
+  return { item, foundBy: "meta-name" };
+}
+
+/** manifest item 的 `properties` 是空白分隔的清單，不是單一值。 */
+function hasProperty(item: ManifestItem, property: string): boolean {
+  return (item.properties ?? "").split(/\s+/).includes(property);
 }
 
 /**
@@ -179,7 +282,8 @@ function parseXml(source: string, label: string): XmlNode {
     // 元素名稱保留前綴（dc:language、epub:type），因為 fixture 的斷言要看得到
     // 它們——命名空間寫錯是 EPUB 最常見的靜默失敗。
     removeNSPrefix: false,
-    isArray: (name) => ["item", "itemref", "li", "rootfile"].includes(name),
+    isArray: (name) =>
+      ["item", "itemref", "li", "rootfile", "navPoint"].includes(name),
   });
   return parser.parse(source) as XmlNode;
 }
@@ -214,9 +318,18 @@ function asArray(value: unknown): XmlNode[] {
   return (Array.isArray(value) ? value : [value]) as XmlNode[];
 }
 
-function collectTocEntries(node: unknown): { label: string; href: string }[] {
+interface RawTocEntry {
+  readonly label: string;
+  readonly href: string;
+}
+
+/**
+ * `nav.xhtml` 的 TOC——標籤與位置都在 `<a>` 上。巢狀是 `<ol>` 套 `<ol>`，而這裡
+ * 一律遞迴，所以巢狀版本進來時會被攤平成同一串（#23）。
+ */
+function collectNavEntries(node: unknown): RawTocEntry[] {
   if (node === null || typeof node !== "object") return [];
-  const found: { label: string; href: string }[] = [];
+  const found: RawTocEntry[] = [];
   for (const [key, value] of Object.entries(node as XmlNode)) {
     if (key === "a") {
       for (const anchor of asArray(value)) {
@@ -228,7 +341,36 @@ function collectTocEntries(node: unknown): { label: string; href: string }[] {
       continue;
     }
     for (const child of asArray(value)) {
-      found.push(...collectTocEntries(child));
+      found.push(...collectNavEntries(child));
+    }
+  }
+  return found;
+}
+
+/**
+ * NCX 的 TOC——標籤在 `<navLabel><text>`，位置在 `<content src>`，兩者是
+ * navPoint 的兩個**不同**子元素。這是與 `nav.xhtml` 最大的形狀差異：那邊一個
+ * `<a>` 同時帶著兩者，這邊要把它們湊起來，而湊錯（例如拿 navPoint 的 id 當
+ * 標籤）在平的 TOC 上看不出來。
+ */
+function collectNcxEntries(node: unknown): RawTocEntry[] {
+  if (node === null || typeof node !== "object") return [];
+  const found: RawTocEntry[] = [];
+  for (const [key, value] of Object.entries(node as XmlNode)) {
+    if (key === "navPoint") {
+      for (const navPoint of asArray(value)) {
+        found.push({
+          label: String(pick(navPoint, "navLabel")["text"] ?? ""),
+          href: String(pick(navPoint, "content")["@_src"]),
+        });
+        // navPoint 套 navPoint 就是 NCX 的巢狀（#23）。子項目跟著攤平，順序與
+        // 文件順序一致。
+        found.push(...collectNcxEntries(navPoint));
+      }
+      continue;
+    }
+    for (const child of asArray(value)) {
+      found.push(...collectNcxEntries(child));
     }
   }
   return found;

@@ -66,7 +66,9 @@ function xmlDocumentsIn(name: AilmentName): XmlDocument[] {
   const decoder = new TextDecoder();
 
   return Object.entries(entries)
-    .filter(([path]) => /\.(xhtml|xml|opf)$/.test(path))
+    // `.ncx` 也在裡面：EPUB 2 的導覽文件是 XML，而它同樣是字串樣板組出來的。
+    // 副檔名清單漏掉它的話這支測試會**靜默地不涵蓋**它——而「沒有涵蓋」不會變紅。
+    .filter(([path]) => /\.(xhtml|xml|opf|ncx)$/.test(path))
     .map(([path, bytes]) => ({
       path,
       source: decoder.decode(bytes),

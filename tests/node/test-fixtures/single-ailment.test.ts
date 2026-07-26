@@ -14,7 +14,17 @@ import { buildFixture, syntheticFixtures } from "../../../src/test-fixtures/inde
  * 知道。
  */
 
+/**
+ * ADR-0007 那張 fixture 表的程式碼版本。
+ *
+ * 底下那條斷言比的是**集合相等**，不是「包含」。單向的「包含」只擋得住一個
+ * 方向：表上有而程式碼沒有。反方向——程式碼加了一份 fixture 而 ADR 的表沒有跟上
+ * ——會靜默通過，而那正是文件腐爛的實際走法。
+ *
+ * 順序不比：這份清單依病症分組排，`AILMENTS` 依加入的時間排，兩者都沒有語意。
+ */
 const REQUIRED_BY_ADR_0007 = [
+  "vertical-japanese",
   "writing-mode-on-body",
   "toc-href-percent-comma",
   "toc-href-parent-prefix",
@@ -24,6 +34,10 @@ const REQUIRED_BY_ADR_0007 = [
   "ppd-rtl-vertical",
   "huge-single-section",
   "empty-and-image-only-sections",
+  // 版本那一軸（ADR-0010 → #22）。EPUB 2 的健康骨架與兩種封面宣告寫法。
+  "healthy-epub2",
+  "cover-image-property",
+  "cover-meta-name-epub2",
 ];
 
 const books = new Map<string, EpubArchive>(
@@ -93,21 +107,47 @@ const PROBES: readonly Probe[] = [
       book.readingOrder.some((section) => !/<p[\s>]/.test(book.text(section.archivePath))),
   },
   {
-    symptom: "帶了文字以外的資源",
+    symptom: "帶了內文用的資源",
     expectedIn: ["empty-and-image-only-sections"],
+    // 「不是 XHTML 也不是 CSS」不夠精確：NCX 與封面圖也落在那一格，於是這個探針
+    // 會被 EPUB 2 與封面的 fixture 一起命中，而它們帶的不是內文資源。要問的是
+    // 「除了骨架自己的東西之外，還有沒有多帶內容」。
     matches: (book) =>
       book.manifest.some(
         (item) =>
-          item.mediaType !== "application/xhtml+xml" && item.mediaType !== "text/css",
+          item.mediaType !== "application/xhtml+xml" &&
+          item.mediaType !== "text/css" &&
+          item.archivePath !== book.navigationPath &&
+          item.archivePath !== book.cover?.item.archivePath,
       ),
+  },
+  {
+    symptom: "宣告了封面",
+    expectedIn: ["cover-image-property", "cover-meta-name-epub2"],
+    matches: (book) => book.cover !== undefined,
+  },
+  {
+    symptom: "封面走 EPUB 3 的 properties=\"cover-image\"",
+    expectedIn: ["cover-image-property"],
+    matches: (book) => book.cover?.foundBy === "cover-image-property",
+  },
+  {
+    symptom: "封面走 <meta name=\"cover\">",
+    expectedIn: ["cover-meta-name-epub2"],
+    // ADR-0010 要求 EPUB 3 也認舊寫法，而#24 會補上「EPUB 3 只用舊寫法」那一份
+    // ——屆時這裡要多一個檔名，而不是把這條探針改寬。
+    matches: (book) => book.cover?.foundBy === "meta-name",
   },
 ];
 
 describe("一個 fixture 只帶一個病症", () => {
-  test("ADR-0007 點名的九種病症都有對應的檔案", () => {
+  test("ADR-0007 的 fixture 表與產生器的清單完全一致", () => {
     const names = syntheticFixtures.map((fixture) => fixture.name);
 
-    expect(names).toEqual(expect.arrayContaining(REQUIRED_BY_ADR_0007));
+    expect(
+      [...names].sort(),
+      "ADR-0007 的 fixture 表與 REQUIRED_BY_ADR_0007 要跟著一起改。",
+    ).toEqual([...REQUIRED_BY_ADR_0007].sort());
   });
 
   test("檔名就是病症名加 .epub", () => {

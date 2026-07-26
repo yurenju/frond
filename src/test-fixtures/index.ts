@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { AILMENTS, specFor, type AilmentName } from "./ailments.ts";
-import { buildEpub } from "./epub.ts";
+import { AILMENTS, specFor, epubVersionOf, type AilmentName } from "./ailments.ts";
+import { buildEpub, type EpubVersion } from "./epub.ts";
 
 /**
  * 合成 fixture 產生器——**一個病症一個檔，檔名即病症名**（ADR-0007）。
@@ -23,12 +23,24 @@ import { buildEpub } from "./epub.ts";
  */
 
 export type { Ailment, AilmentName } from "./ailments.ts";
-export type { EpubSpec, SectionSpec, ResourceSpec } from "./epub.ts";
+export type {
+  CoverNotation,
+  CoverSpec,
+  EpubSpec,
+  ResourceSpec,
+  SectionSpec,
+  EpubVersion,
+} from "./epub.ts";
 
 export interface SyntheticFixture {
   readonly name: AilmentName;
   /** 一句話說明這個檔案編碼的是哪一種病。 */
   readonly description: string;
+  /**
+   * 封裝版本。消費端用它挑書——「給我一本 EPUB 2 的」比對著檔名猜後綴可靠，
+   * 而後綴的慣例本來就是給人看的，不該是消費端要剖析的字串。
+   */
+  readonly epubVersion: EpubVersion;
   readonly fileName: string;
 }
 
@@ -36,6 +48,7 @@ export const syntheticFixtures: readonly SyntheticFixture[] = AILMENTS.map(
   (ailment) => ({
     name: ailment.name,
     description: ailment.description,
+    epubVersion: epubVersionOf(ailment),
     fileName: `${ailment.name}.epub`,
   }),
 );
