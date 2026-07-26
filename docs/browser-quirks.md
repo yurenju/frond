@@ -74,6 +74,27 @@ WebKit 預設的直排渲染除了位置不對，墨水像素數也較少（752 
 
 `sans-serif` 那三列說明分歧不會因為換一個 generic family 就消失：Chromium 的 `sans-serif` 剛好挑到正確的區域字面，但**主字型仍然是 Liberation Sans**——行高與基線由拉丁字型決定，斷行與另外兩家不同。三家一致的只有指名字面的情況。
 
+**看得到的樣子**
+
+書宣告 `serif`、`lang="ja"`，句點（唯一有鑑別力的字）落在哪：
+
+| | Chromium | Firefox | WebKit |
+| --- | --- | --- | --- |
+| 書宣告 `serif` | ![](evidence/4/chromium-fullstop-serif-ja.png) | ![](evidence/4/firefox-fullstop-serif-ja.png) | ![](evidence/4/webkit-fullstop-serif-ja.png) |
+| 對照：指名 `Noto Serif CJK JP` | ![](evidence/4/chromium-fullstop-named-jp-ja.png) | ![](evidence/4/firefox-fullstop-named-jp-ja.png) | ![](evidence/4/webkit-fullstop-named-jp-ja.png) |
+
+JP 字面的句點在左下，TC 字面置中。**只有 Firefox 的兩格相同**——它的 `serif` 解析到了 JP。WebKit 的第一格置中，是 TC。逐位元組比對：Firefox 的 `serif+ja` 與指名 JP 截圖 hash 相同，Chromium 與 WebKit 都不同。
+
+明體／黑體那一軸換漢字看（漢字鑑別不了字面，但看得出筆畫）：
+
+| | Chromium | Firefox | WebKit |
+| --- | --- | --- | --- |
+| 書宣告 `serif` | ![](evidence/4/chromium-kanji-serif-ja.png) | ![](evidence/4/firefox-kanji-serif-ja.png) | ![](evidence/4/webkit-kanji-serif-ja.png) |
+
+Chromium 的 `日` 沒有起筆收筆——書要的是明體，畫出來是黑體。
+
+圖以 `docs/evidence/4/` 保存。產生方式：`tests/browser/support/glyph.ts` 的同一組參數（單字元、200px 方框、每次量測用全新的 page），加上 1px 邊框以顯示方框邊界。**不要換成看起來比較有說服力的字串**：漢字的區域字形由 `lang` 驅動，樣本裡混進漢字會讓 WebKit 的 `serif+ja` 與指名 JP 的截圖變得逐位元組相同，看起來像 WebKit 是對的。
+
 **各家的機制**（以下每一條都由介入實驗確認，不是從原始碼推的）
 
 *Firefox*：拿文件的 `lang` 去問 fontconfig 要 generic family，等同 `fc-match serif:lang=ja`。綁定完全生效。文件沒有 `lang` 時才落到行程 locale 的預設。
@@ -103,7 +124,7 @@ WebKit 預設的直排渲染除了位置不對，墨水像素數也較少（752 
 
 代價要明講：**跨瀏覽器自我差分（ADR-0004）在「書用 generic family 且讀者沒設字型」的情況下不成立**。此時三家會因為挑到不同字面而斷行不同、斷頁不同，比出來的差異與 frond 的程式碼無關。所以差分的 oracle 有一個前提條件：**跑差分時必須由讀者設定指名字面**。讀者設定本來就贏過書的宣告，這條路不需要任何新的介入項目；ADR-0003 已經要求 frond 提供字型覆寫面，這裡只是說明那個 API 同時是差分測試的前提。
 
-> **這一段與 ADR-0004 的現行文字牴觸，需要人決定怎麼收。** ADR-0004 寫著測試環境要「確保書的 `serif` / `sans-serif` 在測試中解析到它們」，而本條的量測顯示三家裡有兩家做不到，且無法從環境端補救。要嘛修訂 ADR-0004 把「差分需由讀者設定指名字面」寫成正式前提，要嘛推翻本條的結論——那是 ADR 等級的決定，不在一張 issue 的範圍內。追蹤於 [#4](https://github.com/yurenju/frond/issues/4)。
+> **ADR-0004 已依本條的量測修訂。** 它原本要求測試環境「確保書的 `serif` / `sans-serif` 在測試中解析到它們」——三家裡有兩家做不到，且無法從環境端補救，該句已移除，改以「差分必須在讀者設定指名字面的前提下執行」取代。見 ADR-0004 的〈差分要成立，字面必須由讀者設定指名〉。
 
 **哪個測試會抓到**
 
