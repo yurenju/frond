@@ -1,0 +1,5 @@
+# 執行前要自己放進來的東西，一律不進 repo。
+# foliate-js 是參考實作，不進 dependency、不進 bundle（ADR-0001）。
+foliate/
+*.epub
+out/
