@@ -406,6 +406,68 @@ foliate 對 WebKit 字符裁切的繞法是無條件寫進 `documentElement` 的
 登記在這裡是為了讓「十二處」這個數字有邊界——以下這些看起來也像補丁，但它們不是為了繞過瀏覽器 bug：
 
 - **`column-width` 取整數像素**（L316，`Math.trunc(columnWidth)`）。spine 踩過的「直排欄寬必須取整數否則一屏疊出好幾頁」就是這件事，但 foliate 沒有把它註記成瀏覽器 bug。frond 需要，承接「`Renderer`：直排單欄幾何、整數像素、分數 DPI 邊界」。
-- **改寫書的 CSS：去掉 `-epub-` 前綴、把 `vw`／`vh` 換成 px**（L655–658）。前者是 EPUB 規格的歷史包袱，後者是「viewport 單位在分欄容器裡意義不對」——都不是瀏覽器 bug。
+- **改寫書的 CSS：把 `vw`／`vh` 換成 px**（L655–658）。「viewport 單位在分欄容器裡意義不對」，不是瀏覽器 bug。
+  同一段程式碼另外會**去掉 `-epub-` 前綴**，那一項原本也列在這裡、理由寫「EPUB 規格的歷史包袱」——**那個歸類是錯的，已據實測移出**：它是一條真的瀏覽器補丁，見本檔〈`-epub-` 與 `-webkit-` 前綴的 `writing-mode`，Firefox 不認〉。
 - **`overflow-wrap: break-word`**（L324–325）與圖片的 `break-inside: avoid`（L356–358）。版面政策，不是繞法。
 - **兩處 `FIXME: vertical-rl only, not -lr`**（L718、L899）。都在 scrolled mode 的路徑內，而 frond v1 不做 scrolled mode，中日文也一律 `vertical-rl`。ADR-0001 引用過這兩處，這次確認位置不變。
+
+---
+
+## `-epub-` 與 `-webkit-` 前綴的 `writing-mode`，Firefox 不認（#21）
+
+**症狀**
+
+書把直排宣告成 `-epub-writing-mode: vertical-rl` 或 `-webkit-writing-mode: vertical-rl` 而**沒有**無前綴的那一條時，Firefox 整份文件排成橫排。Chromium 與 WebKit 兩個前綴都認。
+
+這不是造出來的案例。觸發點是一本真書：**《入境大廳》**（ADR-0007 的觸發點之一，Adobe InDesign 17.0.1 產、EPUB 3、繁中直排、`page-progression-direction="rtl"`）。它的 `<body>` 上宣告的是那兩個前綴版本，**無前綴的 `writing-mode` 一次都沒有出現**——所以整本書在 Firefox 上是橫排的。
+
+在 `<body>` 上宣告 `vertical-rl`，量 computed `writing-mode` 與相鄰兩個字元的推進（`あ` → `い`，Noto Serif CJK JP 32px、`line-height: 1`；直排是 dx 0／dy 正，橫排是 dx 正／dy 0）：
+
+| `<body>` 上的宣告 | Chromium | Firefox | WebKit |
+| --- | --- | --- | --- |
+| `writing-mode: vertical-rl` | `vertical-rl`，dy +32 | `vertical-rl`，dy +32 | `vertical-rl`，dy +32 |
+| `-epub-writing-mode: vertical-rl` | `vertical-rl`，dy +32 | **`horizontal-tb`，dx +32** | `vertical-rl`，dy +32 |
+| `-webkit-writing-mode: vertical-rl` | `vertical-rl`，dy +32 | **`horizontal-tb`，dx +32** | `vertical-rl`，dy +32 |
+| **兩個前綴都給（真書的形狀）** | `vertical-rl`，dy +32 | **`horizontal-tb`，dx +32** | `vertical-rl`，dy +32 |
+| `writing-mode: tb-rl`（舊語法） | `vertical-rl`，dy +32 | `vertical-rl`，dy +32 | `vertical-rl`，dy +32 |
+| `writing-mode:vertical-rl`（冒號後無空白） | `vertical-rl`，dy +32 | `vertical-rl`，dy +32 | `vertical-rl`，dy +32 |
+
+computed 值與幾何在每一格都同進退——宣告被丟掉時兩者一起變成橫排，所以這裡沒有「computed 說對了但畫出來是錯的」那種分歧（那是本檔第一條的形狀）。
+
+順帶量到的三件事，都與原本的預期不同：
+
+1. **Chromium 也認 `-epub-` 前綴**，不只 `-webkit-`。前綴支援不是「WebKit 系才有」。
+2. **舊語法 `writing-mode: tb-rl` 三家都認**，而且 computed 值正規化成 `vertical-rl`。本機真書裡《我的公寓》與《給力》的樣式表仍有這種寫法，與現代語法並存——讀 computed style 的偵測不需要認得舊語法。
+3. **冒號後沒有空白三家都正常。** 這一格沒有分歧，登記它是為了說明**偵測不可以用字串比對**：《入境大廳》寫的是 `-epub-writing-mode:vertical-rl`，在原始碼上比對 `"writing-mode: vertical-rl"` 會漏掉這本書，而 CSSOM 看到的是正規化後的值。
+
+**繞法**
+
+把前綴宣告正規化成無前綴的等價宣告。
+
+foliate 的 `paginator.js` L655–658 做的正是這件事。本檔上一節原本把它歸類成「相鄰但不算瀏覽器補丁」的其中一項、理由寫「EPUB 規格的歷史包袱」——**那個歸類錯了，已據本條修正**：它是一條真的繞法，繞的是 Firefox 不認前綴這件事。foliate 沒有註記原因，所以照抄的人不會知道拿掉它的代價是一家瀏覽器整本排錯。
+
+**frond 是否需要處理**
+
+需要。而且這一格與 ADR-0003 介入清單裡「InDesign 書把 `writing-mode` 宣告在 `<body>` 而非 `<html>`」那一格**看起來是同一件事，理由卻不同**，值得分清楚——那兩件事在同一本真書上同時發生：
+
+| | 位置在 `<body>` | 屬性名帶前綴 |
+| --- | --- | --- |
+| 瀏覽器有照書做嗎 | **有**。三家的 `body` computed 值都是 `vertical-rl` | **Firefox 沒有**。宣告被丟掉 |
+| 誰讀得不夠 | library（只讀 `documentElement`） | 沒有人讀不夠，是宣告根本沒生效 |
+| frond 要做什麼 | 讀 `<body>` 也要看 | 把宣告翻譯成瀏覽器認得的寫法 |
+
+第二欄不是「覆寫書的宣告」——書的**意圖**沒有被改變，改的只是表達它的語法。
+
+> **ADR-0003 的實例表已依本條新增一行。** 加的是右欄那個案例，並明寫「不要套用『frond 讀得不夠』」——那句話在這裡是錯的，而兩格在同一本真書上同時發生，很容易被當成一件事。真正進入介入的封閉清單是 `Renderer` 存在之後的事，那時要連帶決定正規化發生在哪一層。
+
+**這條也暴露了一個 fixture 的保真度缺口。** 現有的 `writing-mode-on-body.epub` 只演「位置在 `<body>`」一個軸，宣告寫的是無前綴的 `writing-mode`——而真書是兩個軸疊在一起，且無前綴的那條不存在。照現有 fixture 開發出來的偵測會在三家全綠，然後在真書上讓 Firefox 排錯。補這一份 fixture 承接 #9 重畫切片圖時的 fixture 票。
+
+**哪個測試會抓到**
+
+`tests/browser/smoke/writing-mode-declaration.spec.ts`。它刻意**釘住分歧而不期待三家一致**，理由同 `regional-faces.spec.ts`：分歧是瀏覽器的性質，frond 要據此決定介入，它變了必須有人知道。
+
+已驗證有牙齒：把 `firefox` 從該檔的 `IGNORES_PREFIXED_WRITING_MODE` 移除，前綴那兩條測試在 Firefox 上立刻紅，而與例外清單無關的另外三條（無前綴、`tb-rl`、無空白）保持綠。
+
+**環境**
+
+`Dockerfile` 的映像（`mcr.microsoft.com/playwright:v1.61.1-noble`）。Chromium 149.0.7827.0、Firefox 151.0、WebKit 26.5——量測時重新確認過版本，與本檔其他條目相同。三家都是 Linux 建置。**真 Safari 走 CoreText，iOS 未驗證**（ADR-0004 明列不做）；前綴支援是 CSS 解析層的事，與文字塑形無關，但沒有量過就是沒有量過。
