@@ -3,10 +3,14 @@ import { concat, crc32 } from "./zip.ts";
 /**
  * 決定性的 PNG writer。只夠寫出 8-bit 灰階、無交錯的圖。
  *
- * 為什麼不用 pngjs（repo 裡已經有了）：同 `zip.ts` 的理由，deflate 的輸出是
- * 實作的函數而不是格式的函數。這裡的 IDAT 一律用 **stored（未壓縮）的 deflate
- * 區塊**——那是 deflate 格式合法的一種，任何解碼器都吃，而且輸出完全由輸入
- * 決定，換一個 zlib 版本也不會漂。
+ * 為什麼不用 pngjs（repo 裡已經有了）：pngjs 的 IDAT 走 `node:zlib`，而 deflate
+ * 的輸出是實作的函數不是格式的函數——同一張圖在不同 Node 版本下可以壓出不同
+ * （但都合法）的位元組，於是「換一台機器重新產生 fixture」就會生出與程式碼無關
+ * 的 git diff。這裡的 IDAT 一律用 **stored（未壓縮）的 deflate 區塊**——那是
+ * deflate 格式合法的一種，任何解碼器都吃，而且輸出完全由輸入決定。
+ *
+ * 這一條與 `zip.ts` 的取捨不同，別把兩邊的理由混在一起：`zip.ts` 那邊 stored
+ * 之後就沒有壓縮這個變數了，手寫買到的是別的東西（見該檔頂端）。
  *
  * 代價是圖片比壓縮過的大。fixture 的圖只有幾 KB，這筆交易划算。
  */
