@@ -22,9 +22,20 @@ empty-and-image-only-sections.epub  空 section、純圖片 section
 healthy-epub2.epub                  健康的 EPUB 2 骨架（OPF 2.0 + NCX，沒有頁面推進方向）
 cover-image-property.epub           封面走 EPUB 3 的 manifest properties="cover-image"
 cover-meta-name-epub2.epub          封面走 EPUB 2 的 <meta name="cover">
+cover-meta-name.epub                EPUB 3 的封面只用 <meta name="cover">，manifest 沒有 properties
+toc-href-percent-comma-epub2.epub   同一個 %2c 長在 NCX 的 content src 上
+toc-href-parent-prefix-epub2.epub   NCX 在子目錄，content src 帶 ../ 前綴
+nested-toc.epub                     nav.xhtml 的巢狀 TOC，<ol> 套在 <li> 裡面，兩層
+nested-toc-epub2.epub               NCX 的巢狀 TOC，navPoint 套 navPoint，兩層
+manifest-href-parent-prefix.epub    manifest href 帶 ../ 走到封裝根、目標存在——好書，擋誤報
+writing-mode-prefixed-only.epub     直排只宣告 -epub- 與 -webkit- 前綴，Firefox 收不到
 ```
 
-體積小可 commit、零授權問題，且**測試紅燈直接指向唯一一個病因**——實際的書失敗得先花時間查是哪個特性造成的。橫排那六項全部來自 spine 已踩過的坑（見 ADR-0002），最後三項來自 ADR-0010 那次掃描（#22）。
+體積小可 commit、零授權問題，且**測試紅燈直接指向唯一一個病因**——實際的書失敗得先花時間查是哪個特性造成的。橫排那六項全部來自 spine 已踩過的坑（見 ADR-0002），`healthy-epub2` 起三項來自 ADR-0010 那次掃描（#22），最後七項照同一批樣本量到的結構合成（#23、#24）。
+
+**不是每一份都演病症。** 表上有幾份是完全合規的書：`vertical-japanese` 與 `healthy-epub2` 是對照組，`nested-toc` 那一對演的是一種**形狀**（TOC 有層次）而不是缺陷。
+
+其中 `manifest-href-parent-prefix` 是唯一一份為了**擋誤報**而存在的：它照一本實際通路書（Kobo、EPUB 3）的形狀合成，manifest 寫 `href="../js/kobo.js"`，而 `js/kobo.js` 確實存在於封裝根，照 URL 規則解析落在封裝內，**合規且解得開**。把 href 當字串接在內容目錄後面的實作會去找 `EPUB/../js/reader.js` 這個字面上的項目名，找不到，然後把一本好書判成「OPF 指向不存在的檔案」。「一個檔一個病症」的另一面是「一個檔一個必須被擋住的錯法」，而誤報也是一種錯法。
 
 這張表在 `single-ailment.test.ts` 的 `REQUIRED_BY_ADR_0007` 有一份對應，而那條測試比的是**集合相等**——兩邊任一側多一份或少一份都會紅，所以這張表與程式碼沒有機會分家。
 
@@ -42,11 +53,35 @@ ADR-0010 把 EPUB 2 收進 v1 範圍，於是 fixture 多了一個軸：同一�
 
 不採用 `buildFixture(name, epubVersion)` 那條路。第二個參數會讓 committed 的檔案集合變成兩軸的乘積，而檔名終究還是得把那一對編碼進去（不然兩個檔案會同名），於是參數什麼也沒買到，卻換掉了**committed fixture 與檔名的一對一**——而那個一對一正是這批 fixture 的全部價值來源：紅燈時檔名就說明了是哪一種病復發。
 
-後綴的另一個好處是同一個病症的兩個版本並排時看得出是一對：`cover-meta-name-epub2` 與（#24 將補上的）`cover-meta-name`。
+後綴的另一個好處是同一個病症的兩個版本並排時看得出是一對：`cover-meta-name-epub2` 與 `cover-meta-name`、`toc-href-percent-comma` 與 `toc-href-percent-comma-epub2`、`nested-toc` 與 `nested-toc-epub2`。
+
+**成對的那幾份共用同一個 `afflict`。** 各寫一次的話，兩份 fixture 的病症形狀會慢慢漂開，而「同一個病症在兩種載體上長成兩種形狀」正是它們並排的理由——形狀一旦不同源，並排比較就什麼也證明不了。`ailments.test.ts` 有一條直接斷言兩份的編碼 href 逐字相同。
 
 **版本只管封裝層**：封裝文件、導覽文件、封面的宣告寫法。**內容文件（XHTML）兩種版本共用同一份樣板。** 這條界線是刻意的——內容文件是 `Renderer` 看到的東西，讓它跟著版本分岔的話，每一個內容層的病症都要乘二，而目前沒有任何實證說 EPUB 2 的內容文件會以不同的方式壞掉。真有那種實證時再往下切，不要預先付這筆帳。
 
-**EPUB 3 的 fixture 不附 NCX**，儘管實際的書幾乎都附（ADR-0010：33 本樣本裡 31 本兩者都有）。理由是那份 NCX 只有在「兩份導覽載體內容不一致」時才有測試價值，而那是 #23 的範圍。在它到之前，「壓縮檔裡出現 `.ncx`」就等於「這是 EPUB 2」，是一條可以直接斷言的不變量。
+**EPUB 3 的 fixture 不附 NCX**，儘管實際的書幾乎都附（ADR-0010：33 本樣本裡 31 本兩者都有）。理由是那份 NCX 只有在「兩份導覽載體內容不一致」時才有測試價值。#23 把 TOC 的病症長到 NCX 上，走的是**同一個病症的 EPUB 2 版本**這條路（`-epub2` 後綴），沒有動到這條界線——「兩份載體並存且內容不一致」仍然沒有 fixture，也還沒有任何一張票要求它。在有票要求之前，「壓縮檔裡出現 `.ncx`」就等於「這是 EPUB 2」，是一條可以直接斷言的不變量（`epub-version.test.ts`）。
+
+## TOC 的層次是自己的一格，不是版本的副作用
+
+巢狀 TOC 兩種載體各一份（`nested-toc`、`nested-toc-epub2`），因為**兩者表達層次的方式不同，錯法也不同**：`nav.xhtml` 的子清單是 `<ol>` 開在 `<li>` **裡面**，NCX 是 navPoint 直接套 navPoint。把子清單放成 `<li>` 的兄弟，XHTML 一樣良構、瀏覽器一樣畫得出來，但那棵樹是平的——這種錯在只有一層的 TOC 上完全看不出來。
+
+形狀照樣本裡那本巢狀的 EPUB 2（繁中，Sigil → calibre）縮小：52 個 navPoint、深度 2、頂層 14 個第二層 38 個、**不是每個頂層都有子項目**、`content src` 帶 fragment 與不帶的在同一份文件裡混用。fixture 是 3 個頂層、4 個第二層（2/2/0）、深度 2、第二層兩種 href 各半——同樣的形狀，數量縮到骨架的三個 Section 上。
+
+連帶兩件事不能再寫死：NCX 的 `dtb:depth` 要跟著實際層數算，`playOrder` 是**整棵樹拉平後的連續序號**而不是每層各自從 1 重數（樣本裡那本平的 NCX 是 1..48 連續）。
+
+## 直排宣告的「位置」與「語法」是兩個病症，兩個檔
+
+`writing-mode-on-body` 與 `writing-mode-prefixed-only` 看起來都是「直排宣告在 `<body>` 上」，但病的不是同一件事，所以是兩個檔而不是改一份：
+
+| | `writing-mode-on-body` | `writing-mode-prefixed-only` |
+| --- | --- | --- |
+| 病在哪 | 宣告的**位置**（`<body>` 而非 `<html>`） | 宣告的**語法**（屬性名只有 `-epub-` 與 `-webkit-` 前綴） |
+| 瀏覽器有照書做嗎 | 有，三家 computed 都是 `vertical-rl` | Firefox 沒有，宣告被丟掉 |
+| 誰讀得不夠 | library 只讀 `documentElement` | 沒有人讀不夠，宣告根本沒生效 |
+
+兩份互為對照組：同樣宣告在 `<body>`、同樣 `vertical-rl`，**只差屬性名**。差別若不只這一項，「Firefox 為什麼一本橫排一本直排」就不再只有前綴這一個解釋。量測與三家對照圖見 `docs/browser-quirks.md` 的〈`-epub-` 與 `-webkit-` 前綴的 `writing-mode`，Firefox 不認〉。
+
+前綴那一份的冒號後留一個空白，雖然觸發它的那本書寫的是無空白——無空白是同一份文件裡另一格已經量過的事實（三家都認），寫進來就變成兩個軸疊在同一個檔案上。
 
 **不合法的組合在產生器裡丟錯，不靜默修正**：EPUB 2 + `page-progression-direction`、EPUB 2 + `properties="cover-image"`。這兩種組合產出的書看起來是好的（只是多一個屬性），沒有下游測試會紅，然後它會被當成書實際的形狀拿去測解析。
 
@@ -54,13 +89,15 @@ ADR-0010 把 EPUB 2 收進 v1 範圍，於是 fixture 多了一個軸：同一�
 
 封面有兩種宣告寫法（EPUB 3 的 manifest `properties="cover-image"`、EPUB 2 的 `<meta name="cover">`），而 **ADR-0010 要求兩條路都走得通，且不按版本分派**——樣本裡有一本 EPUB 3 的封面只有舊寫法。
 
-所以 `CoverSpec.declaredBy` 是一份寫法清單（實際的書常態是兩種都寫——樣本裡 30 本），與 `epubVersion` 各自獨立。三種有意義的組合裡，#22 產出前兩種，第三種由 #24 補上：
+所以 `CoverSpec.declaredBy` 是一份寫法清單（實際的書常態是兩種都寫——樣本裡 30 本），與 `epubVersion` 各自獨立。三種有意義的組合都有 fixture，#22 產出前兩種，第三種由 #24 補上：
 
 | fixture | 版本 | 宣告寫法 |
 | --- | --- | --- |
 | `cover-image-property` | EPUB 3 | `properties="cover-image"` |
 | `cover-meta-name-epub2` | EPUB 2 | `<meta name="cover">` |
-| `cover-meta-name`（#24） | EPUB 3 | `<meta name="cover">`——只有舊寫法 |
+| `cover-meta-name` | EPUB 3 | `<meta name="cover">`——只有舊寫法 |
+
+第三列是這張表唯一**版本與寫法不成對**的一格，也是它存在的全部理由：按版本分派封面的實作在前兩列全綠，然後讓樣本裡那本書在書櫃上沒有縮圖。
 
 **封面不進健康骨架，是自己的 fixture。** 骨架帶了封面的話每一份 fixture 都會多一張 PNG，於是「這本書帶了內文用的圖片資源」這個探針就再也分不出 `empty-and-image-only-sections`——單點差異的紀律會從封面這一格漏掉。
 

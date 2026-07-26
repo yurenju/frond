@@ -25,6 +25,17 @@ import { documentWith } from "../support/document.js";
  *
  * 這一組刻意**釘住分歧而不期待三家一致**，理由同 `regional-faces.spec.ts`：
  * 分歧是瀏覽器的性質，frond 要據此決定介入，所以它變了必須有人知道。
+ *
+ * ## 為什麼這裡不讀 `writing-mode-prefixed-only.epub`
+ *
+ * 同一個形狀現在也有一份合成 fixture（#24）。這一組仍然用 `page.setContent`
+ * 餵樣式片段，因為它問的是**瀏覽器的行為**——「這段 CSS 這個引擎收不收」——而
+ * 那與宣告有沒有包在一本 EPUB 裡無關；中間多墊一層封裝，只會讓紅燈多出幾種
+ * 與問題無關的解釋。把整本書載進瀏覽器要等 `Renderer` 存在（#8 之後），而屆時
+ * 該問的也是另一個問題：frond 有沒有把前綴正規化掉。
+ *
+ * 那份 fixture 在瀏覽器這一側目前由 `fixture-parsing.spec.ts` 蓋住——它的檔名
+ * 清單從產生器取，所以新的 fixture 自動被涵蓋，不必在這裡再抄一份。
  */
 
 /** 指名字面，理由同 vertical-writing.spec.ts：generic family 的解析三家不一致（#4）。 */

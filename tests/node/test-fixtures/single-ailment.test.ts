@@ -38,6 +38,16 @@ const REQUIRED_BY_ADR_0007 = [
   "healthy-epub2",
   "cover-image-property",
   "cover-meta-name-epub2",
+  // TOC 那一軸（#23）。病症的 NCX 版、兩種載體的巢狀 TOC，以及 manifest 側的
+  // `../`——最後這一份演的是好書，不是病症。
+  "toc-href-percent-comma-epub2",
+  "toc-href-parent-prefix-epub2",
+  "nested-toc",
+  "nested-toc-epub2",
+  "manifest-href-parent-prefix",
+  // 書實際的形狀裡兩個沒有東西會亮紅燈的缺口（#24）。
+  "writing-mode-prefixed-only",
+  "cover-meta-name",
 ];
 
 const books = new Map<string, EpubArchive>(
@@ -71,9 +81,18 @@ const PROBES: readonly Probe[] = [
     matches: (book) => /(^|[\s;{])(background-)?color:/m.test(book.stylesheet),
   },
   {
-    symptom: "直排宣告在 body",
+    symptom: "直排宣告在 body，屬性名無前綴",
     expectedIn: ["writing-mode-on-body"],
-    matches: (book) => /body\s*\{[^}]*writing-mode/.test(book.stylesheet),
+    // `[^-\w]` 是這條探針的全部重點：少了它，`-epub-writing-mode` 裡的
+    // `writing-mode` 也會命中，於是位置那個病症與語法那個病症在探針上分不開
+    // ——而那兩份 fixture 存在的理由正是它們是**不同**的病（#24）。
+    matches: (book) => /body\s*\{[^}]*[^-\w]writing-mode:/.test(book.stylesheet),
+  },
+  {
+    symptom: "直排只用帶前綴的屬性名宣告",
+    expectedIn: ["writing-mode-prefixed-only"],
+    matches: (book) =>
+      /-(?:epub|webkit)-writing-mode:/.test(book.stylesheet),
   },
   {
     symptom: "直排宣告在 html",
@@ -82,13 +101,26 @@ const PROBES: readonly Probe[] = [
   },
   {
     symptom: "TOC 的 href 帶 percent-encoding",
-    expectedIn: ["toc-href-percent-comma"],
+    expectedIn: ["toc-href-percent-comma", "toc-href-percent-comma-epub2"],
     matches: (book) => book.toc.some((entry) => /%[0-9a-fA-F]{2}/.test(entry.href)),
   },
   {
     symptom: "TOC 的 href 帶 ../ 前綴",
-    expectedIn: ["toc-href-parent-prefix"],
+    expectedIn: ["toc-href-parent-prefix", "toc-href-parent-prefix-epub2"],
     matches: (book) => book.toc.some((entry) => entry.href.startsWith("../")),
+  },
+  {
+    symptom: "manifest 的 href 帶 ../ 前綴",
+    // TOC 側那兩份是病症，這一份是**好書**：`../` 走到封裝根而目標確實存在，
+    // 合規且解得開。分成兩條探針是因為兩者在 fixture 上不能互相頂替——把
+    // manifest 側的誤報擋住，靠的不是 TOC 側有沒有 `../`。
+    expectedIn: ["manifest-href-parent-prefix"],
+    matches: (book) => book.manifest.some((item) => item.href.startsWith("../")),
+  },
+  {
+    symptom: "TOC 有第二層",
+    expectedIn: ["nested-toc", "nested-toc-epub2"],
+    matches: (book) => book.tocTree.some((node) => node.children.length > 0),
   },
   {
     symptom: "宣告了 page-progression-direction",
@@ -107,8 +139,11 @@ const PROBES: readonly Probe[] = [
       book.readingOrder.some((section) => !/<p[\s>]/.test(book.text(section.archivePath))),
   },
   {
-    symptom: "帶了內文用的資源",
-    expectedIn: ["empty-and-image-only-sections"],
+    symptom: "帶了骨架以外的資源",
+    // `manifest-href-parent-prefix` 也在這裡：它的單點差異需要一份真的存在於
+    // 封裝根的檔案來承載——「目標確實存在」正是那份 fixture 的重點，拿掉檔案
+    // 它就變成一本壞書了。
+    expectedIn: ["empty-and-image-only-sections", "manifest-href-parent-prefix"],
     // 「不是 XHTML 也不是 CSS」不夠精確：NCX 與封面圖也落在那一格，於是這個探針
     // 會被 EPUB 2 與封面的 fixture 一起命中，而它們帶的不是內文資源。要問的是
     // 「除了骨架自己的東西之外，還有沒有多帶內容」。
@@ -123,7 +158,11 @@ const PROBES: readonly Probe[] = [
   },
   {
     symptom: "宣告了封面",
-    expectedIn: ["cover-image-property", "cover-meta-name-epub2"],
+    expectedIn: [
+      "cover-image-property",
+      "cover-meta-name",
+      "cover-meta-name-epub2",
+    ],
     matches: (book) => book.cover !== undefined,
   },
   {
@@ -133,9 +172,9 @@ const PROBES: readonly Probe[] = [
   },
   {
     symptom: "封面走 <meta name=\"cover\">",
-    expectedIn: ["cover-meta-name-epub2"],
-    // ADR-0010 要求 EPUB 3 也認舊寫法，而#24 會補上「EPUB 3 只用舊寫法」那一份
-    // ——屆時這裡要多一個檔名，而不是把這條探針改寬。
+    // 兩個版本都在這裡，而這正是重點：ADR-0010 要求兩條路都走得通且**不按版本
+    // 分派**，所以舊寫法必須同時出現在 EPUB 2 與 EPUB 3 的 fixture 上（#24）。
+    expectedIn: ["cover-meta-name", "cover-meta-name-epub2"],
     matches: (book) => book.cover?.foundBy === "meta-name",
   },
 ];
