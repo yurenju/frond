@@ -20,6 +20,11 @@ export interface GlyphRequest {
   /** 預設走 generic family，讓 fontconfig 的綁定決定結果。 */
   readonly fontFamily?: string;
   readonly writingMode?: "horizontal-tb" | "vertical-rl";
+  /**
+   * OpenType 特性。用於顯式要求直排字符——WebKit 不會自動套用，
+   * 見 docs/browser-quirks.md。
+   */
+  readonly fontFeatureSettings?: string;
 }
 
 export async function screenshotGlyph(
@@ -31,6 +36,7 @@ export async function screenshotGlyph(
     lang,
     fontFamily = "serif",
     writingMode = "horizontal-tb",
+    fontFeatureSettings = "normal",
   } = request;
 
   // 樣式走 <style> 而不是 style="..." 屬性。字型名稱帶引號是常態
@@ -43,6 +49,7 @@ export async function screenshotGlyph(
         #glyph {
           writing-mode: ${writingMode};
           font-family: ${fontFamily};
+          font-feature-settings: ${fontFeatureSettings};
           font-size: ${GLYPH_BOX_PX}px;
           line-height: 1;
           width: ${GLYPH_BOX_PX}px;

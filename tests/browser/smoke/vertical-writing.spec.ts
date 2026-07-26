@@ -14,20 +14,37 @@ import { analyseInk, type InkAnalysis } from "../support/ink.js";
 /** 日文的句點。在直排下應由 vert / vrt2 換成位於右上的字符。 */
 const IDEOGRAPHIC_FULL_STOP = "。";
 
+/**
+ * 冒煙測試一律指名字面，不用 generic family。
+ *
+ * 因為三家瀏覽器對 generic family 的 CJK 解析並不一致（見 #4），用 serif 的話
+ * 這裡量到的會是「瀏覽器挑了哪套字型」而不是「這套字型的直排字符對不對」。
+ * 指名之後變因只剩一個。
+ *
+ * 這是測試環境的選擇，不是 frond 的規則——frond 仍然尊重書自己的宣告
+ * （ADR-0003）。
+ */
+const JAPANESE_FACE = '"Noto Serif CJK JP"';
+
 test.describe("直排渲染", () => {
   test("行進軸是縱向：後續字元排在前一個字元下方，而不是右方", async ({
     page,
   }) => {
     await page.setContent(
       documentWith(`
-        <div id="text" lang="ja" style="
-          writing-mode: vertical-rl;
-          font-family: serif;
-          font-size: 40px;
-          line-height: 1;
-          width: 400px;
-          height: 400px;
-        ">あいうえお</div>
+        <style>
+          /* 字型名帶引號，所以樣式走 <style> 而不是 style="..." 屬性——
+             內層雙引號會把 HTML 屬性截斷，整條宣告連同尺寸一起消失。 */
+          #text {
+            writing-mode: vertical-rl;
+            font-family: ${JAPANESE_FACE};
+            font-size: 40px;
+            line-height: 1;
+            width: 400px;
+            height: 400px;
+          }
+        </style>
+        <div id="text" lang="ja">あいうえお</div>
       `),
     );
     await page.evaluate(() => document.fonts.ready);
@@ -94,7 +111,19 @@ async function inkOfFullStop(
     await screenshotGlyph(page, {
       char: IDEOGRAPHIC_FULL_STOP,
       lang: "ja",
+      fontFamily: JAPANESE_FACE,
       writingMode,
+      // 顯式要求直排字符。Chromium 與 Firefox 在 writing-mode: vertical-rl
+      // 下會自動套用 vert，WebKit 不會——實測它把句點留在左下，強制之後才
+      // 移到右上（見 docs/browser-quirks.md）。
+      //
+      // 這裡強制並不會讓斷言失去意義：問的是「這套字型有沒有直排字符、畫得
+      // 出來嗎」，那是環境的性質。裝了一套沒有 vert 的字型時，強制也不會有
+      // 任何效果，斷言照樣紅。
+      //
+      // 至於「瀏覽器會不會自動套用」則是瀏覽器的行為而非環境的性質，屬於
+      // Renderer 要處理的 quirk，登記在 browser-quirks.md。
+      fontFeatureSettings: writingMode === "vertical-rl" ? '"vert" 1' : "normal",
     }),
   );
 

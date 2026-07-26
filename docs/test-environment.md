@@ -75,9 +75,13 @@ CJK 字型統一使用 **Noto CJK**（`fonts-noto-cjk`），繁體中文、簡�
 
 因為漢字統一，「骨」「直」這類共用碼位在 TC / SC / JP 有不同字形，Noto CJK 的 OTC 內實際裝著 `Noto Serif CJK TC` / `SC` / `JP` 等多個字面。取到哪一個取決於字面選擇，而字面選擇通常由文件的 `lang` 加上 fontconfig 的語言比對決定——**那正是三家瀏覽器可能各做各的地方**。
 
-`docker/fontconfig/70-frond-cjk.conf` 因此把兩件事都釘死：generic family（`serif` / `sans-serif` / `monospace`）解析到哪個字型，以及區域字面如何依 `lang` 選用。沒宣告 `lang` 的文件預設取 TC。`zh-TW` / `zh-Hant` 與 `zh-CN` / `zh-Hans` 都各自列出，只列一種的話另一種會靜默落回預設。
+`docker/fontconfig/75-frond-cjk.conf` 因此把兩件事都釘死：generic family（`serif` / `sans-serif` / `monospace`）解析到哪個字型，以及區域字面如何依 `lang` 選用。沒宣告 `lang` 的文件預設取 TC。`zh-TW` / `zh-Hant` 與 `zh-CN` / `zh-Hans` 都各自列出，只列一種的話另一種會靜默落回預設。
 
-**檔名的編號是有意義的。** fontconfig 依檔名順序處理 `/etc/fonts/conf.d/`，而 `mode="prepend"` 是把家族插到最前面，所以檔名較後者優先權較高。基底映像的 `60-latin.conf` 同樣對 `serif` / `sans-serif` 做 prepend，本檔編號若小於 60 會被它整個蓋掉，`fc-match serif` 會解析到拉丁字型。編號取 70 就是為了贏過它。
+這份綁定在容器內的 `fc-match` 上完全生效，但**瀏覽器只有 Firefox 完整遵守**——那部分獨立追蹤於 [#4](https://github.com/yurenju/frond/issues/4)。
+
+**順序有兩層，而且方向不一樣。** 第一層是檔名：fontconfig 依檔名順序處理 `/etc/fonts/conf.d/`，後處理的有機會覆蓋先處理的。基底映像的 `60-latin.conf` 與 `fonts-noto-cjk` 套件自帶的 `70-fonts-noto-cjk.conf` 都會動到同一組 generic family，所以編號取 75。不用 70 是因為那會變成靠 `fonts` 與 `frond` 的第五個字母決定勝負。
+
+第二層是檔案內的規則順序，**它與直覺相反**：`mode="prepend"` 不是插到清單最前面，而是插在被 `<test>` 命中的那個值前面，所以後套用的規則排得更後面——**先套用的優先權較高，語言特化必須寫在通則之前**。寫反的症狀很難看出來：通則排在前面時 `serif:lang=ja` 會拿到通則的 TC，而 `serif:lang=zh-tw` 因為跟通則預設值恰好相同，看起來仍然是對的。
 
 副作用要知道：拉丁文字也會落到 Noto CJK 的拉丁字符上。對這個測試環境是可接受的，甚至是想要的——一個字型一個事實來源，三家瀏覽器沒有各自 fallback 的空間。
 
@@ -93,23 +97,23 @@ CJK 字型統一使用 **Noto CJK**（`fonts-noto-cjk`），繁體中文、簡�
 
 - **行進軸是縱向**：用幾何斷言後續字元排在前一個字元下方。刻意不讀 computed style，因為 computed style 會老實回報 `vertical-rl` 而畫面仍可能是橫的。
 - **標點取到直排字符**：句點在直排下應位於字面方框的右上，橫排下位於左下。這條擋掉最惡劣的失敗模式——裝了一套沒有 `vert` / `vrt2` 的字型，DOM 斷言與幾何不變量全數通過，但畫面上的直排標點是錯的。
-- **區域字面選對**：`serif` 加 `lang=ja` 的渲染結果，必須與直接指名 `"Noto Serif CJK JP"` 的結果逐像素相同，且與 TC 字面不同；`lang=zh-TW` 反之。
+- **字形選擇的兩條路徑**：漢字的區域字形由 `lang` 驅動（同一字面換 `lang` 會變、不同字面同一 `lang` 不變），標點的位置由字面驅動。這兩條是其他斷言能夠成立的前提。
+- **指名字面時的決定性**：同一組輸入重複渲染必須逐像素相同。
+
+冒煙測試**一律指名字面**，不使用 generic family。用 `serif` 的話量到的會是「瀏覽器挑了哪套字型」而不是「這套字型對不對」——三家對 generic family 的 CJK 解析並不一致（[#4](https://github.com/yurenju/frond/issues/4)）。這是測試環境的選擇，不是 frond 的規則：frond 仍然尊重書自己的宣告（ADR-0003）。
 
 這幾條都是結構性斷言，不是 golden 截圖比對。frond 沒有參考實作可以當 oracle，「這個字應該長這樣」的期望值不存在（ADR-0001）。
 
-### 區域字面那條為什麼要對照具名字面
+### 用什麼字來測，比怎麼斷言更關鍵
 
-比較直覺的寫法是「`lang=ja` 與 `lang=zh-TW` 渲染不同」。那個寫法不夠：任何兩個不同的字面都能讓它變綠，包括 ja 選到 SC、zh-TW 選到 JP 這種錯得剛好對稱的情況。
+**漢字不能用來鑑別字面。**「骨」「直」這類漢字統一的代表字，其區域字形是由文件的 `lang` 經 OpenType 的 `locl` 驅動的——同一個字面在 `lang=ja` 與 `lang=zh-TW` 下給出不同字形，而不同字面在同一個 `lang` 下給出相同字形。三家瀏覽器實測一致。
 
-更關鍵的是它不會 falsify。把 `70-frond-cjk.conf` 整個拿掉，Chromium 與 Firefox 仍會用自己的語言比對選出不同的字面，「兩者不同」照樣成立——於是這條測試對它要保護的東西完全沒有意見。對照具名字面才能真的釘住「解析到了哪一個」。
+拿漢字去問「解析到哪個字面」，得到的答案永遠是「看不出來」，於是測試會在綁定完全失效的環境下照樣變綠。**標點才有鑑別力**——句點在 JP 與 TC 字面裡的位置不同，且該差異在同一個 `lang` 下依然存在。
 
-## 怎麼證明字型斷言真的有在測東西
+## 這些斷言真的有在測東西嗎
 
-兩條字型相關的斷言，各自有一個讓它變紅的方法。**這兩個實驗都還沒有跑過**（本機還沒有容器引擎），記在這裡是為了讓第一個跑得動的人可以照著驗，並把結果補進 PR。
+**直排標點那條已經被證明有牙齒。** WebKit 在直排下不自動套用 `vert`（見 `browser-quirks.md`），而在還沒加上顯式 `font-feature-settings` 之前，這條斷言就是紅的——句點量到留在左下。也就是說：一旦直排字符沒有生效，這條斷言會紅。那正是它存在的目的。
 
-| 斷言 | 讓它變紅的方法 | 預期 |
-| --- | --- | --- |
-| 直排標點取到直排字符 | 把 Dockerfile 的 `fonts-noto-cjk` 換成一套無 `vert` / `vrt2` 的 CJK 字型 | 句點留在左下，直排那兩條斷言紅 |
-| 區域字面選對 | 移除 `COPY docker/fontconfig/70-frond-cjk.conf` 那一層 | `serif` 不再解析到具名的區域字面，兩條對照斷言紅 |
+**還沒跑過的實驗**：把 Dockerfile 的 `fonts-noto-cjk` 換成一套完全沒有 `vert` / `vrt2` 的 CJK 字型，預期同一條斷言也會紅。上面那次是「特性沒被套用」，這個實驗是「字型根本沒有這個特性」，兩者路徑不同，值得補驗。
 
-第二個實驗同時會讓 `docker/verify-fonts.sh` 在 build 期就失敗，那是預期內的——兩層防線本來就都該擋下它。
+**字型綁定的部分由 build 期擋。** 移除 `COPY docker/fontconfig/75-frond-cjk.conf` 那一層，`docker/verify-fonts.sh` 會在 build 就失敗——這一條實際發生過：規則順序寫反時，`serif:lang=ja` 解析到 TC，build 直接中止。
