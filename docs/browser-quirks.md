@@ -198,7 +198,7 @@ Chromium 那一欄的意思是：**同一份 `lang=zh-TW` 的內容，只因為�
 
 **繞法**
 
-量測時一次一個全新的 page（`screenshotGlyphInIsolation`）。這是測試方法上的繞法，不是產品上的——真書渲染時 frond 沒辦法一個 Section 開一個 page。
+量測時一次一個全新的 page（`screenshotGlyphInIsolation`）。這是測試方法上的繞法，不是產品上的——實際的書渲染時 frond 沒辦法一個 Section 開一個 page。
 
 **frond 是否需要處理**
 
@@ -440,7 +440,7 @@ Firefox 不認的只是兩個**私有前綴的屬性名**。同一個 Firefox，
 
 書把直排宣告成 `-epub-writing-mode: vertical-rl` 或 `-webkit-writing-mode: vertical-rl` 而**沒有**無前綴的那一條時，Firefox 整份文件排成橫排。Chromium 與 WebKit 兩個前綴都認。
 
-這不是造出來的案例。觸發點是一本真書：**《入境大廳》**（ADR-0007 的觸發點之一，Adobe InDesign 17.0.1 產、EPUB 3、繁中直排、`page-progression-direction="rtl"`）。它的 `<body>` 上宣告的是那兩個前綴版本，**無前綴的 `writing-mode` 一次都沒有出現**——所以整本書在 Firefox 上是橫排的。
+這不是造出來的案例。觸發點是一本實際的書：**《入境大廳》**（ADR-0007 的觸發點之一，Adobe InDesign 17.0.1 產、EPUB 3、繁中直排、`page-progression-direction="rtl"`）。它的 `<body>` 上宣告的是那兩個前綴版本，**無前綴的 `writing-mode` 一次都沒有出現**——所以整本書在 Firefox 上是橫排的。
 
 在 `<body>` 上宣告 `vertical-rl`，量 computed `writing-mode` 與相鄰兩個字元的推進（`あ` → `い`，Noto Serif CJK JP 32px、`line-height: 1`；直排是 dx 0／dy 正，橫排是 dx 正／dy 0）：
 
@@ -449,7 +449,7 @@ Firefox 不認的只是兩個**私有前綴的屬性名**。同一個 Firefox，
 | `writing-mode: vertical-rl` | `vertical-rl`，dy +32 | `vertical-rl`，dy +32 | `vertical-rl`，dy +32 |
 | `-epub-writing-mode: vertical-rl` | `vertical-rl`，dy +32 | **`horizontal-tb`，dx +32** | `vertical-rl`，dy +32 |
 | `-webkit-writing-mode: vertical-rl` | `vertical-rl`，dy +32 | **`horizontal-tb`，dx +32** | `vertical-rl`，dy +32 |
-| **兩個前綴都給（真書的形狀）** | `vertical-rl`，dy +32 | **`horizontal-tb`，dx +32** | `vertical-rl`，dy +32 |
+| **兩個前綴都給（實際出現的形狀）** | `vertical-rl`，dy +32 | **`horizontal-tb`，dx +32** | `vertical-rl`，dy +32 |
 | `writing-mode: tb-rl`（舊語法） | `vertical-rl`，dy +32 | `vertical-rl`，dy +32 | `vertical-rl`，dy +32 |
 | `writing-mode:vertical-rl`（冒號後無空白） | `vertical-rl`，dy +32 | `vertical-rl`，dy +32 | `vertical-rl`，dy +32 |
 
@@ -463,12 +463,12 @@ computed 值與幾何在每一格都同進退——宣告被丟掉時兩者一�
 
 第一格與第三格字由上而下、行由右而左；**中間那格是橫排**，從左上開始由左而右。三張圖是同一份 HTML 在三家的結果，差異全部來自前綴要不要認。
 
-圖裡的句子是**為了截圖自造的**，不取自任何書——商業真書不進 repo，截圖同樣適用（ADR-0007）。圖以 `docs/evidence/21/` 保存；產生方式是一支一次性的 Playwright spec，用 `page.setContent` 餵上面那份 HTML 後對容器 `locator.screenshot()`，重寫得出來，因此沒有留在 repo 裡。
+圖裡的句子是**為了截圖自造的**，不取自任何書——商業書不進 repo，截圖同樣適用（ADR-0007）。圖以 `docs/evidence/21/` 保存；產生方式是一支一次性的 Playwright spec，用 `page.setContent` 餵上面那份 HTML 後對容器 `locator.screenshot()`，重寫得出來，因此沒有留在 repo 裡。
 
 順帶量到的三件事，都與原本的預期不同：
 
 1. **Chromium 也認 `-epub-` 前綴**，不只 `-webkit-`。前綴支援不是「WebKit 系才有」。
-2. **舊語法 `writing-mode: tb-rl` 三家都認**，而且 computed 值正規化成 `vertical-rl`。本機真書裡《我的公寓》與《給力》的樣式表仍有這種寫法，與現代語法並存——讀 computed style 的偵測不需要認得舊語法。
+2. **舊語法 `writing-mode: tb-rl` 三家都認**，而且 computed 值正規化成 `vertical-rl`。本機的書裡《我的公寓》與《給力》的樣式表仍有這種寫法，與現代語法並存——讀 computed style 的偵測不需要認得舊語法。
 3. **冒號後沒有空白三家都正常。** 這一格沒有分歧，登記它是為了說明**偵測不可以用字串比對**：《入境大廳》寫的是 `-epub-writing-mode:vertical-rl`，在原始碼上比對 `"writing-mode: vertical-rl"` 會漏掉這本書，而 CSSOM 看到的是正規化後的值。
 
 **繞法**
@@ -479,7 +479,7 @@ foliate 的 `paginator.js` L655–658 做的正是這件事。本檔上一節原
 
 **frond 是否需要處理**
 
-需要。而且這一格與 ADR-0003 介入清單裡「InDesign 書把 `writing-mode` 宣告在 `<body>` 而非 `<html>`」那一格**看起來是同一件事，理由卻不同**，值得分清楚——那兩件事在同一本真書上同時發生：
+需要。而且這一格與 ADR-0003 介入清單裡「InDesign 書把 `writing-mode` 宣告在 `<body>` 而非 `<html>`」那一格**看起來是同一件事，理由卻不同**，值得分清楚——那兩件事在同一本書上同時發生：
 
 | | 位置在 `<body>` | 屬性名帶前綴 |
 | --- | --- | --- |
@@ -489,9 +489,9 @@ foliate 的 `paginator.js` L655–658 做的正是這件事。本檔上一節原
 
 第二欄不是「覆寫書的宣告」——書的**意圖**沒有被改變，改的只是表達它的語法。
 
-> **ADR-0003 的實例表已依本條新增一行。** 加的是右欄那個案例，並明寫「不要套用『frond 讀得不夠』」——那句話在這裡是錯的，而兩格在同一本真書上同時發生，很容易被當成一件事。真正進入介入的封閉清單是 `Renderer` 存在之後的事，那時要連帶決定正規化發生在哪一層。
+> **ADR-0003 的實例表已依本條新增一行。** 加的是右欄那個案例，並明寫「不要套用『frond 讀得不夠』」——那句話在這裡是錯的，而兩格在同一本書上同時發生，很容易被當成一件事。真正進入介入的封閉清單是 `Renderer` 存在之後的事，那時要連帶決定正規化發生在哪一層。
 
-**這條也暴露了一個 fixture 的保真度缺口。** 現有的 `writing-mode-on-body.epub` 只演「位置在 `<body>`」一個軸，宣告寫的是無前綴的 `writing-mode`——而真書是兩個軸疊在一起，且無前綴的那條不存在。照現有 fixture 開發出來的偵測會在三家全綠，然後在真書上讓 Firefox 排錯。補這一份 fixture 承接 #9 重畫切片圖時的 fixture 票。
+**這條也暴露了一個 fixture 的保真度缺口。** 現有的 `writing-mode-on-body.epub` 只演「位置在 `<body>`」一個軸，宣告寫的是無前綴的 `writing-mode`——而實際的書是兩個軸疊在一起，且無前綴的那條不存在。照現有 fixture 開發出來的偵測會在三家全綠，然後在實際的書上讓 Firefox 排錯。補這一份 fixture 承接 #9 重畫切片圖時的 fixture 票。
 
 **哪個測試會抓到**
 
