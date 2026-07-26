@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { EpubBook } from "../../../src/epub/index.ts";
-import { readFixture } from "./support/fixtures.ts";
+import { readFixture } from "../support/fixtures.ts";
 
 /**
  * 開書——消費端把一本書的位元組交給 `EpubBook`，其餘的它不必知道。
@@ -49,6 +49,16 @@ describe("EPUB 3", () => {
     const book = await EpubBook.open(await readFixture("vertical-japanese.epub"));
 
     expect(book.metadata.epubVersion).toBe("epub3");
+  });
+});
+
+describe("公開的進入點", () => {
+  test("frond/epub 這個 exports 進入點指得到東西", async () => {
+    // 其餘測試走相對路徑（那是這個 repo 內部的寫法），但消費端拿到的是
+    // package.json 的 exports 那條路——沒有人走過的話，路徑打錯了不會有東西紅。
+    const entry = await import("frond/epub");
+
+    expect(entry.EpubBook).toBe(EpubBook);
   });
 });
 

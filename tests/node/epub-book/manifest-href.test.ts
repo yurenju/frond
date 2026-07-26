@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { EpubBook, EpubOpenError } from "../../../src/epub/index.ts";
-import { handmadeBook, packageDocument, sectionDocument } from "./support/handmade.ts";
+import {
+  handmadeBook,
+  packageDocument,
+  sectionDocument,
+  HEALTHY_ENTRIES,
+} from "./support/handmade.ts";
 
 /**
  * manifest 的 `href` 依 **URL 規則**相對封裝文件解析。
@@ -57,13 +62,58 @@ describe("解析後跳出封裝根", () => {
         manifest: `    <item id="section-1" href="section-1.xhtml" media-type="application/xhtml+xml"/>
     <item id="escapee" href="../../evil.png" media-type="image/png"/>`,
       }),
-      entries: [{ path: "OEBPS/section-1.xhtml", contents: sectionDocument("朝") }],
+      entries: HEALTHY_ENTRIES,
     });
 
     await expect(EpubBook.open(archive)).rejects.toThrow(EpubOpenError);
     await expect(EpubBook.open(archive)).rejects.toMatchObject({
       reason: "resource-outside-container",
     });
+  });
+});
+
+describe("遠端資源", () => {
+  test("manifest 指到別的 origin 不會讓整本書開不起來", async () => {
+    // EPUB 3 允許遠端資源（宣告 properties="remote-resources" 的影音）。frond
+    // 這一刀不下載它，但把它當成「指向不存在的檔案」會讓一本合規的書開不起來。
+    const book = await EpubBook.open(
+      handmadeBook({
+        packageDocument: packageDocument({
+          manifest: `    <item id="section-1" href="section-1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="narration" href="https://example.invalid/narration.mp3" media-type="audio/mpeg" properties="remote-resources"/>`,
+        }),
+        entries: HEALTHY_ENTRIES,
+      }),
+    );
+
+    expect(book.readingOrder.map((section) => section.path)).toEqual([
+      "OEBPS/section-1.xhtml",
+    ]);
+  });
+});
+
+describe("container.xml 的 full-path 也是 URL", () => {
+  test("編碼過的 full-path 找得到封裝文件", async () => {
+    // full-path 與 manifest 的 href 走同一條解析——只有其中一邊記得書可以把
+    // 路徑編碼過的話，另一邊就會在同一種書上壞掉。
+    const book = await EpubBook.open(
+      handmadeBook({
+        packageDocumentPath: "OEBPS 本体/content.opf",
+        container: `<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS%20%E6%9C%AC%E4%BD%93/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>
+`,
+        packageDocument: packageDocument({}),
+        entries: [
+          { path: "OEBPS 本体/section-1.xhtml", contents: sectionDocument("朝") },
+        ],
+      }),
+    );
+
+    expect(book.readingOrder[0]?.path).toBe("OEBPS 本体/section-1.xhtml");
   });
 });
 

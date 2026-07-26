@@ -4,7 +4,7 @@ import {
   handmadeBook,
   pack,
   packageDocument,
-  sectionDocument,
+  HEALTHY_ENTRIES,
 } from "./support/handmade.ts";
 
 /**
@@ -32,10 +32,6 @@ async function reasonOf(archive: Uint8Array): Promise<EpubOpenFailure> {
   throw new Error("這本書開起來了，但它不該開得起來");
 }
 
-const healthyEntries = [
-  { path: "OEBPS/section-1.xhtml", contents: sectionDocument("朝") },
-];
-
 describe("容器層", () => {
   test("不是 zip", async () => {
     // 下載到一半、拿到別的檔案、或根本是一份純文字。
@@ -53,7 +49,7 @@ describe("容器層", () => {
     const archive = handmadeBook({
       container: null,
       packageDocument: packageDocument({}),
-      entries: healthyEntries,
+      entries: HEALTHY_ENTRIES,
     });
 
     expect(await reasonOf(archive)).toBe("missing-container");
@@ -64,7 +60,7 @@ describe("容器層", () => {
       container: `<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0"><rootfiles>`,
       packageDocument: packageDocument({}),
-      entries: healthyEntries,
+      entries: HEALTHY_ENTRIES,
     });
 
     expect(await reasonOf(archive)).toBe("malformed-container");
@@ -78,7 +74,7 @@ describe("容器層", () => {
 </container>
 `,
       packageDocument: packageDocument({}),
-      entries: healthyEntries,
+      entries: HEALTHY_ENTRIES,
     });
 
     expect(await reasonOf(archive)).toBe("malformed-container");
@@ -97,7 +93,7 @@ describe("容器層", () => {
 </container>
 `,
       },
-      ...healthyEntries,
+      ...HEALTHY_ENTRIES,
     ]);
 
     expect(await reasonOf(archive)).toBe("missing-package-document");
@@ -109,7 +105,7 @@ describe("封裝文件", () => {
     const archive = handmadeBook({
       packageDocument: `<?xml version="1.0" encoding="UTF-8"?>
 <package version="3.0"><metadata><dc:title>閉じていない`,
-      entries: healthyEntries,
+      entries: HEALTHY_ENTRIES,
     });
 
     expect(await reasonOf(archive)).toBe("malformed-package-document");
@@ -125,7 +121,7 @@ describe("封裝文件", () => {
   <spine/>
 </package>
 `,
-      entries: healthyEntries,
+      entries: HEALTHY_ENTRIES,
     });
 
     expect(await reasonOf(archive)).toBe("malformed-package-document");
@@ -135,7 +131,7 @@ describe("封裝文件", () => {
     // ADR-0010 把 EPUB 2 之前的封裝格式劃在界線外：不讀，開書時以明確錯誤拒絕。
     const archive = handmadeBook({
       packageDocument: packageDocument({}).replace(' version="3.0"', ""),
-      entries: healthyEntries,
+      entries: HEALTHY_ENTRIES,
     });
 
     expect(await reasonOf(archive)).toBe("unsupported-package-version");
@@ -144,10 +140,23 @@ describe("封裝文件", () => {
   test("宣告的版本不在支援範圍內", async () => {
     const archive = handmadeBook({
       packageDocument: packageDocument({ version: "1.2" }),
-      entries: healthyEntries,
+      entries: HEALTHY_ENTRIES,
     });
 
     expect(await reasonOf(archive)).toBe("unsupported-package-version");
+  });
+
+  test("version=\"3\" 少了小數點仍是 EPUB 3", async () => {
+    // 判準是**主版本**而不是 `"3."` 這個前綴：照前綴比會把這種寫法誤拒，而
+    // ADR-0010 劃在界線外的是 EPUB 2 之前的封裝格式，不是少一個小數點的書。
+    const book = await EpubBook.open(
+      handmadeBook({
+        packageDocument: packageDocument({ version: "3" }),
+        entries: HEALTHY_ENTRIES,
+      }),
+    );
+
+    expect(book.metadata.epubVersion).toBe("epub3");
   });
 });
 
@@ -158,7 +167,7 @@ describe("OPF 指向不存在的檔案", () => {
         manifest: `    <item id="section-1" href="section-1.xhtml" media-type="application/xhtml+xml"/>
     <item id="missing" href="images/どこにもない.png" media-type="image/png"/>`,
       }),
-      entries: healthyEntries,
+      entries: HEALTHY_ENTRIES,
     });
 
     expect(await reasonOf(archive)).toBe("missing-resource");
@@ -170,7 +179,7 @@ describe("OPF 指向不存在的檔案", () => {
         readingOrder: `    <itemref idref="section-1"/>
     <itemref idref="section-2"/>`,
       }),
-      entries: healthyEntries,
+      entries: HEALTHY_ENTRIES,
     });
 
     expect(await reasonOf(archive)).toBe("unknown-reading-order-item");

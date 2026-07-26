@@ -36,14 +36,39 @@ export interface ReadingOrderItem {
  */
 export type PageProgressionDirection = "ltr" | "rtl";
 
-export interface PackageDocument {
-  readonly epubVersion: EpubVersion;
+/**
+ * 一本書對自己的宣告。
+ *
+ * 每一個欄位都可能是 `undefined`——**書沒說就回報沒說**，不補預設值（ADR-0002：
+ * frond 給事實，消費端給政策）。書櫃要顯示「未知作者」還是留白是政策，而
+ * `EpubBook` 一旦把「沒說」填成空字串或 `"ltr"`，消費端就再也分不出來了。
+ */
+export interface BookMetadata {
+  /** `dc:title`。 */
   readonly title: string | undefined;
+  /** `dc:creator`，依文件順序。沒宣告時是空清單。 */
   readonly authors: readonly string[];
+  /** `dc:language`，BCP 47 語言標籤，原樣照抄。 */
   readonly language: string | undefined;
+  /**
+   * `<package unique-identifier>` 指到的那個 `dc:identifier`，原樣照抄。
+   *
+   * 書櫃要靠它認出「這兩個檔案是同一本書」，所以它跟著 metadata 一起回報。
+   */
   readonly identifier: string | undefined;
-  /** 書沒說時是 `undefined`——不是 `"ltr"`（ADR-0010）。 */
+  /** 封裝文件宣告的版本。 */
+  readonly epubVersion: EpubVersion;
+  /**
+   * 頁面推進方向。**書沒說時是 `undefined`，不是 `"ltr"`**（ADR-0010）——EPUB 2
+   * 一律落在這一格，因為那個版本根本沒有這個屬性。
+   *
+   * 這裡回報的**不是書寫方向**：直排／橫排寫在樣式表裡，由 `Renderer` 回報。
+   */
   readonly pageProgressionDirection: PageProgressionDirection | undefined;
+}
+
+export interface PackageDocument {
+  readonly metadata: BookMetadata;
   /**
    * `<meta name="cover" content="…">` 指向的 manifest **id**（不是 href）。
    *
@@ -75,16 +100,18 @@ export function parsePackageDocument(
   const readingOrderElement = pickReadingOrder(packageElement, label);
 
   return {
-    epubVersion: readVersion(packageElement, label),
-    title: firstText(metadata?.children("title") ?? []),
-    // 作者依文件順序全部取出，不按 `opf:role` 篩選：`role` 是選擇性的，樣本裡
-    // 沒有一本靠它才分得出作者，而按它篩會讓沒寫 role 的書變成沒有作者。
-    authors: (metadata?.children("creator") ?? [])
-      .map((creator) => creator.text())
-      .filter((name) => name !== ""),
-    language: firstText(metadata?.children("language") ?? []),
-    identifier: readIdentifier(packageElement, metadata),
-    pageProgressionDirection: readPageProgressionDirection(readingOrderElement),
+    metadata: {
+      title: firstText(metadata?.children("title") ?? []),
+      // 作者依文件順序全部取出，不按 `opf:role` 篩選：`role` 是選擇性的，樣本裡
+      // 沒有一本靠它才分得出作者，而按它篩會讓沒寫 role 的書變成沒有作者。
+      authors: (metadata?.children("creator") ?? [])
+        .map((creator) => creator.text())
+        .filter((name) => name !== ""),
+      language: firstText(metadata?.children("language") ?? []),
+      identifier: readIdentifier(packageElement, metadata),
+      epubVersion: readVersion(packageElement, label),
+      pageProgressionDirection: readPageProgressionDirection(readingOrderElement),
+    },
     coverMetaId: (metadata?.children("meta") ?? [])
       .find((meta) => meta.attribute("name") === "cover")
       ?.attribute("content"),
@@ -133,9 +160,12 @@ function readPageProgressionDirection(
  * 懂的方式失敗。
  */
 function readVersion(packageElement: XmlElement, label: string): EpubVersion {
-  const version = packageElement.attribute("version");
-  if (version?.startsWith("3.") === true) return "epub3";
-  if (version?.startsWith("2.") === true) return "epub2";
+  const version = packageElement.attribute("version")?.trim();
+  // 比主版本而不是比前綴：`version="3"` 少了小數點仍是 EPUB 3，而比 `"3."`
+  // 會把它誤拒。
+  const major = version?.split(".")[0];
+  if (major === "3") return "epub3";
+  if (major === "2") return "epub2";
 
   throw new EpubOpenError(
     "unsupported-package-version",

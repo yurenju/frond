@@ -120,6 +120,16 @@ ${readingOrder}
 `;
 }
 
+/**
+ * 與 `packageDocument()` 的預設 manifest 相配的那一份內容文件。
+ *
+ * 「除了某一處以外都健康」的書大多只需要這一項，各自寫一次的話，預設 manifest
+ * 改了路徑就要在每個測試裡追著改。
+ */
+export const HEALTHY_ENTRIES: readonly HandmadeEntry[] = [
+  { path: "OEBPS/section-1.xhtml", contents: sectionDocument("朝") },
+];
+
 /** 一份最小的 XHTML 內容文件。 */
 export function sectionDocument(title: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>

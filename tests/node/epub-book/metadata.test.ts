@@ -1,7 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { EpubBook } from "../../../src/epub/index.ts";
-import { readFixture } from "./support/fixtures.ts";
-import { handmadeBook, packageDocument, sectionDocument } from "./support/handmade.ts";
+import { readFixture } from "../support/fixtures.ts";
+import {
+  handmadeBook,
+  packageDocument,
+  HEALTHY_ENTRIES,
+} from "./support/handmade.ts";
 
 /**
  * metadata——一本書對自己的宣告。書櫃靠它排架，所以這一組是「拿到書名、作者、
@@ -46,7 +50,7 @@ describe("作者", () => {
     <dc:creator opf:role="aut">佐藤 花子</dc:creator>
     <dc:creator opf:role="aut">鈴木 太郎</dc:creator>`,
         }),
-        entries: [{ path: "OEBPS/section-1.xhtml", contents: sectionDocument("朝") }],
+        entries: HEALTHY_ENTRIES,
       }),
     );
 
@@ -89,13 +93,13 @@ describe("頁面推進方向", () => {
         packageDocument: packageDocument({
           readingOrderAttributes: ' page-progression-direction="ltr"',
         }),
-        entries: [{ path: "OEBPS/section-1.xhtml", contents: sectionDocument("朝") }],
+        entries: HEALTHY_ENTRIES,
       }),
     );
     const silent = await EpubBook.open(
       handmadeBook({
         packageDocument: packageDocument({}),
-        entries: [{ path: "OEBPS/section-1.xhtml", contents: sectionDocument("朝") }],
+        entries: HEALTHY_ENTRIES,
       }),
     );
 

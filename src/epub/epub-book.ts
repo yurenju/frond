@@ -1,10 +1,9 @@
-import { openContainer, type EpubContainer } from "./container.ts";
+import { openContainer } from "./container.ts";
+import { readCover, type CoverImage } from "./cover.ts";
 import { EpubOpenError } from "./errors.ts";
 import {
   parsePackageDocument,
-  type EpubVersion,
-  type PackageDocument,
-  type PageProgressionDirection,
+  type BookMetadata,
   type ReadingOrderItem,
 } from "./package-document.ts";
 import { resolveResources, type Resource } from "./resources.ts";
@@ -54,60 +53,21 @@ export class EpubBook {
     const resources = resolveResources(packageDocument.manifest, container);
 
     return new EpubBook(
-      readMetadata(packageDocument),
+      packageDocument.metadata,
       readReadingOrder(packageDocument.readingOrder, resources),
-      readCover(packageDocument, resources, container),
+      readCover(resources, packageDocument.coverMetaId, container),
     );
   }
 }
 
-/** 封面圖——書櫃要的是圖本身，所以位元組跟著一起給。 */
-export interface CoverImage {
-  /** 壓縮檔內的路徑，供診斷用。 */
-  readonly path: string;
-  readonly mediaType: string;
-  readonly bytes: Uint8Array;
-  /** 是哪一種寫法找到它的，依 ADR-0010 的順序：先 properties，再 meta。 */
-  readonly foundBy: CoverNotation;
-}
-
-export type CoverNotation = "cover-image-property" | "meta-name";
-
 /**
- * 封面。**先 `properties="cover-image"`，再 `<meta name="cover">`，兩者都沒有就是
- * 這本書沒有封面**——不按版本分派（ADR-0010）。
+ * 一本書的位元組可以長什麼樣。
  *
- * 指到的 id 不存在、或那個資源不在封裝內時同樣回報「沒有封面」而不是丟錯：書的
- * 封裝宣告與內容不一致是常態，而一本指壞了封面的書仍然讀得完。
+ * `File` 是 `Blob` 的子型別，所以三種輸入（`File` / `Blob` / `ArrayBuffer`）都在
+ * 這個聯集裡。`Uint8Array` 一併收下：Node 端讀檔拿到的就是它，要求呼叫端先包一層
+ * `Blob` 只是為難人。
  */
-function readCover(
-  packageDocument: PackageDocument,
-  resources: ReadonlyMap<string, Resource>,
-  container: EpubContainer,
-): CoverImage | undefined {
-  const byProperty = [...resources.values()].find((resource) =>
-    resource.properties.includes("cover-image"),
-  );
-  const found: readonly [Resource | undefined, CoverNotation] =
-    byProperty === undefined
-      ? [
-          packageDocument.coverMetaId === undefined
-            ? undefined
-            : resources.get(packageDocument.coverMetaId),
-          "meta-name",
-        ]
-      : [byProperty, "cover-image-property"];
-
-  const [resource, foundBy] = found;
-  if (resource?.path === undefined) return undefined;
-
-  return {
-    path: resource.path,
-    mediaType: resource.mediaType,
-    bytes: container.bytes(resource.path),
-    foundBy,
-  };
-}
+export type EpubSource = Blob | ArrayBuffer | Uint8Array;
 
 /**
  * readingOrder 中的單一項目，對應一份 XHTML 內容文件（CONTEXT.md）。
@@ -157,53 +117,6 @@ function readReadingOrder(
       linear: item.linear,
     };
   });
-}
-
-/**
- * 一本書的位元組可以長什麼樣。
- *
- * `File` 是 `Blob` 的子型別，所以三種輸入（`File` / `Blob` / `ArrayBuffer`）都在
- * 這個聯集裡。`Uint8Array` 一併收下：Node 端讀檔拿到的就是它，要求呼叫端先包一層
- * `Blob` 只是為難人。
- */
-export type EpubSource = Blob | ArrayBuffer | Uint8Array;
-
-/**
- * 一本書對自己的宣告。
- *
- * 每一個欄位都可能是 `undefined`——**書沒說就回報沒說**，不補預設值（ADR-0002：
- * frond 給事實，消費端給政策）。書櫃要顯示「未知作者」還是留白是政策，而
- * `EpubBook` 一旦把「沒說」填成空字串或 `"ltr"`，消費端就再也分不出來了。
- */
-export interface BookMetadata {
-  /** `dc:title`。 */
-  readonly title: string | undefined;
-  /** `dc:creator`，依文件順序。沒宣告時是空清單。 */
-  readonly authors: readonly string[];
-  /** `dc:language`，BCP 47 語言標籤，原樣照抄。 */
-  readonly language: string | undefined;
-  /** `<package unique-identifier>` 指到的那個 `dc:identifier`，原樣照抄。 */
-  readonly identifier: string | undefined;
-  /** 封裝文件宣告的版本。 */
-  readonly epubVersion: EpubVersion;
-  /**
-   * 頁面推進方向。**書沒說時是 `undefined`，不是 `"ltr"`**（ADR-0010）——EPUB 2
-   * 一律落在這一格，因為那個版本根本沒有這個屬性。
-   *
-   * 這裡回報的**不是書寫方向**：直排／橫排寫在樣式表裡，由 `Renderer` 回報。
-   */
-  readonly pageProgressionDirection: PageProgressionDirection | undefined;
-}
-
-function readMetadata(packageDocument: PackageDocument): BookMetadata {
-  return {
-    title: packageDocument.title,
-    authors: packageDocument.authors,
-    language: packageDocument.language,
-    identifier: packageDocument.identifier,
-    epubVersion: packageDocument.epubVersion,
-    pageProgressionDirection: packageDocument.pageProgressionDirection,
-  };
 }
 
 async function toBytes(source: EpubSource): Promise<Uint8Array> {

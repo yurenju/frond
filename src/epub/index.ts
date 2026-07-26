@@ -7,13 +7,12 @@
  */
 
 export { EpubBook } from "./epub-book.ts";
-export type {
-  BookMetadata,
-  CoverImage,
-  CoverNotation,
-  EpubSource,
-  Section,
-} from "./epub-book.ts";
+export type { EpubSource, Section } from "./epub-book.ts";
+export type { CoverImage, CoverNotation } from "./cover.ts";
 export { EpubOpenError } from "./errors.ts";
 export type { EpubOpenFailure } from "./errors.ts";
-export type { EpubVersion, PageProgressionDirection } from "./package-document.ts";
+export type {
+  BookMetadata,
+  EpubVersion,
+  PageProgressionDirection,
+} from "./package-document.ts";

@@ -1,8 +1,13 @@
 import { describe, expect, test } from "vitest";
 import { PNG } from "pngjs";
 import { EpubBook } from "../../../src/epub/index.ts";
-import { readFixture } from "./support/fixtures.ts";
-import { handmadeBook, packageDocument, sectionDocument } from "./support/handmade.ts";
+import { readFixture } from "../support/fixtures.ts";
+import {
+  handmadeBook,
+  packageDocument,
+  sectionDocument,
+  HEALTHY_ENTRIES,
+} from "./support/handmade.ts";
 
 /**
  * 封面圖——書櫃的縮圖來源。
@@ -57,6 +62,34 @@ describe("兩條宣告的路", () => {
   });
 });
 
+describe("找到一個宣告不等於拿得到那張圖", () => {
+  test("properties 指到遠端時退回 <meta name=\"cover\">", async () => {
+    // ADR-0010 的規則是「先找 A，找不到就找 B」。把「找到一個指向遠端的宣告」
+    // 當成「找到封面」，會讓一本兩種寫法都寫了的書沒有封面——而它的舊寫法指的
+    // 正是封裝內那張圖。
+    const book = await EpubBook.open(
+      handmadeBook({
+        packageDocument: packageDocument({
+          metadata: `    <dc:identifier id="pub-id">urn:uuid:frond-handmade</dc:identifier>
+    <dc:title>表紙が二か所にある本</dc:title>
+    <dc:language>ja</dc:language>
+    <meta name="cover" content="local-cover"/>`,
+          manifest: `    <item id="remote-cover" href="https://example.invalid/cover.png" media-type="image/png" properties="cover-image remote-resources"/>
+    <item id="local-cover" href="images/cover.png" media-type="image/png"/>
+    <item id="section-1" href="section-1.xhtml" media-type="application/xhtml+xml"/>`,
+        }),
+        entries: [
+          { path: "OEBPS/images/cover.png", contents: PNG_SIGNATURE },
+          ...HEALTHY_ENTRIES,
+        ],
+      }),
+    );
+
+    expect(book.cover?.foundBy).toBe("meta-name");
+    expect(book.cover?.path).toBe("OEBPS/images/cover.png");
+  });
+});
+
 describe("拿得到封面的位元組", () => {
   test.for(["cover-image-property.epub", "cover-meta-name-epub2.epub"])(
     "%s 的封面是真的 PNG",
@@ -91,7 +124,7 @@ describe("沒有封面不是錯誤", () => {
     <dc:language>ja</dc:language>
     <meta name="cover" content="どこにもない-id"/>`,
         }),
-        entries: [{ path: "OEBPS/section-1.xhtml", contents: sectionDocument("朝") }],
+        entries: HEALTHY_ENTRIES,
       }),
     );
 

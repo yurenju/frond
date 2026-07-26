@@ -1,5 +1,6 @@
 import { unzipSync } from "fflate";
 import { EpubOpenError } from "./errors.ts";
+import { resolveHref } from "./resource-path.ts";
 import { parseXml } from "./xml.ts";
 
 /**
@@ -17,11 +18,12 @@ import { parseXml } from "./xml.ts";
 
 const CONTAINER_PATH = "META-INF/container.xml";
 
+/** 封裝根。`full-path` 的基底就是它，不是 `container.xml` 所在的目錄。 */
+const CONTAINER_ROOT = "";
+
 export interface EpubContainer {
   /** 封裝文件（OPF）在壓縮檔內的路徑。 */
   readonly packageDocumentPath: string;
-  /** 壓縮檔內所有項目的路徑，供診斷用。 */
-  readonly entryPaths: readonly string[];
   has(path: string): boolean;
   bytes(path: string): Uint8Array;
   text(path: string): string;
@@ -65,7 +67,6 @@ export function openContainer(archive: Uint8Array): EpubContainer {
 
   return {
     packageDocumentPath,
-    entryPaths: Object.keys(entries),
     has,
     bytes,
     text,
@@ -89,6 +90,10 @@ function unzip(archive: Uint8Array): Record<string, Uint8Array> {
  *
  * OCF 允許多個 rootfile（同一份內容的多種表述），但 EPUB 規定第一個
  * `application/oebps-package+xml` 的那一個是**這本書**。frond 只讀那一個。
+ *
+ * `full-path` 與 manifest 的 href 一樣是 **URL**，只是它的基底是封裝根而不是某
+ * 一份文件，所以走同一條解析（percent-encoding 要還原，解析後跳出封裝根的不
+ * 合規）。兩邊各寫一套的話，只有其中一邊會記得書可以把路徑編碼過。
  */
 function readPackageDocumentPath(source: string): string {
   const container = parseXml(source, {
@@ -104,5 +109,13 @@ function readPackageDocumentPath(source: string): string {
       `${CONTAINER_PATH} 沒有指出封裝文件的位置（<rootfile full-path>）`,
     );
   }
-  return fullPath;
+
+  const resolved = resolveHref(fullPath, CONTAINER_ROOT);
+  if (resolved.kind !== "in-container") {
+    throw new EpubOpenError(
+      "malformed-container",
+      `${CONTAINER_PATH} 指到封裝外：full-path="${fullPath}"`,
+    );
+  }
+  return resolved.path;
 }
