@@ -21,6 +21,10 @@ spine 的 `docs/research/epub-rendering-libraries.md` 記載「vertical writing 
 
 該說法可能源自線上文件頁（`johnfactotum.github.io/foliate-js/`），本機 egress 白名單無法連出核實，請求已投至 `/var/spool/egress-requests/`。**在核實前，foliate 的 Firefox 直排狀態應視為「未知」而非「已知損壞」。** frond 的跨瀏覽器測試套件建立後，第一件該回答的實證問題就是這一題。
 
+> **已於 2026-07-26 實測結案（#7）。該說法撤回：foliate 的直排在 Firefox 沒有壞。** 把 foliate-js `78914ae` 放進本專案的測試映像、用 `tests/fixtures/vertical-japanese.epub` 跑三家，`writing-mode`、欄寬、頁數、頁長、起始 CFI 與 fraction、翻頁往返全部相同，字元往下、行往左，三家皆然，且無 `pageerror`。三家裡真正排錯東西的是 WebKit（直排標點沒換成直排字符），Firefox 在那一格是對的。量測與截圖見 `docs/browser-quirks.md` 的〈foliate-js 的直排在 Firefox 沒有壞〉。
+>
+> **這不改變本 ADR 的決定。** 拒絕差分測試的理由原本是「成本不成立，且 frond 最在乎的格子（直排 × Firefox）恰恰是 foliate 沒有證據支撐的地方」。後半段現在不成立了——那一格有證據了，而且是好的。但前半段（基礎建設複雜度大約多一倍）沒有變，**而且 #7 另外量到一件讓差分更不適合的事**：同一本書、同一 viewport、讀者字級放大之後，foliate 在 Chromium 排 4 頁、在 Firefox 與 WebKit 各排 3 頁。把一個自己就會因瀏覽器而分岔的實作當 oracle，得到的仍然是雜訊。這條也同時縮小了 ADR-0004 跨瀏覽器自我差分的適用範圍，見 `docs/browser-quirks.md` 的〈直排在讀者放大字級之後，三家的分頁位置不一致〉。
+
 ## Consequences
 
 **放棄 oracle 意味著放棄「期望值」。** 沒有參考實作，就沒有「這本書在 800×600、16px、直排下應該斷在第 4,213 個字元」這種具體數字。分頁測試因此不能寫成期望值比對，必須改用三種不需要知道正確答案的驗證手段，組成測試金字塔：
