@@ -9,7 +9,19 @@
     "noEmit": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "types": ["node"]
+    "types": ["node"],
+
+    // src/ 與 scripts/ 底下一律以 .ts 副檔名互相 import。理由是那些檔案要能
+    // 被 `node` 直接執行（Node 的型別剝離），而剝離器不會把 ./x.js 對應回
+    // ./x.ts——它就照字面去找 x.js，然後失敗。tests/browser 沿用既有的 .js
+    // 寫法，bundler resolution 兩種都吃。
+    "allowImportingTsExtensions": true
   },
-  "include": ["tests/**/*.ts", "playwright.config.ts"]
+  "include": [
+    "src/**/*.ts",
+    "scripts/**/*.ts",
+    "tests/**/*.ts",
+    "playwright.config.ts",
+    "vitest.config.ts"
+  ]
 }
