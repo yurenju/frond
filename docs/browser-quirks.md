@@ -434,6 +434,16 @@ foliate 對 WebKit 字符裁切的繞法是無條件寫進 `documentElement` 的
 
 computed 值與幾何在每一格都同進退——宣告被丟掉時兩者一起變成橫排，所以這裡沒有「computed 說對了但畫出來是錯的」那種分歧（那是本檔第一條的形狀）。
 
+**看得到的樣子**（同一份宣告：`-epub-` 與 `-webkit-` 前綴寫在 `<body>` 上、無前綴的不給；320×220 容器、Noto Serif CJK TC 22px、`line-height: 1.6`）：
+
+| Chromium | Firefox | WebKit |
+| --- | --- | --- |
+| ![](evidence/21/chromium-prefixed-writing-mode.png) | ![](evidence/21/firefox-prefixed-writing-mode.png) | ![](evidence/21/webkit-prefixed-writing-mode.png) |
+
+第一格與第三格字由上而下、行由右而左；**中間那格是橫排**，從左上開始由左而右。三張圖是同一份 HTML 在三家的結果，差異全部來自前綴要不要認。
+
+圖裡的句子是**為了截圖自造的**，不取自任何書——商業真書不進 repo，截圖同樣適用（ADR-0007）。圖以 `docs/evidence/21/` 保存；產生方式是一支一次性的 Playwright spec，用 `page.setContent` 餵上面那份 HTML 後對容器 `locator.screenshot()`，重寫得出來，因此沒有留在 repo 裡。
+
 順帶量到的三件事，都與原本的預期不同：
 
 1. **Chromium 也認 `-epub-` 前綴**，不只 `-webkit-`。前綴支援不是「WebKit 系才有」。
