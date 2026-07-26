@@ -20,6 +20,7 @@
 | 直排時 `column-width` 沒等於一個 viewer 高，一屏疊了三頁 | frond | 書從未宣告 `column-width`；multi-column 是 frond 拿來做分頁的工具，這層 CSS 本來就屬於 frond |
 | `<body>` 被塞 inline `!important` padding，欄位邊界被推出畫面 | frond | 同上，library 自己造成的 |
 | InDesign 書把 `writing-mode` 宣告在 `<body>` 而非 `<html>` | frond | 這不是覆寫書，是 frond **讀得不夠**——瀏覽器有照書做，只有 library 沒讀到 |
+| 書把直排宣告成 `-epub-writing-mode`／`-webkit-writing-mode` 而沒有無前綴版本，Firefox 不認、整本排成橫排 | frond | **瀏覽器沒有照書做**，宣告被丟掉了。與上一格看起來相同但理由不同（上一格瀏覽器是照書做的），所以不要套用「frond 讀得不夠」那句話。把宣告翻譯成無前綴的等價寫法**不改變書的意圖**，改的只是語法。實測見 `docs/browser-quirks.md` |
 | 書宣告 `font-family: serif`，Windows 直排標點缺字符 | 書 | 宣告合法，壞的是平台字型。**每個字都還在**，只是不好看。讀者想改就用字型設定 |
 | 書寫死 `font-size: 12px !important`，讀者調字級無效 | frond | 不是難看，是**讀者的能力被書擋掉** |
 | 書寫死 `color: #000; background: #fff`，夜間模式失效 | frond | 同上 |

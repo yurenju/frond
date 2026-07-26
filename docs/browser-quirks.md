@@ -6,6 +6,17 @@
 
 登記的門檻是**實測**。從別人的原始碼或文件推得的行為要標明未經本專案驗證，不要與量測結果混在一起。
 
+## 讀每一條之前先看：這個數字是誰排的
+
+本檔的量測分兩類，而它們**能外推的範圍不同**：
+
+- **純瀏覽器**——`page.setContent` 餵一份手寫的 HTML／CSS，沒有任何 library 參與。量到的是瀏覽器本身的行為，換渲染器仍然成立。
+- **有渲染器參與**——把 foliate-js 放進測試映像渲染真的 fixture。量到的數字綁在**那一版 foliate 的設定**上（例如 `column-width: 466px`、`column-fill: auto`，全部 `!important` 寫在 `documentElement` 上），frond 自己的設定不見得一樣，重測時要重新量。
+
+**預設是純瀏覽器。有渲染器參與的條目，會在標題或〈環境〉欄註明渲染器與 commit。** 這個軸與上面那條「實測 vs 從原始碼讀來」是**兩件不同的事**：一條量測可以是紮實的實測，同時只在某個渲染器的設定下成立。
+
+沒有這個標示，很容易從一條 quirk 外推出比它實際範圍更大的結論——而本檔已經有一條就是為了撤回那種外推而存在的（〈foliate-js 的直排在 Firefox 沒有壞〉）。
+
 ## 這份文件裡的「墨水像素」是什麼
 
 底下有十幾處拿墨水像素數當證據（「總墨水差 0.01%」「752 對 1086」），所以定義寫在這裡，否則那些數字重量不出來——換一個門檻值，整批數字全部會變，而且是安靜地變。
@@ -260,6 +271,8 @@ Chromium 那一欄的意思是：**同一份 `lang=zh-TW` 的內容，只因為�
 
 **這句宣稱因此撤回**，#1 的 Further Notes 已據此改寫。要注意的邊界：Playwright 的 Firefox 與 WebKit 都是 Linux 建置，文字塑形走 HarfBuzz + Fontconfig；真 Safari 走 CoreText，**iOS 未驗證**（ADR-0004 明列不做）。「foliate 在 Firefox 上直排是好的」這句話的範圍就是這個環境。
 
+> **這條撤回容易被別的條目重新推翻掉，實際發生過一次。** 本檔另有〈`-epub-` 與 `-webkit-` 前綴的 `writing-mode`，Firefox 不認〉，單看那條的標題與截圖，很自然會得出「Firefox 直排有問題」——但那條量的是**屬性名的前綴**，同一個 Firefox 換成標準寫法就正常。兩條講的不是同一件事。往後新增任何「Firefox + 直排」的條目時，都要回來確認它有沒有讓這個撤回失效；如果沒有，就在那一條裡明講。
+
 **對排序的影響**：#1 原本說「若 Firefox 真的壞 → 那是 frond 最主要的技術挑戰」。那個分支不成立，`Renderer` 直排不再是存亡問題。取而代之的風險小得多也具體得多：WebKit 的 `vert`（已有繞法）與下一條的分頁分歧（沒有繞法，但只影響差分測試的適用範圍）。
 
 ---
@@ -406,6 +419,88 @@ foliate 對 WebKit 字符裁切的繞法是無條件寫進 `documentElement` 的
 登記在這裡是為了讓「十二處」這個數字有邊界——以下這些看起來也像補丁，但它們不是為了繞過瀏覽器 bug：
 
 - **`column-width` 取整數像素**（L316，`Math.trunc(columnWidth)`）。spine 踩過的「直排欄寬必須取整數否則一屏疊出好幾頁」就是這件事，但 foliate 沒有把它註記成瀏覽器 bug。frond 需要，承接「`Renderer`：直排單欄幾何、整數像素、分數 DPI 邊界」。
-- **改寫書的 CSS：去掉 `-epub-` 前綴、把 `vw`／`vh` 換成 px**（L655–658）。前者是 EPUB 規格的歷史包袱，後者是「viewport 單位在分欄容器裡意義不對」——都不是瀏覽器 bug。
+- **改寫書的 CSS：把 `vw`／`vh` 換成 px**（L655–658）。「viewport 單位在分欄容器裡意義不對」，不是瀏覽器 bug。
+  同一段程式碼另外會**去掉 `-epub-` 前綴**，那一項原本也列在這裡、理由寫「EPUB 規格的歷史包袱」——**那個歸類是錯的，已據實測移出**：它是一條真的瀏覽器補丁，見本檔〈`-epub-` 與 `-webkit-` 前綴的 `writing-mode`，Firefox 不認〉。
 - **`overflow-wrap: break-word`**（L324–325）與圖片的 `break-inside: avoid`（L356–358）。版面政策，不是繞法。
 - **兩處 `FIXME: vertical-rl only, not -lr`**（L718、L899）。都在 scrolled mode 的路徑內，而 frond v1 不做 scrolled mode，中日文也一律 `vertical-rl`。ADR-0001 引用過這兩處，這次確認位置不變。
+
+---
+
+## `-epub-` 與 `-webkit-` 前綴的 `writing-mode`，Firefox 不認（#21）
+
+**先講這一條不是什麼：它不是「Firefox 的直排有問題」。**
+
+Firefox 的直排支援是完整的，而且在三家裡是**最正確**的那一家——本檔第一條量到的是 WebKit 在直排下不自動套用 `vert`（日文句點留在左下），Firefox 在那一格是對的；〈foliate-js 的直排在 Firefox 沒有壞〉那條量到它排得出直排、翻得動頁、CFI 往返回得到原位，欄寬／頁數／進度與另外兩家逐位數相同。
+
+Firefox 不認的只是兩個**私有前綴的屬性名**。同一個 Firefox，只把屬性名換成標準寫法就正常了（見下表第一列與最後兩列）。而且嚴格說**Firefox 在這裡是對的**：標準屬性是 `writing-mode`，`-epub-` 是 EPUB 閱讀系統的前綴、`-webkit-` 是 WebKit 的前綴，沒有任何規範要求 Firefox 實作別家的私有前綴。壞的是那本書——它只寫了兩個私有前綴，完全沒寫標準屬性。
+
+這件事要寫在最前面，因為「foliate 直排在 Firefox 是壞的」這句話曾經被當成事實寫進 #1 的工作排序、被 ADR-0001 標為未經核實、最後由 #7 實測撤回。**讓那個結論從「Firefox 不認前綴」這條新路徑重新長回來，代價跟第一次一樣。**
+
+**症狀**
+
+書把直排宣告成 `-epub-writing-mode: vertical-rl` 或 `-webkit-writing-mode: vertical-rl` 而**沒有**無前綴的那一條時，Firefox 整份文件排成橫排。Chromium 與 WebKit 兩個前綴都認。
+
+這不是造出來的案例。觸發點是一本真書：**《入境大廳》**（ADR-0007 的觸發點之一，Adobe InDesign 17.0.1 產、EPUB 3、繁中直排、`page-progression-direction="rtl"`）。它的 `<body>` 上宣告的是那兩個前綴版本，**無前綴的 `writing-mode` 一次都沒有出現**——所以整本書在 Firefox 上是橫排的。
+
+在 `<body>` 上宣告 `vertical-rl`，量 computed `writing-mode` 與相鄰兩個字元的推進（`あ` → `い`，Noto Serif CJK JP 32px、`line-height: 1`；直排是 dx 0／dy 正，橫排是 dx 正／dy 0）：
+
+| `<body>` 上的宣告 | Chromium | Firefox | WebKit |
+| --- | --- | --- | --- |
+| `writing-mode: vertical-rl` | `vertical-rl`，dy +32 | `vertical-rl`，dy +32 | `vertical-rl`，dy +32 |
+| `-epub-writing-mode: vertical-rl` | `vertical-rl`，dy +32 | **`horizontal-tb`，dx +32** | `vertical-rl`，dy +32 |
+| `-webkit-writing-mode: vertical-rl` | `vertical-rl`，dy +32 | **`horizontal-tb`，dx +32** | `vertical-rl`，dy +32 |
+| **兩個前綴都給（真書的形狀）** | `vertical-rl`，dy +32 | **`horizontal-tb`，dx +32** | `vertical-rl`，dy +32 |
+| `writing-mode: tb-rl`（舊語法） | `vertical-rl`，dy +32 | `vertical-rl`，dy +32 | `vertical-rl`，dy +32 |
+| `writing-mode:vertical-rl`（冒號後無空白） | `vertical-rl`，dy +32 | `vertical-rl`，dy +32 | `vertical-rl`，dy +32 |
+
+computed 值與幾何在每一格都同進退——宣告被丟掉時兩者一起變成橫排，所以這裡沒有「computed 說對了但畫出來是錯的」那種分歧（那是本檔第一條的形狀）。
+
+**看得到的樣子**（同一份宣告：`-epub-` 與 `-webkit-` 前綴寫在 `<body>` 上、無前綴的不給；320×220 容器、Noto Serif CJK TC 22px、`line-height: 1.6`）：
+
+| Chromium | Firefox | WebKit |
+| --- | --- | --- |
+| ![](evidence/21/chromium-prefixed-writing-mode.png) | ![](evidence/21/firefox-prefixed-writing-mode.png) | ![](evidence/21/webkit-prefixed-writing-mode.png) |
+
+第一格與第三格字由上而下、行由右而左；**中間那格是橫排**，從左上開始由左而右。三張圖是同一份 HTML 在三家的結果，差異全部來自前綴要不要認。
+
+圖裡的句子是**為了截圖自造的**，不取自任何書——商業真書不進 repo，截圖同樣適用（ADR-0007）。圖以 `docs/evidence/21/` 保存；產生方式是一支一次性的 Playwright spec，用 `page.setContent` 餵上面那份 HTML 後對容器 `locator.screenshot()`，重寫得出來，因此沒有留在 repo 裡。
+
+順帶量到的三件事，都與原本的預期不同：
+
+1. **Chromium 也認 `-epub-` 前綴**，不只 `-webkit-`。前綴支援不是「WebKit 系才有」。
+2. **舊語法 `writing-mode: tb-rl` 三家都認**，而且 computed 值正規化成 `vertical-rl`。本機真書裡《我的公寓》與《給力》的樣式表仍有這種寫法，與現代語法並存——讀 computed style 的偵測不需要認得舊語法。
+3. **冒號後沒有空白三家都正常。** 這一格沒有分歧，登記它是為了說明**偵測不可以用字串比對**：《入境大廳》寫的是 `-epub-writing-mode:vertical-rl`，在原始碼上比對 `"writing-mode: vertical-rl"` 會漏掉這本書，而 CSSOM 看到的是正規化後的值。
+
+**繞法**
+
+把前綴宣告正規化成無前綴的等價宣告。
+
+foliate 的 `paginator.js` L655–658 做的正是這件事。本檔上一節原本把它歸類成「相鄰但不算瀏覽器補丁」的其中一項、理由寫「EPUB 規格的歷史包袱」——**那個歸類錯了，已據本條修正**：它是一條真的繞法，繞的是 Firefox 不認前綴這件事。foliate 沒有註記原因，所以照抄的人不會知道拿掉它的代價是一家瀏覽器整本排錯。
+
+**frond 是否需要處理**
+
+需要。而且這一格與 ADR-0003 介入清單裡「InDesign 書把 `writing-mode` 宣告在 `<body>` 而非 `<html>`」那一格**看起來是同一件事，理由卻不同**，值得分清楚——那兩件事在同一本真書上同時發生：
+
+| | 位置在 `<body>` | 屬性名帶前綴 |
+| --- | --- | --- |
+| 瀏覽器有照書做嗎 | **有**。三家的 `body` computed 值都是 `vertical-rl` | **Firefox 沒有**。宣告被丟掉 |
+| 誰讀得不夠 | library（只讀 `documentElement`） | 沒有人讀不夠，是宣告根本沒生效 |
+| frond 要做什麼 | 讀 `<body>` 也要看 | 把宣告翻譯成瀏覽器認得的寫法 |
+
+第二欄不是「覆寫書的宣告」——書的**意圖**沒有被改變，改的只是表達它的語法。
+
+> **ADR-0003 的實例表已依本條新增一行。** 加的是右欄那個案例，並明寫「不要套用『frond 讀得不夠』」——那句話在這裡是錯的，而兩格在同一本真書上同時發生，很容易被當成一件事。真正進入介入的封閉清單是 `Renderer` 存在之後的事，那時要連帶決定正規化發生在哪一層。
+
+**這條也暴露了一個 fixture 的保真度缺口。** 現有的 `writing-mode-on-body.epub` 只演「位置在 `<body>`」一個軸，宣告寫的是無前綴的 `writing-mode`——而真書是兩個軸疊在一起，且無前綴的那條不存在。照現有 fixture 開發出來的偵測會在三家全綠，然後在真書上讓 Firefox 排錯。補這一份 fixture 承接 #9 重畫切片圖時的 fixture 票。
+
+**哪個測試會抓到**
+
+`tests/browser/smoke/writing-mode-declaration.spec.ts`。它刻意**釘住分歧而不期待三家一致**，理由同 `regional-faces.spec.ts`：分歧是瀏覽器的性質，frond 要據此決定介入，它變了必須有人知道。
+
+已驗證有牙齒：把 `firefox` 從該檔的 `IGNORES_PREFIXED_WRITING_MODE` 移除，前綴那兩條測試在 Firefox 上立刻紅，而與例外清單無關的另外三條（無前綴、`tb-rl`、無空白）保持綠。
+
+**環境**
+
+`Dockerfile` 的映像（`mcr.microsoft.com/playwright:v1.61.1-noble`）。Chromium 149.0.7827.0、Firefox 151.0、WebKit 26.5——量測時重新確認過版本，與本檔其他條目相同。三家都是 Linux 建置。**真 Safari 走 CoreText，iOS 未驗證**（ADR-0004 明列不做）；前綴支援是 CSS 解析層的事，與文字塑形無關，但沒有量過就是沒有量過。
+
+**沒有任何渲染器參與**（見〈這個數字是誰排的〉）：量測是 `page.setContent` 餵一份手寫的 HTML／CSS，frond 目前也還沒有任何渲染程式碼。所以這一條講的是瀏覽器本身的行為，換渲染器仍然成立——與本檔那兩條直排量測不同，它們是在 foliate 的分欄設定下量到的。
