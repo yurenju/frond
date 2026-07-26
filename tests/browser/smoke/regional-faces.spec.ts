@@ -4,6 +4,7 @@ import {
   glyphMarkup,
   screenshotGlyph,
   screenshotGlyphInIsolation,
+  withFreshPage,
 } from "../support/glyph.js";
 import { decodePixels } from "../support/ink.js";
 import { documentWith } from "../support/document.js";
@@ -116,63 +117,99 @@ test.describe("指名字面", () => {
  *
  * 三家各自繞開 fontconfig 的 generic 綁定的方式不同：
  *
- *   Firefox   拿書的 lang 去問 fontconfig 要 serif → 綁定完全生效，答案正確。
- *   WebKit    有問 fontconfig 要 serif，但不帶書的 lang；缺的 lang 由 fontconfig
- *             用**行程的 locale** 補上，於是整個行程共用一個區域字面。容器的
- *             locale 是 C.UTF-8，落在通則的 TC。
- *   Chromium  根本沒問 fontconfig 要 serif——generic family 是 Blink 自己的字型
- *             偏好，預設值是 "Times New Roman"，解析到沒有 CJK 的 Liberation
- *             Serif；CJK 字元接著走逐字元 fallback，落到 Noto **Sans** CJK。
- *             也就是說書宣告 serif，畫出來的 CJK 是黑體。
+ *   Firefox   拿書的 lang 去問 fontconfig 要 serif／sans-serif → 綁定完全生效。
+ *   WebKit    有問 fontconfig 要 generic family，但不帶書的 lang；缺的 lang 由
+ *             fontconfig 用**行程的 locale** 補上，於是整個行程共用一個區域
+ *             字面。容器的 locale 是 C.UTF-8，落在通則的 TC。
+ *   Chromium  根本沒問 fontconfig 要 generic family——那是 Blink 自己的字型
+ *             偏好，解析到沒有 CJK 的 Liberation Serif／Sans；CJK 字元接著走
+ *             逐字元 fallback 另外補一套字型上來。
  *
  * frond 不介入（ADR-0003：書醜不是介入理由，三家不一致也不是）。跨瀏覽器自我
  * 差分要成立就得由**讀者設定**指名字面——指名之後三家一致，那組測試在上面。
  */
 
 /**
- * serif + 該 lang 實際落到的字面。改這張表要附上量測。
+ * generic family + 該 lang 實際落到的字面。改這張表要附上量測。
  *
- * Chromium 那兩格是**字型堆疊**而不是單一字面，因為它的 serif 是兩段式的：
- * 主字型 Liberation Serif 決定行高與基線、但沒有 CJK 字符，CJK 再由逐字元
- * fallback 補上。拿單一 Noto Sans CJK 字面去比會不相等——字符一樣，但基線由
- * 主字型決定，位置差了幾個像素。堆疊寫法把這兩段都重現出來。
+ * Chromium 那幾格是**字型堆疊**而不是單一字面，因為它的 generic family 是
+ * 兩段式的：主字型（Liberation Serif／Sans）決定行高與基線、但沒有 CJK 字符，
+ * CJK 再由逐字元 fallback 補上。拿單一 Noto CJK 字面去比會不相等——字符一樣，
+ * 但基線由主字型決定，位置差了幾個像素。堆疊寫法把這兩段都重現出來。
+ *
+ * 這也是為什麼 Chromium 的 sans-serif 仍然算不一致：區域字面挑對了，但主字型
+ * 是拉丁字型，行高與另外兩家不同，斷行跟著不同。
  */
-const SERIF_LANDS_ON: Record<string, Record<string, string>> = {
-  chromium: {
-    ja: '"Liberation Serif", "Noto Sans CJK JP"',
-    "zh-TW": '"Liberation Serif", "Noto Sans CJK TC"',
+const LANDS_ON: Record<string, Record<string, Record<string, string>>> = {
+  serif: {
+    chromium: {
+      ja: '"Liberation Serif", "Noto Sans CJK JP"',
+      "zh-TW": '"Liberation Serif", "Noto Sans CJK TC"',
+    },
+    firefox: { ja: JAPANESE_FACE, "zh-TW": TRADITIONAL_CHINESE_FACE },
+    webkit: {
+      ja: TRADITIONAL_CHINESE_FACE,
+      "zh-TW": TRADITIONAL_CHINESE_FACE,
+    },
   },
-  firefox: { ja: JAPANESE_FACE, "zh-TW": TRADITIONAL_CHINESE_FACE },
-  webkit: {
-    ja: TRADITIONAL_CHINESE_FACE,
-    "zh-TW": TRADITIONAL_CHINESE_FACE,
+  "sans-serif": {
+    chromium: {
+      ja: '"Liberation Sans", "Noto Sans CJK JP"',
+      "zh-TW": '"Liberation Sans", "Noto Sans CJK TC"',
+    },
+    firefox: {
+      ja: '"Noto Sans CJK JP"',
+      "zh-TW": '"Noto Sans CJK TC"',
+    },
+    webkit: {
+      ja: '"Noto Sans CJK TC"',
+      "zh-TW": '"Noto Sans CJK TC"',
+    },
   },
 };
 
-/** 書宣告 serif 時，依 lang 應該得到的字面。只有 Firefox 給得出來。 */
-const CORRECT_FACE: Record<string, string> = {
-  ja: JAPANESE_FACE,
-  "zh-TW": TRADITIONAL_CHINESE_FACE,
+/** 書宣告 generic family 時，依 lang 應該得到的字面。只有 Firefox 給得出來。 */
+const CORRECT_FACE: Record<string, Record<string, string>> = {
+  serif: { ja: JAPANESE_FACE, "zh-TW": TRADITIONAL_CHINESE_FACE },
+  "sans-serif": { ja: '"Noto Sans CJK JP"', "zh-TW": '"Noto Sans CJK TC"' },
 };
 
 test.describe("generic family 依 lang 的解析（#4：不可解，釘住現況）", () => {
-  for (const lang of ["ja", "zh-TW"]) {
-    test(`lang=${lang} 的 serif 落在哪個字面`, async ({ browser }, testInfo) => {
-      const landsOnFace = lookUp(
-        lookUp(SERIF_LANDS_ON, testInfo.project.name, "SERIF_LANDS_ON"),
-        lang,
-        "SERIF_LANDS_ON",
-      );
-      const correctFace = lookUp(CORRECT_FACE, lang, "CORRECT_FACE");
+  for (const generic of ["serif", "sans-serif"]) {
+    for (const lang of ["ja", "zh-TW"]) {
+      test(`${generic} + lang=${lang} 落在這一家的實測字面上`, async ({
+        browser,
+      }, testInfo) => {
+        const landsOnFace = lookUp(
+          lookUp(
+            lookUp(LANDS_ON, generic, "LANDS_ON"),
+            testInfo.project.name,
+            "LANDS_ON",
+          ),
+          lang,
+          "LANDS_ON",
+        );
+        const correctFace = lookUp(
+          lookUp(CORRECT_FACE, generic, "CORRECT_FACE"),
+          lang,
+          "CORRECT_FACE",
+        );
 
-      const viaGenericFamily = await renderInIsolation(browser, lang);
-      const landsOn = await renderInIsolation(browser, lang, landsOnFace);
-      const correct = await renderInIsolation(browser, lang, correctFace);
+        const viaGenericFamily = await renderInIsolation(
+          browser,
+          lang,
+          generic,
+        );
+        const landsOn = await renderInIsolation(browser, lang, landsOnFace);
+        const correct = await renderInIsolation(browser, lang, correctFace);
 
-      expect(viaGenericFamily.equals(landsOn)).toBe(true);
-      // 同一條斷言順便回答「這個落點對不對」，兩者不會各自漂走。
-      expect(viaGenericFamily.equals(correct)).toBe(landsOnFace === correctFace);
-    });
+        expect(viaGenericFamily.equals(landsOn)).toBe(true);
+        // 同一條斷言順便回答「這個落點對不對」，兩者不會各自漂走。
+        expect(viaGenericFamily.equals(correct)).toBe(
+          landsOnFace === correctFace,
+        );
+      });
+    }
   }
 
   /**
@@ -196,7 +233,7 @@ test.describe("generic family 依 lang 的解析（#4：不可解，釘住現況
     webkit: { sameWithinPage: true, stableAcrossOrders: true },
   };
 
-  test("同一頁的兩個 iframe 是否各自依 lang 解析", async ({
+  test("同一頁的兩個 iframe：Chromium 由第一個決定，Firefox 各自依 lang，WebKit 都不看 lang", async ({
     browser,
   }, testInfo) => {
     const signature = lookUp(
@@ -257,41 +294,52 @@ async function renderInIsolation(
   );
 }
 
-/** 一頁兩個 iframe，各自宣告 serif 與自己的 lang，依宣告順序回傳兩者的像素。 */
+/**
+ * 一頁兩個 iframe，各自宣告 serif 與自己的 lang，依宣告順序回傳兩者的像素。
+ *
+ * 兩個 iframe 是**先後**掛上去的，不是一次寫進 setContent。這條測試的主題就是
+ * 「誰先渲染」，而同時掛兩個的話兩份 srcdoc 誰先跑完並不保證——那會讓斷言的
+ * 紅綠取決於一個沒有人控制的競速。
+ */
 async function renderTwoFrames(
   browser: Browser,
   langs: readonly [string, string],
 ): Promise<[Buffer, Buffer]> {
-  const context = await browser.newContext();
-  try {
-    const page = await context.newPage();
-    // srcdoc 用單引號包，內層的 lang="…" 才不會把屬性截斷。這裡一律走 generic
-    // family，所以標記裡沒有帶引號的字型名。
-    await page.setContent(
-      documentWith(
-        langs
-          .map(
-            (lang) =>
-              `<iframe id="frame-${lang}" width="${GLYPH_BOX_PX + 20}" height="${GLYPH_BOX_PX + 20}" style="border:0" srcdoc='${glyphMarkup(
-                { char: IDEOGRAPHIC_FULL_STOP, lang },
-              )}'></iframe>`,
-          )
-          .join(""),
-      ),
-    );
+  return withFreshPage(browser, async (page) => {
+    await page.setContent(documentWith(""));
 
-    const [first, second] = langs;
-    return [
-      await screenshotFrame(page, first),
-      await screenshotFrame(page, second),
-    ];
-  } finally {
-    await context.close();
-  }
+    const rendered: Buffer[] = [];
+    for (const lang of langs) {
+      rendered.push(await appendFrameAndScreenshot(page, lang));
+    }
+    const [first, second] = rendered;
+    return [first!, second!];
+  });
 }
 
-async function screenshotFrame(page: Page, lang: string): Promise<Buffer> {
-  return decodePixels(
-    await page.frameLocator(`#frame-${lang}`).locator("#glyph").screenshot(),
-  );
+async function appendFrameAndScreenshot(
+  page: Page,
+  lang: string,
+): Promise<Buffer> {
+  // srcdoc 用單引號包，內層的 lang="…" 才不會把屬性截斷。這裡一律走 generic
+  // family，所以標記裡沒有帶引號的字型名。
+  const frame = `<iframe id="frame-${lang}" width="${GLYPH_BOX_PX + 20}" height="${
+    GLYPH_BOX_PX + 20
+  }" style="border:0" srcdoc='${glyphMarkup({
+    char: IDEOGRAPHIC_FULL_STOP,
+    lang,
+  })}'></iframe>`;
+
+  await page.evaluate((html) => {
+    document.body.insertAdjacentHTML("beforeend", html);
+  }, frame);
+
+  const glyph = page.frameLocator(`#frame-${lang}`).locator("#glyph");
+  await glyph.waitFor();
+  await page
+    .frameLocator(`#frame-${lang}`)
+    .locator("body")
+    .evaluate(() => document.fonts.ready);
+
+  return decodePixels(await glyph.screenshot());
 }

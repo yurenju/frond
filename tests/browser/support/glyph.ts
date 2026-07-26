@@ -87,9 +87,17 @@ export async function screenshotGlyphInIsolation(
   browser: Browser,
   request: GlyphRequest,
 ): Promise<Buffer> {
+  return withFreshPage(browser, (page) => screenshotGlyph(page, request));
+}
+
+/** 一個用完就丟的 context 與 page。同上，理由是那份 fallback 快取。 */
+export async function withFreshPage<T>(
+  browser: Browser,
+  use: (page: Page) => Promise<T>,
+): Promise<T> {
   const context = await browser.newContext();
   try {
-    return await screenshotGlyph(await context.newPage(), request);
+    return await use(await context.newPage());
   } finally {
     await context.close();
   }
