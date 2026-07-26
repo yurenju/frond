@@ -51,9 +51,11 @@ foliate-js 的 `paginator.js` 不注入任何 `font-feature-settings`，所以�
 | Firefox | **逐位元組相同** | (0.770, 0.203) ／ 125 px | 同左 |
 | WebKit | **不同** | (0.447, 0.447) ／ 157 px | (0.765, 0.224) ／ 196 px |
 
-| | WebKit 預設 | WebKit 強制 `"vert" 1` | 對照：Chromium 預設 |
-| --- | --- | --- | --- |
-| foliate 渲染的 `。`（64px） | ![](evidence/7/webkit-fullstop.png) | ![](evidence/7/webkit-fullstop-vert-forced.png) | ![](evidence/7/chromium-fullstop.png) |
+| | WebKit 預設 | WebKit 強制 `"vert" 1` | Chromium 預設 | Firefox 預設 |
+| --- | --- | --- | --- | --- |
+| foliate 渲染的 `。`（64px） | ![](evidence/7/webkit-fullstop.png) | ![](evidence/7/webkit-fullstop-vert-forced.png) | ![](evidence/7/chromium-fullstop.png) | ![](evidence/7/firefox-fullstop.png) |
+
+右邊三格的句點都在右上，只有第一格在左下。WebKit 那兩格裁進了上一個字的一角（原因見上一段），另外兩格沒有——所以**不要拿第一格的墨水像素數去和第三、四格比**，那條比法在這裡不成立。
 
 **frond 是否需要處理**
 
