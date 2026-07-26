@@ -84,7 +84,11 @@ docker context use rootless
 
 映像的 `RUN` 步驟跑在容器自己的 network namespace，**那裡的 `127.0.0.1` 是容器的 loopback，不是外面的 proxy**。若 proxy 設在 `127.0.0.1` 上而不處理，`apt-get` 與 `npm ci` 會直接連不出去，而且錯誤訊息看起來像網域被擋。
 
-`scripts/test-in-container.sh` 偵測到 `HTTPS_PROXY` 時會自動以 `--network=host` 建置並把 proxy 傳成 build args。沒有 proxy 的環境（例如 GitHub Actions）不會加上這些參數。
+`scripts/test-in-container.sh` **刻意不處理這件事**——proxy 屬於容器引擎的設定，不是測試腳本的責任。
+
+直覺的做法是把外面的 `HTTPS_PROXY` 用 `--build-arg` 傳進去，但那正是上一段講的坑：傳進去的 `127.0.0.1` 在容器裡指向容器自己，只會把引擎本來設對的值蓋掉，讓 `apt-get` 撞上 connection refused。腳本自己去猜，也會把一台設錯的機器靜默修好，於是沒有人知道它是錯的（同 daemon preflight 那條「只診斷不代打」的理由）。
+
+正確的設定位置在引擎那一側：rootless docker 會自行把 daemon 的 proxy 設定注入每個容器，指向 slirp gateway 而不是 loopback。沒有 proxy 的環境（例如 GitHub Actions）本來就不需要任何處理。
 
 ## 版本為什麼全部釘死
 
