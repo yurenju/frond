@@ -44,6 +44,17 @@ export interface TocEntry {
   readonly archivePath: string;
 }
 
+/**
+ * TOC 的一個節點，**保留層次**。
+ *
+ * 與攤平的 `toc` 是兩個不同的問題，所以兩個都在：href 的病症（`%2c`、`../`）
+ * 問的是每一項寫成什麼樣，攤平比較好問；巢狀問的是樹長什麼形狀，而那在攤平
+ * 之後就消失了——只有攤平版本的話，一份把子項目放成兄弟的導覽文件會全綠。
+ */
+export interface TocNode extends TocEntry {
+  readonly children: readonly TocNode[];
+}
+
 /** 承載 TOC 的那份檔案是哪一種。EPUB 3 是 `nav.xhtml`，EPUB 2 是 `toc.ncx`。 */
 export type NavigationVehicle = "nav" | "ncx";
 
@@ -74,7 +85,10 @@ export interface EpubArchive {
   readonly navigationPath: string;
   /** TOC 是從哪一種載體讀出來的。ADR-0010 要 frond 回報這件事。 */
   readonly navigationVehicle: NavigationVehicle;
+  /** TOC 攤平成文件順序的一串。巢狀的層次見 `tocTree`。 */
   readonly toc: readonly TocEntry[];
+  /** TOC 保留層次的樣子。頂層項目在這裡，子項目在各自的 `children` 底下。 */
+  readonly tocTree: readonly TocNode[];
   /** 兩種寫法都找不到就是這本書沒有封面——那不是錯誤（ADR-0010）。 */
   readonly cover: CoverDeclaration | undefined;
   readonly stylesheet: string;
@@ -149,14 +163,15 @@ export function openEpub(archive: Uint8Array): EpubArchive {
     text(navigation.item.archivePath),
     navigation.item.archivePath,
   );
-  const toc = (
+  // 兩種載體的 TOC 各自從自己的根元素往下讀，而不是在整份文件上遞迴找標籤。
+  // 遞迴找的話，`<nav>` 之外的 `<a>`（例如 landmarks 那份 nav）也會被收進來，
+  // 而那不是 TOC。
+  const tocTree = resolveTocTree(
     navigation.vehicle === "ncx"
-      ? collectNcxEntries(navigationDocument)
-      : collectNavEntries(navigationDocument)
-  ).map((entry) => ({
-    ...entry,
-    archivePath: resolve(entry.href, navigation.item.archivePath),
-  }));
+      ? collectNcxTree(pickPath(navigationDocument, "ncx", "navMap"))
+      : collectNavTree(pickPath(navigationDocument, "html", "body", "nav")),
+    navigation.item.archivePath,
+  );
 
   const stylesheetItem = manifest.find((item) => item.mediaType === "text/css");
   if (stylesheetItem === undefined) {
@@ -176,7 +191,8 @@ export function openEpub(archive: Uint8Array): EpubArchive {
         : String(readingOrderElement["@_page-progression-direction"]),
     navigationPath: navigation.item.archivePath,
     navigationVehicle: navigation.vehicle,
-    toc,
+    toc: flattenToc(tocTree),
+    tocTree,
     cover: findCover(manifest, metadata),
     stylesheet: text(stylesheetItem.archivePath),
     language: pickText(metadata, "dc:language"),
@@ -318,33 +334,34 @@ function asArray(value: unknown): XmlNode[] {
   return (Array.isArray(value) ? value : [value]) as XmlNode[];
 }
 
-interface RawTocEntry {
+interface RawTocNode {
   readonly label: string;
   readonly href: string;
+  readonly children: readonly RawTocNode[];
 }
 
 /**
- * `nav.xhtml` 的 TOC——標籤與位置都在 `<a>` 上。巢狀是 `<ol>` 套 `<ol>`，而這裡
- * 一律遞迴，所以巢狀版本進來時會被攤平成同一串（#23）。
+ * `nav.xhtml` 的 TOC——標籤與位置都在 `<a>` 上，巢狀是 `<li>` **裡面**再開一個
+ * `<ol>`。
+ *
+ * 「裡面」是重點：子清單放成 `<li>` 的兄弟時 XHTML 一樣良構、瀏覽器一樣畫得
+ * 出來，但那棵樹是平的。這裡照 `<li>` 的邊界收子項目，所以放錯位置的導覽文件
+ * 會在深度上看得出來，而不是靜默地變成一串。
  */
-function collectNavEntries(node: unknown): RawTocEntry[] {
-  if (node === null || typeof node !== "object") return [];
-  const found: RawTocEntry[] = [];
-  for (const [key, value] of Object.entries(node as XmlNode)) {
-    if (key === "a") {
-      for (const anchor of asArray(value)) {
-        found.push({
-          label: String(anchor["#text"] ?? ""),
-          href: String(anchor["@_href"]),
-        });
-      }
-      continue;
-    }
-    for (const child of asArray(value)) {
-      found.push(...collectNavEntries(child));
-    }
-  }
-  return found;
+function collectNavTree(node: XmlNode): RawTocNode[] {
+  const list = node["ol"];
+  if (list === undefined) return [];
+
+  return asArray(list).flatMap((ol) =>
+    asArray(ol["li"]).map((li) => {
+      const anchor = pick(li, "a");
+      return {
+        label: String(anchor["#text"] ?? ""),
+        href: String(anchor["@_href"]),
+        children: collectNavTree(li),
+      };
+    }),
+  );
 }
 
 /**
@@ -352,26 +369,31 @@ function collectNavEntries(node: unknown): RawTocEntry[] {
  * navPoint 的兩個**不同**子元素。這是與 `nav.xhtml` 最大的形狀差異：那邊一個
  * `<a>` 同時帶著兩者，這邊要把它們湊起來，而湊錯（例如拿 navPoint 的 id 當
  * 標籤）在平的 TOC 上看不出來。
+ *
+ * 巢狀則是 navPoint 直接套 navPoint，中間沒有 `<ol>` 那種容器元素。
  */
-function collectNcxEntries(node: unknown): RawTocEntry[] {
-  if (node === null || typeof node !== "object") return [];
-  const found: RawTocEntry[] = [];
-  for (const [key, value] of Object.entries(node as XmlNode)) {
-    if (key === "navPoint") {
-      for (const navPoint of asArray(value)) {
-        found.push({
-          label: String(pick(navPoint, "navLabel")["text"] ?? ""),
-          href: String(pick(navPoint, "content")["@_src"]),
-        });
-        // navPoint 套 navPoint 就是 NCX 的巢狀（#23）。子項目跟著攤平，順序與
-        // 文件順序一致。
-        found.push(...collectNcxEntries(navPoint));
-      }
-      continue;
-    }
-    for (const child of asArray(value)) {
-      found.push(...collectNcxEntries(child));
-    }
-  }
-  return found;
+function collectNcxTree(node: XmlNode): RawTocNode[] {
+  return asArray(node["navPoint"]).map((navPoint) => ({
+    label: String(pick(navPoint, "navLabel")["text"] ?? ""),
+    href: String(pick(navPoint, "content")["@_src"]),
+    children: collectNcxTree(navPoint),
+  }));
+}
+
+/** 把每一項的 href 解析成壓縮檔內的路徑，層次原樣保留。 */
+function resolveTocTree(
+  nodes: readonly RawTocNode[],
+  fromArchivePath: string,
+): TocNode[] {
+  return nodes.map((node) => ({
+    label: node.label,
+    href: node.href,
+    archivePath: resolve(node.href, fromArchivePath),
+    children: resolveTocTree(node.children, fromArchivePath),
+  }));
+}
+
+/** 把樹攤平成文件順序：先自己，再子項目。 */
+function flattenToc(nodes: readonly TocNode[]): TocEntry[] {
+  return nodes.flatMap((node) => [node, ...flattenToc(node.children)]);
 }

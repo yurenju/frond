@@ -39,10 +39,32 @@ export const PROSE: readonly Prose[] = [
   },
 ];
 
-/** 把一段散文組成 XHTML 的 `<body>` 內容。 */
-export function proseBody(prose: Prose): string {
+/**
+ * 把一段散文組成 XHTML 的 `<body>` 內容。
+ *
+ * `anchorIds` 把段落編號（從 1 起算）對到要掛上去的 `id`。**只有被指到的那幾
+ * 段會長出 id**，其餘逐字元不變。它服務的是巢狀 TOC：第二層指的是 Section
+ * **裡面**的位置，而指向不存在的 id 會讓那份 fixture 除了「TOC 有兩層」之外
+ * 多帶一個病症。
+ *
+ * 整份都掛 id 也能達到同樣效果，但那讓 fixture 與健康骨架的差異比單點差異需要
+ * 的更大，而多出來的 id 沒有任何東西指得到——實際的書（Sigil）也只在被目錄指
+ * 到的那個位置放 id。
+ *
+ * 省略時輸出與加入這個參數之前逐字元相同——既有 fixture 的位元組不因為它而
+ * 漂掉。
+ */
+export function proseBody(
+  prose: Prose,
+  anchorIds: ReadonlyMap<number, string> = new Map(),
+): string {
   return [
     `    <h1>${prose.title}</h1>`,
-    ...prose.paragraphs.map((paragraph) => `    <p>${paragraph}</p>`),
+    ...prose.paragraphs.map((paragraph, index) => {
+      const id = anchorIds.get(index + 1);
+      return id === undefined
+        ? `    <p>${paragraph}</p>`
+        : `    <p id="${id}">${paragraph}</p>`;
+    }),
   ].join("\n");
 }

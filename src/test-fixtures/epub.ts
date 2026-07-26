@@ -76,6 +76,25 @@ export type CoverNotation = "cover-image-property" | "meta-name";
 
 const COVER_ID = "cover-image";
 
+/**
+ * TOC 的第二層——掛在某個 Section 底下的子項目。
+ *
+ * 位置用 fragment 而不是另一個檔案的路徑：樣本裡那本巢狀的 EPUB 2（Sigil →
+ * calibre）第二層指的正是同一份 Section 內的 id，而且**同一份 NCX 裡帶 fragment
+ * 與不帶的混用**——省略 `fragment` 就是不帶的那一種。
+ */
+export interface TocSubitemSpec {
+  readonly title: string;
+  /**
+   * 這個子項目指向 Section 內的哪個 id。省略時指向 Section 的開頭，也就是與
+   * 上一層同一個 href——那是實際的書裡確實出現的形狀，不是缺陷。
+   *
+   * 給了值時，Section 的 `body` 裡必須真的有那個 id，否則這份 fixture 帶的是
+   * 「TOC 指向不存在的錨點」這第二個病症。
+   */
+  readonly fragment?: string;
+}
+
 export interface SectionSpec {
   /** 相對於內容目錄的路徑，例如 `section-1.xhtml`。 */
   readonly path: string;
@@ -90,10 +109,25 @@ export interface SectionSpec {
    * NCX 的 `<content src>`。實測的壞 TOC 正是長在 NCX 上（ADR-0010、#23）。
    */
   readonly navHref?: string;
+  /**
+   * 這個 Section 在 TOC 裡的子項目。省略或空陣列時 TOC 在這一項上是平的。
+   *
+   * 巢狀是 TOC 的層次，不是 readingOrder 的層次——readingOrder 永遠是平的一
+   * 串。兩種載體表達同一棵樹的形狀不同（`<ol>` 套 `<ol>` 對 navPoint 套
+   * navPoint），所以各自有各自的解析錯法（#23）。
+   */
+  readonly subitems?: readonly TocSubitemSpec[];
 }
 
 export interface ResourceSpec {
-  /** 相對於內容目錄的路徑，例如 `images/plate.png`。 */
+  /**
+   * manifest 寫出去的 href，同時決定這份資源放在壓縮檔的哪裡。相對於封裝文件
+   * ——而封裝文件就在內容目錄裡，所以 `images/plate.png` 這種寫法照舊。
+   *
+   * 允許 `../` 走到封裝根：`../js/reader.js` 的 href 落在壓縮檔的 `js/reader.js`
+   * 上，而那是實際通路書（Kobo）的形狀，合規且解得開（#8 的 comment、#23）。
+   * 走出封裝根的路徑會被擋下來——那才是真的不合規。
+   */
   readonly path: string;
   readonly mediaType: string;
   readonly contents: Uint8Array;
@@ -203,8 +237,27 @@ function assertCoherent(spec: EpubSpec, epubVersion: EpubVersion): void {
   }
 }
 
+/**
+ * 一份相對於封裝文件的 href 落在壓縮檔的哪一項上。
+ *
+ * `..` 在這裡**要真的收掉**，不能字串接上去了事：`EPUB/../js/reader.js` 這個
+ * 字面上的項目名不存在於任何壓縮檔裡，而寫成那樣的書是好書（#8 的 comment）。
+ * 這正是「把 href 當字串接在內容目錄後面」會對一本好書誤報的那一步。
+ */
 function contentPath(path: string): string {
-  return `${CONTENT_DIRECTORY}/${path}`;
+  const segments: string[] = [CONTENT_DIRECTORY];
+  for (const segment of path.split("/")) {
+    if (segment === "." || segment === "") continue;
+    if (segment !== "..") {
+      segments.push(segment);
+      continue;
+    }
+    if (segments.length === 0) {
+      throw new Error(`href 走出了封裝根，不合規：${path}`);
+    }
+    segments.pop();
+  }
+  return segments.join("/");
 }
 
 function containerXml(): string {
@@ -300,13 +353,69 @@ ${readingOrder}
 `;
 }
 
-function navigationDocument(spec: EpubSpec, navigationPath: string): string {
-  const items = spec.readingOrder
-    .map(
-      (section) =>
-        `        <li><a href="${section.navHref ?? relativeHref(section.path, navigationPath)}">${escapeXml(section.title)}</a></li>`,
-    )
+/**
+ * 要寫出去的 TOC 的一個節點。**兩種載體共用這棵樹**——形狀的差異全部在渲染那
+ * 一步，不在樹上。分開建兩棵的話，「同一個 TOC 在 nav 與 NCX 上長成兩種形狀」
+ * 這件事就只是巧合，而巢狀的那兩份 fixture 正是要拿來對照的一對（#23）。
+ *
+ * 名字帶 `Spec` 是為了與**讀回來**的那一棵分開：`tests/node/support/epub-archive.ts`
+ * 匯出的 `TocNode` 是解析產出物得到的節點，多帶一個 `archivePath`。兩者是同一
+ * 個概念的兩端，但形狀不同，共用一個名字只會讓人以為它們可以互換。
+ */
+interface TocSpecNode {
+  readonly title: string;
+  /** 相對於導覽文件的 href。 */
+  readonly href: string;
+  readonly children: readonly TocSpecNode[];
+}
+
+function tocTree(spec: EpubSpec, navigationPath: string): readonly TocSpecNode[] {
+  return spec.readingOrder.map((section) => {
+    const href = section.navHref ?? relativeHref(section.path, navigationPath);
+    return {
+      title: section.title,
+      href,
+      children: (section.subitems ?? []).map((subitem) => ({
+        title: subitem.title,
+        href: subitem.fragment === undefined ? href : `${href}#${subitem.fragment}`,
+        children: [],
+      })),
+    };
+  });
+}
+
+/** 這棵樹有幾層。全平的 TOC 是 1，NCX 的 `dtb:depth` 要寫的就是這個數字。 */
+function tocDepth(nodes: readonly TocSpecNode[]): number {
+  return nodes.reduce(
+    (deepest, node) => Math.max(deepest, 1 + tocDepth(node.children)),
+    0,
+  );
+}
+
+/**
+ * `nav.xhtml` 的巢狀寫法：子清單是**掛在 `<li>` 裡面**的另一個 `<ol>`，不是
+ * `<li>` 的兄弟。放成兄弟的話 XHTML 仍然良構、瀏覽器也畫得出來，但那棵樹是平
+ * 的——這是這個載體最典型的寫錯法，而它在只有一層的 TOC 上看不出來。
+ */
+function navigationItems(nodes: readonly TocSpecNode[], indent: number): string {
+  const pad = " ".repeat(indent);
+  return nodes
+    .map((node) => {
+      const anchor = `<a href="${node.href}">${escapeXml(node.title)}</a>`;
+      if (node.children.length === 0) return `${pad}<li>${anchor}</li>`;
+      return [
+        `${pad}<li>${anchor}`,
+        `${pad}  <ol>`,
+        navigationItems(node.children, indent + 4),
+        `${pad}  </ol>`,
+        `${pad}</li>`,
+      ].join("\n");
+    })
     .join("\n");
+}
+
+function navigationDocument(spec: EpubSpec, navigationPath: string): string {
+  const items = navigationItems(tocTree(spec, navigationPath), 8);
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
@@ -335,24 +444,44 @@ ${items}
  * navPoint 套 navPoint——形狀不同，所以各自有各自的解析錯法（#23）。
  */
 function navigationControlFile(spec: EpubSpec, navigationPath: string): string {
-  const navPoints = spec.readingOrder
-    .map((section, index) => {
-      const src = section.navHref ?? relativeHref(section.path, navigationPath);
-      // playOrder 是 NCX 自己宣告的閱讀順序，與 navPoint 的文件順序在合規的書
-      // 裡一致。frond 不靠它排序，但實際的書都會寫，少了它就與實際的書不同。
-      return `    <navPoint id="navpoint-${index + 1}" playOrder="${index + 1}">
-      <navLabel><text>${escapeXml(section.title)}</text></navLabel>
-      <content src="${src}"/>
-    </navPoint>`;
-    })
-    .join("\n");
+  const tree = tocTree(spec, navigationPath);
+
+  // playOrder 是 NCX 自己宣告的閱讀順序，與 navPoint 的文件順序在合規的書裡
+  // 一致——**包括巢狀的部分**：它是整棵樹拉平後的序號，不是每一層各自從 1 重
+  // 數。frond 不靠它排序，但實際的書都會寫（樣本裡那本是 1..48 連續），少了它
+  // 就與實際的書不同。
+  let playOrder = 0;
+  const renderNavPoints = (nodes: readonly TocSpecNode[], indent: number): string => {
+    const pad = " ".repeat(indent);
+    return nodes
+      .map((node) => {
+        playOrder += 1;
+        // 先把自己的序號記下來再往下走：子項目會把計數器推上去，而樣板字串是
+        // 在子項目算完之後才取值的。少了這一行，父項目拿到的是子樹用掉的最後
+        // 一個序號。
+        const order = playOrder;
+        // 子項目**寫在 navPoint 裡面**，不是它的兄弟——那是 NCX 表達層次的唯一
+        // 方式，也是這個載體最典型的寫錯法。
+        const children =
+          node.children.length === 0
+            ? ""
+            : `\n${renderNavPoints(node.children, indent + 2)}`;
+        return `${pad}<navPoint id="navpoint-${order}" playOrder="${order}">
+${pad}  <navLabel><text>${escapeXml(node.title)}</text></navLabel>
+${pad}  <content src="${node.href}"/>${children}
+${pad}</navPoint>`;
+      })
+      .join("\n");
+  };
+
+  const navPoints = renderNavPoints(tree, 4);
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1" xml:lang="${spec.language}">
   <head>
     <meta name="dtb:uid" content="${escapeXml(spec.identifier)}"/>
-    <meta name="dtb:depth" content="${NAVIGATION_DEPTH}"/>
+    <meta name="dtb:depth" content="${tocDepth(tree)}"/>
     <meta name="dtb:totalPageCount" content="0"/>
     <meta name="dtb:maxPageNumber" content="0"/>
   </head>
@@ -363,12 +492,6 @@ ${navPoints}
 </ncx>
 `;
 }
-
-/**
- * NCX 宣告的 TOC 深度。現在每一份 fixture 的 TOC 都是平的，所以是 1；#23 帶進
- * 巢狀 TOC 時這個數字要跟著 navPoint 的實際層數算，不能繼續寫死。
- */
-const NAVIGATION_DEPTH = 1;
 
 function sectionDocument(spec: EpubSpec, section: SectionSpec): string {
   const stylesheet = relativeHref(STYLESHEET_PATH, section.path);

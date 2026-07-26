@@ -90,8 +90,10 @@ describe("EPUB 3 沒有被改動", () => {
 
   test.for(epub3)("%s 裡沒有 NCX", (name) => {
     // 實際的 EPUB 3 幾乎都同時帶一份 NCX（ADR-0010：33 本樣本裡 31 本兩者都有），
-    // 但那份 NCX 只有在「兩份導覽載體內容不一致」時才有測試價值，而那是 #23 的範圍。
-    // 在它到之前，EPUB 3 的 fixture 不帶 NCX，好讓「NCX 出現」就等於 EPUB 2。
+    // 但那份 NCX 只有在「兩份導覽載體內容不一致」時才有測試價值。#23 把 TOC 的
+    // 病症長到 NCX 上，走的是「同一個病症的 EPUB 2 版本」那條路（`-epub2` 後
+    // 綴），沒有動到這條界線。在有票要求兩份載體並存之前，EPUB 3 的 fixture
+    // 不帶 NCX，好讓「NCX 出現」就等於 EPUB 2。
     expect(open(name).entryPaths.filter((path) => path.endsWith(".ncx"))).toEqual([]);
   });
 });
@@ -139,7 +141,31 @@ describe("封面", () => {
     );
   });
 
-  test.for(["cover-image-property", "cover-meta-name-epub2"] as const)(
+  test("cover-meta-name：EPUB 3 的封面也可以只有舊寫法", () => {
+    const book = open("cover-meta-name");
+
+    // 這一份的重點是版本與宣告寫法**不成對**：宣告 3.0，封面卻只走 EPUB 2 的
+    // 舊寫法。樣本裡有一本書就是這個形狀，而按版本分派封面的實作會讓它在書櫃
+    // 上沒有縮圖——那是使用者看得見的缺陷（ADR-0010、#24）。
+    expect(book.packageVersion).toBe("3.0");
+    expect(book.cover?.foundBy).toBe("meta-name");
+    expect(book.text(book.packageDocumentPath)).toContain(
+      `<meta name="cover" content="${book.cover!.item.id}"/>`,
+    );
+  });
+
+  test("cover-meta-name 的 manifest 不帶 properties=\"cover-image\"", () => {
+    // 「只用舊寫法」得是真的只有一條路。manifest 若同時帶 properties，這份
+    // fixture 就退化成常態的那三十本（兩種都寫），而按版本分派的實作照樣全綠。
+    const book = open("cover-meta-name");
+
+    expect(book.text(book.packageDocumentPath)).not.toContain(
+      'properties="cover-image"',
+    );
+    expect(book.cover!.item.properties).toBeUndefined();
+  });
+
+  test.for(["cover-image-property", "cover-meta-name", "cover-meta-name-epub2"] as const)(
     "%s 的封面是真的 PNG",
     (name: AilmentName) => {
       const book = open(name);
