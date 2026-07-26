@@ -24,6 +24,28 @@ else
     exit 1
 fi
 
+# 引擎在 PATH 上不等於連得到 daemon。少了這一步，設定沒接好的機器會一路走到
+# build 才炸，而錯誤訊息是 socket 路徑不存在——看起來像沒裝，實際上是裝了但
+# client 沒指對地方，兩者的處置完全不同。
+#
+# 這裡只**診斷**不代打：socket 位置屬於容器引擎的設定，不是測試腳本的責任
+# （同 build 段那條 proxy 的理由）。腳本自己去猜 socket 在哪，會把一台設錯的
+# 機器靜默修好，於是沒有人知道它是錯的。
+if ! "$ENGINE" info >/dev/null 2>&1; then
+    echo "找到 ${ENGINE} 但連不到 daemon。" >&2
+    if [[ "$ENGINE" == docker && -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/docker.sock" ]]; then
+        # rootless dockerd 跑著，但 client 還指著 rootful 的 /var/run/docker.sock。
+        # dockerd-rootless-setuptool.sh 裝完會要求做這一步，漏掉不會有任何警告。
+        echo "rootless 的 socket 在 ${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/docker.sock，但 client 沒指過去。接上：" >&2
+        echo "    docker context create rootless --docker host=unix://${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/docker.sock" >&2
+        echo "    docker context use rootless" >&2
+    else
+        echo "檢查 daemon 是否在跑，以及 client 指向何處（docker context ls / DOCKER_HOST）。" >&2
+    fi
+    echo "見 docs/test-environment.md。" >&2
+    exit 1
+fi
+
 # --- build -----------------------------------------------------------------
 #
 # 這裡刻意不處理 proxy。
