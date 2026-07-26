@@ -36,3 +36,28 @@ jobs:
           path: playwright-report/
           retention-days: 7
           if-no-files-found: ignore
+
+  # TEMPORARY（#12 的驗收證據，合併前移除）：把上傳好的 artifact 原樣抓回來，
+  # 印出檔案數、總位元組與目錄結構。看 job 綠燈不能證明 artifact 非空——
+  # if-no-files-found: ignore 就是設計成不吵的。
+  verify-artifact:
+    needs: test
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: playwright-report
+          path: downloaded-report
+
+      - name: Report what actually came back
+        run: |
+          echo "== 目錄結構 =="
+          find downloaded-report -printf '%y %10s %p\n' | sort -k3
+          echo "== 檔案數 =="
+          find downloaded-report -type f | wc -l
+          echo "== 總位元組 =="
+          du -sb downloaded-report
+          echo "== index.html 大小 =="
+          wc -c downloaded-report/index.html
+          test -s downloaded-report/index.html
