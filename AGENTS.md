@@ -12,7 +12,7 @@ The five canonical triage roles, used verbatim as label strings. See `docs/agent
 
 ### Pull requests
 
-frond 的正確性有一部分只有畫面看得出來，所以 PR 說明要放渲染結果的截圖。可行的做法與限制見 `docs/agents/pull-requests.md`。
+PR 說明要用 closing keyword（`Closes #<n>`）關掉它做的那張票——阻塞邊看的是 issue 開不開，漏掉會讓後面的票被假性擋住。另外 frond 的正確性有一部分只有畫面看得出來，所以 PR 說明要放渲染結果的截圖。兩者的做法與限制見 `docs/agents/pull-requests.md`。
 
 ### Domain docs
 
