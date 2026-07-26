@@ -1,0 +1,6 @@
+node_modules/
+test-results/
+playwright-report/
+
+# 商業真書不進 repo（ADR-0007）。本機驗證用的書放這裡。
+tests/books/commercial/

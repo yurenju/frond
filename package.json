@@ -1,0 +1,20 @@
+{
+  "name": "frond",
+  "version": "0.0.0",
+  "description": "A TypeScript EPUB rendering library — vertical and horizontal writing, verified across Chromium, Firefox and WebKit",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:browser": "playwright test",
+    "test:container": "./scripts/test-in-container.sh"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "@types/node": "26.1.1",
+    "@types/pngjs": "6.0.5",
+    "pngjs": "7.0.0",
+    "typescript": "7.0.2"
+  }
+}
