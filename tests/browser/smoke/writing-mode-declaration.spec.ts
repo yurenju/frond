@@ -13,6 +13,16 @@ import { documentWith } from "../support/document.js";
  * `-webkit-writing-mode`——**無前綴的 `writing-mode` 一次都沒出現**。實測
  * Firefox 兩種前綴都不認，於是那本書在 Firefox 上整本排成橫排。
  *
+ * **這一組不是在說「Firefox 的直排有問題」。** Firefox 的直排支援是完整的，
+ * 而且在三家裡最正確（WebKit 才是直排下不套 `vert` 的那家）。不認的只是兩個
+ * 私有前綴的屬性名——第一條測試就是對照組：同一個 Firefox，屬性名換成標準的
+ * `writing-mode` 就正常。嚴格說 Firefox 在這裡是對的，沒有規範要求它實作別家
+ * 的私有前綴；壞的是那本只寫前綴、不寫標準屬性的書。
+ *
+ * 這段話寫在這裡是因為「foliate 直排在 Firefox 是壞的」那句宣稱曾經被當成事實
+ * 寫進 #1 的工作排序，最後由 #7 實測撤回（見 docs/browser-quirks.md）。不要讓
+ * 它從這一組測試的名稱重新長回來。
+ *
  * 這一組刻意**釘住分歧而不期待三家一致**，理由同 `regional-faces.spec.ts`：
  * 分歧是瀏覽器的性質，frond 要據此決定介入，所以它變了必須有人知道。
  */
@@ -69,7 +79,7 @@ test.describe("直排宣告的寫法", () => {
     }
   });
 
-  test("真書的形狀：兩種前綴都給、無前綴不給，Firefox 上整份是橫排", async ({
+  test("真書的形狀：只給前綴、不給標準屬性，Firefox 收不到這個宣告", async ({
     page,
   }, testInfo) => {
     // 《入境大廳》OEBPS 樣式表裡那條宣告的實際形狀。
