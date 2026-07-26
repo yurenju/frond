@@ -2,11 +2,3 @@
 node_modules
 test-results
 playwright-report
-
-# spike/foliate-vertical 執行前會在本機放進 foliate-js 的原始碼與兩本 fixture
-# 的副本（見該目錄的 .gitignore）。它們不該進映像：那是幾 MB 的東西，而且
-# 每次重抓都會讓 COPY . . 那一層的 build cache 失效——而 spike 是用 --volume
-# 掛進容器跑的，本來就不需要被 COPY 進去。
-spike/foliate-vertical/foliate
-spike/foliate-vertical/out
-spike/foliate-vertical/*.epub
