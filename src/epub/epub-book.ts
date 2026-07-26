@@ -101,7 +101,7 @@ function readReadingOrder(
         `readingOrder 指向 manifest 沒有的 id：${item.idref}`,
       );
     }
-    if (resource.path === undefined) {
+    if (resource.location.kind === "remote") {
       // 內容文件必須在封裝內——遠端資源在 manifest 可以合規，在 readingOrder
       // 不行。
       throw new EpubOpenError(
@@ -109,10 +109,19 @@ function readReadingOrder(
         `readingOrder 的 ${item.idref} 不在封裝內`,
       );
     }
+    if (resource.location.kind === "missing") {
+      // **缺檔只在這裡致命**（`resources.ts`）。readingOrder 上的一格缺了，讀者
+      // 就是少了一段內容，而那個洞在翻到它之前不會有人發現——正是本票要擋的
+      // 「靜默失敗或半開的狀態」。
+      throw new EpubOpenError(
+        "missing-resource",
+        `readingOrder 的 ${item.idref} 指向壓縮檔內不存在的 ${resource.location.path}`,
+      );
+    }
 
     return {
       id: resource.id,
-      path: resource.path,
+      path: resource.location.path,
       mediaType: resource.mediaType,
       linear: item.linear,
     };

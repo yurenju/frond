@@ -34,16 +34,17 @@ export function readCover(
   const byMeta = coverMetaId === undefined ? undefined : resources.get(coverMetaId);
 
   // 依序試，**取不到就換下一條**——「找到一個宣告」與「拿得到那張圖」是兩件事，
-  // 把前者當成後者會讓一本兩種寫法都寫了、而新寫法指到遠端的書沒有封面。
+  // 把前者當成後者會讓一本兩種寫法都寫了、而新寫法指到遠端（或指到一張不在包裡
+  // 的圖）的書沒有封面。
   for (const [resource, foundBy] of [
     [byProperty, "cover-image-property"],
     [byMeta, "meta-name"],
   ] as const) {
-    if (resource?.path === undefined) continue;
+    if (resource?.location.kind !== "in-container") continue;
     return {
-      path: resource.path,
+      path: resource.location.path,
       mediaType: resource.mediaType,
-      bytes: container.bytes(resource.path),
+      bytes: container.bytes(resource.location.path),
       foundBy,
     };
   }

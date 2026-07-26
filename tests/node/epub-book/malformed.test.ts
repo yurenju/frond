@@ -161,16 +161,74 @@ describe("封裝文件", () => {
 });
 
 describe("OPF 指向不存在的檔案", () => {
-  test("manifest 的 href 在壓縮檔內找不到", async () => {
+  /**
+   * 缺檔**只在 readingOrder 上致命**。
+   *
+   * 量到的依據（樣本那 33 本商業書，見 `resources.ts`）：照「manifest 缺任一項就
+   * 拒開」的規則，34/34 全開得起來——沒有一本是靠它擋下來的；而把任何一項不在
+   * readingOrder 上的資源拿掉，34/34 整本開不起來，暴露面是 1533 項。收益零、
+   * 爆炸半徑 1533，權衡的方向由 ADR-0010 定：讀者要的是書打得開。
+   */
+  test("readingOrder 上的內容文件缺檔，整本拒開", async () => {
     const archive = handmadeBook({
       packageDocument: packageDocument({
         manifest: `    <item id="section-1" href="section-1.xhtml" media-type="application/xhtml+xml"/>
-    <item id="missing" href="images/どこにもない.png" media-type="image/png"/>`,
+    <item id="section-2" href="section-2.xhtml" media-type="application/xhtml+xml"/>`,
+        readingOrder: `    <itemref idref="section-1"/>
+    <itemref idref="section-2"/>`,
       }),
+      // section-2 宣告了，但只有 section-1 在壓縮檔裡。
       entries: HEALTHY_ENTRIES,
     });
 
     expect(await reasonOf(archive)).toBe("missing-resource");
+  });
+
+  test("不在 readingOrder 上的資源缺檔，書照樣開得起來", async () => {
+    // 一本漏了裝飾用插圖的書仍然讀得完。整本拒開等於讓一張圖決定讀者能不能讀。
+    const book = await EpubBook.open(
+      handmadeBook({
+        packageDocument: packageDocument({
+          manifest: `    <item id="section-1" href="section-1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="missing" href="images/どこにもない.png" media-type="image/png"/>`,
+        }),
+        entries: HEALTHY_ENTRIES,
+      }),
+    );
+
+    expect(book.readingOrder.map((section) => section.path)).toEqual([
+      "OEBPS/section-1.xhtml",
+    ]);
+  });
+
+  test("封面宣告了但圖不在包裡，書開得起來、只是沒有封面", async () => {
+    // 「找到宣告」與「拿得到圖」是兩件事。書櫃缺一張縮圖，不該連書都收不進去。
+    const book = await EpubBook.open(
+      handmadeBook({
+        packageDocument: packageDocument({
+          manifest: `    <item id="section-1" href="section-1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="cover" href="images/cover.png" media-type="image/png" properties="cover-image"/>`,
+        }),
+        entries: HEALTHY_ENTRIES,
+      }),
+    );
+
+    expect(book.cover).toBeUndefined();
+    expect(book.readingOrder).toHaveLength(1);
+  });
+
+  test("manifest 的 href 解析後跳出封裝根，仍然當場拒書", async () => {
+    // 這與缺檔不是同一件事：跳出封裝根是不合規，也是路徑穿越的形狀，而樣本裡
+    // 一本都沒有——放寬它沒有任何量到的好處。
+    const archive = handmadeBook({
+      packageDocument: packageDocument({
+        manifest: `    <item id="section-1" href="section-1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="escapee" href="../../外に出た.png" media-type="image/png"/>`,
+      }),
+      entries: HEALTHY_ENTRIES,
+    });
+
+    expect(await reasonOf(archive)).toBe("resource-outside-container");
   });
 
   test("readingOrder 指向 manifest 沒有的 id", async () => {
