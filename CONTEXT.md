@@ -12,6 +12,16 @@ _Avoid_: spine, 書脊
 readingOrder 中的單一項目，對應一份 XHTML 內容文件。frond 每個 Section 渲染在一個 iframe 內。
 _Avoid_: chapter, 章節（章節是 TOC 的概念，與 Section 不是一對一）
 
+**TOC**:
+書的目錄——有層次的標題與位置對照，供讀者跳章。這是**概念**，與承載它的檔案格式無關。
+_Avoid_: 目次, navigation, nav（後者是載體之一，見下）
+
+**導覽文件**:
+承載 TOC 的那份檔案。EPUB 3 用 `nav.xhtml`，EPUB 2 用 `toc.ncx`——**兩者都在是常態**，優先順序與不一致時的處置見 ADR-0010。
+_Avoid_: 拿 nav 或 NCX 泛指全體（各自只是兩種載體之一）, 拿 TOC 指載體（那是概念）
+
+frond 支援兩種載體，所以 TOC 與導覽文件**必須分開講**。混用會讓「TOC 解析」這種說法同時指涉「概念上的目錄樹」與「某一種特定檔案格式的解析」，而這兩件事的病症、fixture 與測試都不一樣。
+
 ## 書寫方向
 
 **直排**:
@@ -21,6 +31,10 @@ _Avoid_: 垂直排版, vertical mode, 直書
 **橫排**:
 橫向書寫（`writing-mode: horizontal-tb`）。橫排才有單欄／雙欄的選擇。
 _Avoid_: 水平排版, 橫書
+
+**頁面推進方向**:
+翻頁往哪個方向前進，即 EPUB 3 的 `page-progression-direction`（`rtl` / `ltr`）。**與書寫方向是兩件事**：它宣告在封裝文件裡由 `EpubBook` 回報，書寫方向宣告在樣式表裡由 `Renderer` 回報；直排的中日文書通常是 `rtl`，但橫排的 RTL 語言也是 `rtl`。EPUB 2 沒有這個屬性，此時 frond 回報「書沒說」而不是預設值（ADR-0010）。
+_Avoid_: 拿它當直排的同義詞, 閱讀方向, ppd（縮寫只在程式碼裡用）
 
 ## 呈現的權威
 
