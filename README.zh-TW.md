@@ -24,8 +24,8 @@ TypeScript。
 
 `0.x` 就是 semver 定義的那個意思：**什麼都不保證**。frond 的 API 還在動，一個
 minor 就可能弄壞你——釘死版本，升之前先看
-[changelog](CHANGELOG.md)。至於這樣還發 npm 的理由，見
-[ADR-0008](docs/adr/0008-distribution-and-license.md)。
+[release notes](https://github.com/yurenju/frond/releases)。至於這樣還發 npm 的
+理由，見 [ADR-0008](docs/adr/0008-distribution-and-license.md)。
 
 ## 零執行期相依
 

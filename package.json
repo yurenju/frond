@@ -36,7 +36,6 @@
     "dist",
     "src",
     "!src/test-fixtures",
-    "CHANGELOG.md",
     "THIRD-PARTY-NOTICES.md"
   ],
   "publishConfig": {

@@ -283,28 +283,44 @@ jobs:
       # ## 第一版不能由這條 workflow 發
       #
       # trusted publisher 的設定頁掛在套件底下，而 npm **不接受**對一個還不存在於
-      # registry 的套件預先設定（npm/cli#8544；PyPI 可以，npm 不行）。所以順序是
-      # 反過來的：
-      #
-      #   1. 在本機用一顆 token 手動 `npm publish` 一次，把 `@yurenju/frond` 這個
-      #      套件在 registry 上生出來
-      #   2. 到 npmjs 的套件設定裡加 trusted publisher：這個 repo + `release.yml`
-      #   3. 把那顆 token 刪掉
-      #
-      # 之後每一版都由這一步發，不再需要任何 token。
+      # registry 的套件預先設定（npm/cli#8544；PyPI 可以，npm 不行）。所以 `0.2.0`
+      # 是在本機手動發的，把套件在 registry 上生出來，之後才設得了 trusted
+      # publisher。**這件事只需要做一次，已經做完了**——`0.2.1` 起都走這一步，不再
+      # 需要任何 token。
       #
       # ## provenance 不必顯式要求
       #
       # 走 trusted publishing 時 npm 會自動產生 provenance attestation，不需要
-      # `--provenance` 也不需要 `publishConfig.provenance`。**而且不該設**：上面第
-      # 1 步那次手動發布是在本機跑的，沒有 OIDC 可用，顯式要求 provenance 會讓它
-      # 直接失敗。
+      # `--provenance` 也不需要 `publishConfig.provenance`。**而且不該設**：上面那
+      # 次手動發布是在本機跑的，沒有 OIDC 可用，顯式要求 provenance 會讓它直接失
+      # 敗。（`0.2.0` 因此沒有 attestation，這一步發出去的版本則都會有。）
       #
       # `--access public` 則相反，寫在 package.json 的 publishConfig 裡：scoped 套
       # 件預設是 private，漏掉的話 registry 回一個看起來像付費方案問題的錯誤。
       - name: 發到 npm
         if: ${{ !inputs.dry_run }}
         run: npm publish
+
+      # --- 這一版改了什麼 -----------------------------------------------------
+
+      # release notes 由 GitHub 從「上一個 tag 到這一個 tag 之間合併的 PR」自己產
+      # 生，所以這個 repo 不維護 CHANGELOG。
+      #
+      # 那不只是懶。手寫的 CHANGELOG 是第二份要跟 commit 保持同步的紀錄，而它腐爛
+      # 的方式很惡劣：停在某一版的 CHANGELOG 會讓人以為後面幾版沒有破壞性變更，
+      # 而那是假的。`--generate-notes` 讀的是 PR 標題——一個本來就會被 review 的東
+      # 西，不會有人「忘記更新」它。
+      #
+      # 排在 publish 後面：release notes 是一則公告，而公告一個沒發成功的版本，比
+      # 晚一點才有公告糟。這一步失敗的話補跑一次 `gh release create` 就好。
+      - name: 產生 release notes
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.version }}" \
+            --verify-tag \
+            --generate-notes
 
       - name: 寫進執行摘要
         if: ${{ !inputs.dry_run }}
@@ -318,4 +334,6 @@ jobs:
             echo
             echo "消費端拿到的那包東西（build、兩個進入點的執行期與型別、map 的"
             echo "sources）在 publish 之前驗過。"
+            echo
+            echo "這一版改了什麼：<${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }}>"
           } >> "$GITHUB_STEP_SUMMARY"
