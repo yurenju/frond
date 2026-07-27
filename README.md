@@ -92,6 +92,59 @@ const stop = renderer.on("relocate", (at) => {
 });
 ```
 
+### Input inside the iframe
+
+A section renders inside an iframe, and iframe boundaries stop events from
+bubbling — so a listener on your container receives nothing. frond forwards the
+raw facts back out: where the pointer went down or up, in **container**
+coordinates, plus the two DOM conditions you would otherwise have to reach into
+the document to check.
+
+```ts
+renderer.on("pointerup", (e) => {
+  if (e.hasSelection || e.isLink) return; // the reader is selecting, or tapped a link
+  if (e.x > e.width * 0.7) turn("forward"); // tap zones are your decision, not frond's
+});
+
+renderer.on("keyup", (e) => {
+  if (e.key === "ArrowLeft") turn(book.metadata.pageProgressionDirection === "rtl" ? "forward" : "back");
+});
+```
+
+`pointerdown` / `pointerup` / `keydown` / `keyup` are deliberately raw. frond
+does not pair a down with an up, does not measure swipe distance and does not
+decide what a tap in a given region means — that is where gestures start, and
+gestures are yours.
+
+### Opening where the reader left off
+
+```ts
+const renderer = await Renderer.attach(book, element, {
+  start: { cfi: saved.cfi }, // or { sectionIndex, fragment }
+  settings: { margin: { block: 16, inline: 64 } },
+});
+```
+
+`start` renders the right section first instead of laying out section 0 and then
+jumping — one iframe mount instead of two. It takes a CFI or a section, not a
+fraction: whole-book fractions need the character index, which is built in the
+background *after* the first page is on screen.
+
+`margin` accepts a number (equal on all sides) or `{ block, inline }`, resolved
+against the writing mode the section actually laid out in. The inline axis is
+the one that controls line length — left/right in horizontal writing, **top and
+bottom** in vertical.
+
+### Querying without navigating
+
+`goToFraction(f)` jumps. `locate(f)` only answers *where would that land* —
+which is what a scrubber needs while the reader is still dragging:
+
+```ts
+const at = renderer.locate(0.42); // undefined until the index is built
+label.textContent = at ? chapterTitleFor(at.sectionPath) : "";
+```
+
 ## What frond does not do
 
 This list is the honest part of the README. Most of these are decisions, not
@@ -100,7 +153,9 @@ gaps.
 - **It does not handle gestures.** `next()` and `previous()` are actions, not
   event handlers. Whether swiping left means forward depends on the book's page
   progression direction and on your product; frond reports the fact and you make
-  the call.
+  the call. It does forward the raw pointer and key events out of the iframe,
+  because you cannot reach them otherwise — but pairing, thresholds and tap
+  zones stay on your side.
 - **It does not fetch anything.** `EpubBook.open()` takes bytes. Remote
   resources declared inside a book are reported as remote and left alone.
 - **It does not follow links.** Clicking a link inside the book emits an event

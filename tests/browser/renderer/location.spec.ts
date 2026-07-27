@@ -160,6 +160,69 @@ test.describe("全書進度", () => {
     expect(location.fraction).toBeLessThan(0.7);
   });
 
+  /**
+   * 唯讀的查詢（user story 23）。
+   *
+   * 定位軸拖曳中要顯示落點的章節標題，而讀者還沒放開手——畫面不能動。少了這一支
+   * 的話消費端只有 `goToFraction()` 可用，於是拖曳過程中每一格都真的跳一次。
+   */
+  test("查一個進度落在哪一節，畫面不動", async ({ page }) => {
+    const before = await mountFixture(page, "vertical-japanese");
+    await page.evaluate(() => window.frond.waitForIndex());
+
+    const at = await page.evaluate(() => window.frond.locate(0.9));
+
+    expect(at).not.toBeNull();
+    expect(at!.sectionIndex).toBeGreaterThan(0);
+    // 消費端把 TOC 對回節靠的是路徑，所以那一格要對得起來。
+    expect(at!.sectionPath).not.toBe("");
+    expect(at!.charactersIntoSection).toBeGreaterThanOrEqual(0);
+
+    const after = await page.evaluate(() => window.frond.snapshot());
+    expect(after.sectionIndex).toBe(before.sectionIndex);
+    expect(after.page).toBe(before.page);
+  });
+
+  /**
+   * `locate()` 可不可用，與 `location.fraction` 有沒有值，是**同一個時機**。
+   *
+   * 定位軸兩者都要：`fraction` 決定拇指畫在哪，`locate()` 決定拖曳中顯示哪一章。
+   * 一個有值一個沒有的話，定位軸會處在一個沒有人設計過的中間狀態。
+   *
+   * 判準寫成「兩者一致」而不是「掛好之後 `locate()` 是 null」：索引建得多快取決
+   * 於書有幾節與機器多快，寫死「還沒好」的話這條測試在小書上會偶爾紅。兩個值在
+   * **同一次 evaluate 裡**取，所以中間不會插進一次索引完成。
+   */
+  test("locate 與 fraction 同時可用", async ({ page }) => {
+    await mountFixture(page, "vertical-japanese");
+
+    const before = await page.evaluate(() => ({
+      fraction: window.frond.snapshot().fraction,
+      at: window.frond.locate(0.5),
+    }));
+    expect(before.at === null).toBe(before.fraction === null);
+
+    await page.evaluate(() => window.frond.waitForIndex());
+
+    const after = await page.evaluate(() => ({
+      fraction: window.frond.snapshot().fraction,
+      at: window.frond.locate(0.5),
+    }));
+    expect(after.fraction).not.toBeNull();
+    expect(after.at).not.toBeNull();
+  });
+
+  test("查到的節與跳過去之後停的節一致", async ({ page }) => {
+    await mountFixture(page, "vertical-japanese");
+    await page.evaluate(() => window.frond.waitForIndex());
+
+    const at = await page.evaluate(() => window.frond.locate(0.6));
+    const landed = await page.evaluate(() => window.frond.goToFraction(0.6));
+
+    expect(landed.sectionIndex).toBe(at!.sectionIndex);
+    expect(landed.sectionPath).toBe(at!.sectionPath);
+  });
+
   test("一個字都沒有的節不會讓進度變成 NaN", async ({ page }) => {
     // `empty-and-image-only-sections` 的第二節是空的、第三節只有圖片。
     await mountFixture(page, "empty-and-image-only-sections");
@@ -169,6 +232,61 @@ test.describe("全書進度", () => {
 
     expect(location.fraction).not.toBeNull();
     expect(Number.isNaN(location.fraction)).toBe(false);
+  });
+});
+
+test.describe("開書就停在上次讀到的地方", () => {
+  /**
+   * `attach()` 之後再 `goToCfi()` 也會停在對的地方——差別在**排了兩次版**。
+   *
+   * 所以這一組的判準是掛載次數（`load` 事件），不是最後停在哪。只驗位置的話，
+   * 把 `start` 實作成「先渲染第 0 節再跳」照樣是綠的，而那正是這個欄位要消滅的
+   * 那條路。
+   */
+  test("從一個 CFI 開始，只掛載一次", async ({ page }) => {
+    const first = await mountFixture(page, "vertical-japanese");
+    const target = await page.evaluate(() => window.frond.goToSection(2));
+
+    const reopened = await mountFixture(page, "vertical-japanese", {
+      start: { cfi: target.cfi },
+    });
+
+    expect(reopened.sectionIndex).toBe(2);
+    expect(reopened.sectionIndex).not.toBe(first.sectionIndex);
+
+    const loads = (await page.evaluate(() => window.frond.events())).filter(
+      (record) => record.name === "load",
+    );
+    expect(loads).toHaveLength(1);
+  });
+
+  test("從一個節序號開始", async ({ page }) => {
+    const location = await mountFixture(page, "vertical-japanese", {
+      start: { sectionIndex: 1 },
+    });
+
+    expect(location.sectionIndex).toBe(1);
+    expect(location.page).toBe(0);
+  });
+
+  /**
+   * 書換了一版、進度來自別的閱讀器——兩種都會走到這裡，而處置不是把開書打斷。
+   */
+  test("認不出來的 CFI 退回第 0 節第一頁，不丟錯", async ({ page }) => {
+    const location = await mountFixture(page, "vertical-japanese", {
+      start: { cfi: "epubcfi(/6/999!/4/2/1:0)" },
+    });
+
+    expect(location.sectionIndex).toBe(0);
+    expect(location.page).toBe(0);
+  });
+
+  test("越界的節序號也退回開頭", async ({ page }) => {
+    const location = await mountFixture(page, "vertical-japanese", {
+      start: { sectionIndex: 99 },
+    });
+
+    expect(location.sectionIndex).toBe(0);
   });
 });
 

@@ -100,6 +100,10 @@ export interface MountOptions {
   readonly settings?: SettingsPatch;
   /** 容器尺寸。省略時用外殼頁面的預設值。 */
   readonly viewport?: { readonly width: number; readonly height: number };
+  /** 第一節要渲染哪裡。對應 `RendererOptions.start`。 */
+  readonly start?:
+    | { readonly cfi: string }
+    | { readonly sectionIndex: number; readonly fragment?: string };
 }
 
 /** `ReaderSettings` 的可序列化版本——`page.evaluate` 只送得過去純資料。 */
@@ -107,7 +111,7 @@ export interface SettingsPatch {
   readonly fontFamily?: string;
   readonly fontSize?: number;
   readonly lineHeight?: number;
-  readonly margin?: number;
+  readonly margin?: number | { readonly block: number; readonly inline: number };
   readonly columns?: 1 | 2 | "auto";
   readonly theme?: { readonly foreground: string; readonly background: string };
 }
@@ -153,6 +157,19 @@ export interface FrondHarness {
   goToFraction(fraction: number): Promise<Snapshot>;
   applySettings(patch: SettingsPatch): Promise<Snapshot>;
   resize(width: number, height: number): Promise<Snapshot>;
+  /**
+   * 連按 N 次「下一頁」，**不等前一次落地**就發下一次。
+   *
+   * 模擬快速滑動：消費端不會等 `next()` 的 promise。這是「按 N 次前進 N 頁」那條
+   * 不變量唯一測得到的方式——逐次 await 的話佇列永遠只有一個人，測不到任何東西。
+   */
+  rapidNext(times: number): Promise<Snapshot>;
+  /** 連續發 N 次 `applySettings`，不等前一次落地——模擬拖滑桿。 */
+  rapidApplySettings(patches: readonly SettingsPatch[]): Promise<Snapshot>;
+  /** 一個全書進度落在哪一節。索引還沒建好時是 `null`。 */
+  locate(fraction: number): SectionAtSnapshot | null;
+  /** iframe 元素在容器裡的位置與尺寸——驗邊界用。 */
+  frameBox(): Rect;
   snapshot(): Snapshot;
   /** 等整書索引建好，回傳全書字元數。 */
   waitForIndex(): Promise<number>;
@@ -182,6 +199,13 @@ export interface Rect {
   readonly y: number;
   readonly width: number;
   readonly height: number;
+}
+
+/** `Renderer.locate()` 的可序列化版本。 */
+export interface SectionAtSnapshot {
+  readonly sectionIndex: number;
+  readonly sectionPath: string;
+  readonly charactersIntoSection: number;
 }
 
 export interface EventRecord {

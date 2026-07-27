@@ -86,12 +86,61 @@ const stop = renderer.on("relocate", (at) => {
 });
 ```
 
+### iframe 裡的輸入
+
+一節渲染在一個 iframe 裡，而 iframe 的邊界擋住事件冒泡——掛在你的容器上的
+listener 一個事件都收不到。frond 把原始的事實送出來：指標在哪裡按下、放開，座標
+是**容器座標系**，外加兩個你原本得伸手進文件裡才問得到的條件。
+
+```ts
+renderer.on("pointerup", (e) => {
+  if (e.hasSelection || e.isLink) return; // 讀者正在選字，或點到了連結
+  if (e.x > e.width * 0.7) turn("forward"); // 點擊分區是你的決定，不是 frond 的
+});
+
+renderer.on("keyup", (e) => {
+  if (e.key === "ArrowLeft") turn(book.metadata.pageProgressionDirection === "rtl" ? "forward" : "back");
+});
+```
+
+`pointerdown` / `pointerup` / `keydown` / `keyup` 刻意是原始的。frond 不配對
+down 與 up、不量滑動距離、不決定某個區域的一次點擊是什麼意思——那是手勢開始的
+地方，而手勢是你的。
+
+### 從上次讀到的地方開書
+
+```ts
+const renderer = await Renderer.attach(book, element, {
+  start: { cfi: saved.cfi }, // 或 { sectionIndex, fragment }
+  settings: { margin: { block: 16, inline: 64 } },
+});
+```
+
+`start` 直接渲染對的那一節，而不是先排第 0 節再跳——一次掛載，不是兩次。它收
+CFI 或節，不收 fraction：全書進度要有字元索引才算得出來，而那是**第一頁上了畫面
+之後**才在背景建的。
+
+`margin` 收一個數字（四邊等距）或 `{ block, inline }`，依那一節實際排出來的書寫
+方向解析。行內軸是控制行長的那一軸——橫排是左右，直排**是上下**。
+
+### 只查詢，不跳
+
+`goToFraction(f)` 會跳過去。`locate(f)` 只回答「那裡是哪一節」——定位軸拖曳中要
+的正是它，因為讀者還沒放開手：
+
+```ts
+const at = renderer.locate(0.42); // 索引建好之前是 undefined
+label.textContent = at ? chapterTitleFor(at.sectionPath) : "";
+```
+
 ## frond 不做什麼
 
 這一節是 README 裡最誠實的部分。底下多數是決定，不是缺口。
 
 - **不吃手勢。** `next()` 與 `previous()` 是動作，不是事件處理器。往左滑算不算
-  往前，取決於書的頁面推進方向與你的產品；frond 給事實，決定權在你。
+  往前，取決於書的頁面推進方向與你的產品；frond 給事實，決定權在你。它**會**把
+  原始的指標與按鍵事件送出 iframe，因為那是你唯一拿得到它們的路——但配對、門檻
+  與點擊分區留在你那一側。
 - **不下載任何東西。** `EpubBook.open()` 收的是位元組。書裡宣告的遠端資源會被
   如實回報成遠端，然後放著不動。
 - **不自己跳連結。** 讀者點了書裡的連結，frond 送一個事件說那個連結指向哪裡。

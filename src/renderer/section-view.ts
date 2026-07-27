@@ -15,15 +15,18 @@
  */
 
 import {
+  marginInsets,
   pageAt,
   pageContaining,
   pageCountFor,
   pageMetrics,
   pageOffsetFor,
   resolveColumns,
+  type Insets,
   type PageMetrics,
   type WritingMode,
 } from "./geometry.ts";
+import type { RendererKeyEvent, RendererPointerEvent } from "./events.ts";
 import { LAYOUT_STYLE_ID, layoutStylesheet } from "./layout.ts";
 import { isElement, isTextLike } from "./node-type.ts";
 import type { ReaderSettings } from "./settings.ts";
@@ -36,6 +39,13 @@ export interface SectionViewHooks {
   readonly onLinkActivate: (href: string) => void;
   /** iframe 裡的選取範圍變了。 */
   readonly onSelectionChange: () => void;
+  /** iframe 裡的指標按下或放開。座標已經換算到容器座標系。 */
+  readonly onPointer: (
+    kind: "pointerdown" | "pointerup",
+    event: RendererPointerEvent,
+  ) => void;
+  /** iframe 裡的按鍵。焦點在 iframe 裡時外層收不到，所以要從這裡出去。 */
+  readonly onKey: (kind: "keydown" | "keyup", event: RendererKeyEvent) => void;
 }
 
 /**
@@ -61,6 +71,8 @@ export class SectionView {
   private readonly host: HTMLElement;
   private settings: ReaderSettings;
   private metrics: PageMetrics;
+  /** 讀者設定的邊界落到四個實體邊之後的值。座標換算與 iframe 定位都要它。 */
+  private insets: Insets;
   /** 依文件順序攤平的文字節點。量位置時要二分搜尋它，所以只算一次。 */
   private textNodes: readonly Text[];
 
@@ -72,6 +84,7 @@ export class SectionView {
     writingMode: WritingMode,
     settings: ReaderSettings,
     metrics: PageMetrics,
+    insets: Insets,
   ) {
     this.frame = frame;
     this.source = source;
@@ -80,6 +93,7 @@ export class SectionView {
     this.writingMode = writingMode;
     this.settings = settings;
     this.metrics = metrics;
+    this.insets = insets;
     this.textNodes = textNodesIn(document);
   }
 
@@ -104,7 +118,10 @@ export class SectionView {
     frame.style.background = "transparent";
     host.append(frame);
 
-    sizeFrame(frame, host, settings);
+    // 載入前先用一個對稱的邊界撐開。軸向的邊界要有書寫方向才映得出實體邊，而
+    // 那要等文件排出來才讀得到——所以正式的尺寸在下面讀到方向之後再量一次。
+    // 純量的邊界兩次算出來一樣，那條路上不會有第二次 reflow。
+    sizeFrame(frame, host, marginInsets(settings.margin, "horizontal-tb"));
 
     await new Promise<void>((resolve, reject) => {
       frame.addEventListener("load", () => resolve(), { once: true });
@@ -129,6 +146,11 @@ export class SectionView {
     const reading = readWritingMode(document);
     if (reading.kind === "unreadable") throw new WritingModeUnreadableError(path);
 
+    // 量幾何**之前**再 size 一次：`metricsFor` 讀的是 iframe 的 client 尺寸，
+    // 而軸向的邊界到這一刻才知道該扣哪兩邊。
+    const insets = marginInsets(settings.margin, reading.writingMode);
+    sizeFrame(frame, host, insets);
+
     const view = new SectionView(
       frame,
       source,
@@ -137,6 +159,7 @@ export class SectionView {
       reading.writingMode,
       settings,
       metricsFor(frame, settings, reading.writingMode),
+      insets,
     );
     view.applyLayout();
     view.attachHooks(hooks);
@@ -193,7 +216,8 @@ export class SectionView {
    */
   relayout(settings: ReaderSettings): void {
     this.settings = settings;
-    sizeFrame(this.frame, this.host, settings);
+    this.insets = marginInsets(settings.margin, this.writingMode);
+    sizeFrame(this.frame, this.host, this.insets);
     this.metrics = metricsFor(this.frame, settings, this.writingMode);
     this.applyLayout();
   }
@@ -283,8 +307,6 @@ export class SectionView {
    * （ADR-0002）。
    */
   rectsFor(range: Range): readonly DOMRect[] {
-    const inset = this.settings.margin;
-
     // 長度為零的 range 走 `measurable`（先撐開一個字元）而不是直接問它自己的
     // 矩形，理由與量位置時相同：游標在欄邊界上會被畫到上一欄的結尾。順帶也解掉
     // 「零寬的矩形被濾光、消費端收到空陣列」那一格。
@@ -298,7 +320,13 @@ export class SectionView {
         .find((rects) => rects.length > 0) ?? [];
 
     return resolved.map(
-      (rect) => new DOMRect(rect.left + inset, rect.top + inset, rect.width, rect.height),
+      (rect) =>
+        new DOMRect(
+          rect.left + this.insets.left,
+          rect.top + this.insets.top,
+          rect.width,
+          rect.height,
+        ),
     );
   }
 
@@ -411,6 +439,56 @@ export class SectionView {
     this.document.addEventListener("selectionchange", () => {
       hooks.onSelectionChange();
     });
+
+    // 一律 `passive`：frond 不對指標與按鍵做任何決定，也就沒有要擋的預設行為。
+    // 非 passive 的 touch listener 會讓瀏覽器每一次都等 listener 跑完才決定要不要
+    // 捲動，而那正是選字與捲動在手機上變頓的原因。
+    for (const kind of ["pointerdown", "pointerup"] as const) {
+      this.document.addEventListener(
+        kind,
+        (event) => {
+          hooks.onPointer(kind, this.describePointer(event as unknown as PointerFacts));
+        },
+        { passive: true },
+      );
+    }
+
+    for (const kind of ["keydown", "keyup"] as const) {
+      this.document.addEventListener(
+        kind,
+        (event) => {
+          hooks.onKey(kind, describeKey(event as unknown as KeyFacts));
+        },
+        { passive: true },
+      );
+    }
+  }
+
+  /**
+   * 一次指標事件在容器座標系裡的位置與當下的兩個 DOM 條件。
+   *
+   * iframe 的內容自己捲，而 iframe 本身只有一個 viewport 那麼大——所以事件的
+   * `clientX`／`clientY` 已經是相對於可視區域的，**不必再加回捲動量**。要加的
+   * 只有 iframe 在容器裡被推移的那一段，也就是讀者設定的邊界。這與 `rectsFor()`
+   * 的換算是同一條，兩者因此回同一個座標系。
+   *
+   * （spine 在 epub.js 上要減掉 `scrollLeft`，是因為那邊的 iframe 撐滿整個已捲動
+   * 的節。frond 的 iframe 不是那個形狀，照抄那一步會讓座標整頁偏掉。）
+   */
+  private describePointer(event: PointerFacts): RendererPointerEvent {
+    // **不能用 `instanceof Element`**——target 來自 iframe 的 realm，理由與上面
+    // 那個 click listener 相同。
+    const target = event.target as Node | null;
+    const element = target === null ? null : isElement(target) ? target : target.parentElement;
+
+    return {
+      x: event.clientX + this.insets.left,
+      y: event.clientY + this.insets.top,
+      width: this.host.clientWidth,
+      height: this.host.clientHeight,
+      hasSelection: this.selection() !== undefined,
+      isLink: (element?.closest("a[href]") ?? null) !== null,
+    };
   }
 
   /** 第一個起點在 `target` 之後（含）的文字節點的索引。 */
@@ -463,20 +541,57 @@ export class SectionView {
   }
 }
 
-/** iframe 在容器裡縮進讀者設定的邊界。 */
-function sizeFrame(
-  frame: HTMLIFrameElement,
-  host: HTMLElement,
-  settings: ReaderSettings,
-): void {
-  const inset = settings.margin;
-  const width = Math.max(1, Math.floor(host.clientWidth - inset * 2));
-  const height = Math.max(1, Math.floor(host.clientHeight - inset * 2));
+/**
+ * iframe 在容器裡縮進讀者設定的邊界。
+ *
+ * 定位用實體的 `left`／`top` 而不是邏輯的 `inset-inline-start`／`inset-block-start`。
+ * 那兩個邏輯屬性解析的是**容器**的書寫方向，也就是消費端 app 的方向，與書的方向
+ * 無關——消費端頁面是 rtl 的時候，`inset-inline-start` 會變成右邊，而 `rectsFor()`
+ * 加回去的是 `rect.left`。兩邊用不同的參考系，highlight 會整片偏移。
+ */
+function sizeFrame(frame: HTMLIFrameElement, host: HTMLElement, insets: Insets): void {
+  const width = Math.max(1, Math.floor(host.clientWidth - insets.left - insets.right));
+  const height = Math.max(1, Math.floor(host.clientHeight - insets.top - insets.bottom));
 
-  frame.style.insetInlineStart = `${inset}px`;
-  frame.style.insetBlockStart = `${inset}px`;
+  frame.style.left = `${insets.left}px`;
+  frame.style.top = `${insets.top}px`;
   frame.style.width = `${width}px`;
   frame.style.height = `${height}px`;
+}
+
+/**
+ * 指標事件裡 frond 讀的那幾格。
+ *
+ * 寫成一個窄介面而不是用 `PointerEvent`：事件來自 iframe 的 realm，型別上是外層
+ * realm 的建構子，實際上不是同一個——只讀資料欄位是安全的，而窄介面讓「只讀資料
+ * 欄位」這件事變成型別擋得住的東西。
+ */
+interface PointerFacts {
+  readonly clientX: number;
+  readonly clientY: number;
+  readonly target: EventTarget | null;
+}
+
+interface KeyFacts {
+  readonly key: string;
+  readonly code: string;
+  readonly altKey: boolean;
+  readonly ctrlKey: boolean;
+  readonly metaKey: boolean;
+  readonly shiftKey: boolean;
+  readonly isComposing: boolean;
+}
+
+function describeKey(event: KeyFacts): RendererKeyEvent {
+  return {
+    key: event.key,
+    code: event.code,
+    altKey: event.altKey,
+    ctrlKey: event.ctrlKey,
+    metaKey: event.metaKey,
+    shiftKey: event.shiftKey,
+    isComposing: event.isComposing,
+  };
 }
 
 function metricsFor(

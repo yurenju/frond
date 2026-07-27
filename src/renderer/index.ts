@@ -14,7 +14,12 @@
  */
 
 export { Renderer } from "./renderer.ts";
-export type { RendererOptions, SectionAnchor } from "./renderer.ts";
+export type {
+  RendererOptions,
+  RendererStart,
+  SectionAnchor,
+  SectionAt,
+} from "./renderer.ts";
 
 export { MemoryBook } from "./book.ts";
 export type {
@@ -35,6 +40,8 @@ export type {
   RendererErrorEvent,
   RendererEvents,
   RendererFailure,
+  RendererKeyEvent,
+  RendererPointerEvent,
   SectionLoadEvent,
   SelectionEvent,
   Unsubscribe,
@@ -43,7 +50,7 @@ export type {
 export { DEFAULT_SETTINGS, withSettings } from "./settings.ts";
 export type { ReaderSettings, Theme } from "./settings.ts";
 
-export type { ColumnChoice, WritingMode } from "./geometry.ts";
+export type { ColumnChoice, Insets, Margin, WritingMode } from "./geometry.ts";
 
 export { INTERVENTIONS } from "./interventions.ts";
 export type { Intervention, InterventionReason } from "./interventions.ts";
