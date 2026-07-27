@@ -62,6 +62,43 @@ describe("樣式表裡的病症", () => {
     expect(book.stylesheet).not.toMatch(/body\s*\{[^}]*writing-mode/);
   });
 
+  test("writing-mode-behind-import：<link> 到的樣式表只有一行 @import 字串", () => {
+    const book = open("writing-mode-behind-import");
+
+    // 引號寫法而不是 `url()`——樣本量到的是這一種，而只認 `url()` 的實作正是在
+    // 這一格輸掉的。
+    expect(book.stylesheet).toMatch(/@import\s*"book-style\.css"\s*;/);
+    expect(book.stylesheet).not.toContain("url(");
+
+    // 排版意圖一條都不在這個檔案裡。留下任何一條的話，「樣式表整份消失」這個
+    // 症狀就會被那幾條擋掉一部分，fixture 也就不再是乾淨的一格。
+    expect(book.stylesheet).not.toMatch(/writing-mode/);
+    expect(book.stylesheet).not.toMatch(/font-family/);
+  });
+
+  test("writing-mode-behind-import：直排的宣告在被 import 的那一份裡", () => {
+    const book = open("writing-mode-behind-import");
+    const imported = book.manifest.find((item) => item.href === "book-style.css");
+
+    expect(imported?.mediaType).toBe("text/css");
+    expect(book.text(imported!.archivePath)).toMatch(
+      /html\s*\{[^}]*writing-mode:\s*vertical-rl/,
+    );
+  });
+
+  test("writing-mode-behind-import 與 vertical-japanese 只差宣告放在哪個檔案", () => {
+    // 這一對成立的條件：宣告的內容逐字元相同，唯一的差別是那些位元組在哪一個
+    // 檔案裡。差別若不只這一項，「為什麼一本直排一本橫排」就不再只有 @import
+    // 這一個解釋。
+    const behindImport = open("writing-mode-behind-import");
+    const inline = open("vertical-japanese");
+    const imported = behindImport.manifest.find(
+      (item) => item.href === "book-style.css",
+    )!;
+
+    expect(behindImport.text(imported.archivePath)).toBe(inline.stylesheet);
+  });
+
   test("font-size-important：書用 !important 蓋掉讀者的字級", () => {
     const book = open("font-size-important");
 
@@ -361,6 +398,88 @@ describe("readingOrder 形狀上的病症", () => {
     const decoded = PNG.sync.read(Buffer.from(bytes));
     expect(decoded.width).toBe(96);
     expect(decoded.height).toBe(128);
+  });
+});
+
+describe("比一頁還高的圖版", () => {
+  test("plate-taller-than-page：圖包在一層沒有宣告高度的 div 裡", () => {
+    const book = open("plate-taller-than-page");
+    const body = bodyOf(book.text(book.readingOrder.at(-1)!.archivePath));
+
+    expect(body).toContain('<div class="plate"><img src="images/tall-plate.png"');
+
+    // 包裝那一層**不能有高度宣告**——這份 fixture 的機制全在「包含塊的高度不確
+    // 定」上，一旦那層有了確定的高度，`max-block-size: 100%` 就解析得出來，
+    // fixture 也就不再帶病。
+    expect(book.stylesheet).toMatch(/\.plate\s*\{[^}]*\}/);
+    expect(/\.plate\s*\{([^}]*)\}/.exec(book.stylesheet)?.[1]).not.toMatch(
+      /height|block-size/,
+    );
+  });
+
+  test("plate-taller-than-page：圖真的比一頁還高", () => {
+    const book = open("plate-taller-than-page");
+    const image = book.manifest.find((item) => item.mediaType === "image/png");
+    const decoded = PNG.sync.read(Buffer.from(book.bytes(image!.archivePath)));
+
+    // 800x600 的 viewport 扣掉讀者邊界之後，一欄在區塊軸上大約 552px。圖必須
+    // 明顯超過它，否則這份 fixture 什麼都證明不了。
+    expect(decoded.height).toBeGreaterThan(600);
+    // 窄長的比例：行內軸放得下、區塊軸放不下——書自己的 max-width 因此是無害的，
+    // 溢出只可能來自區塊軸那一側。
+    expect(decoded.width).toBeLessThan(decoded.height / 5);
+  });
+
+  test("plate-taller-than-page：書自己只管了行內軸", () => {
+    const book = open("plate-taller-than-page");
+
+    // 這是實際的書的形狀：`max-width: 100%`（行內軸）有，區塊軸沒有上限。
+    expect(book.stylesheet).toMatch(/\.plate img\s*\{[^}]*max-inline-size:\s*100%/);
+    expect(/\.plate img\s*\{([^}]*)\}/.exec(book.stylesheet)?.[1]).not.toMatch(
+      /max-block-size|max-height/,
+    );
+  });
+});
+
+describe("內容文件裡藏起來的內容", () => {
+  test("hidden-trailing-notes：註腳在正文之後，而且是最後的東西", () => {
+    const book = open("hidden-trailing-notes");
+    const body = bodyOf(book.text(book.readingOrder.at(-1)!.archivePath));
+
+    // 位置就是這個病症的全部。註腳若不在最後，文件順序的最後一個文字節點就是
+    // 看得見的正文，而那本書是健康的。
+    const firstNote = body.indexOf('<div class="note"');
+    expect(firstNote).toBeGreaterThan(0);
+    expect(
+      body.slice(firstNote).replaceAll(/<div class="note"[\s\S]*?<\/div>/g, "").trim(),
+      "註腳之後不該還有任何東西——那會讓最後一個文字節點又變成看得見的。",
+    ).toBe("");
+
+    expect(book.stylesheet).toMatch(/\.note\s*\{[^}]*display:\s*none/);
+  });
+
+  test("hidden-trailing-notes：正文長得足以排出好幾頁", () => {
+    const book = open("hidden-trailing-notes");
+    const body = bodyOf(book.text(book.readingOrder.at(-1)!.archivePath));
+    const paragraphs = [...body.matchAll(/<p>/g)].length;
+
+    // 長度不是第二個病症，是**症狀成立的前提**：只有一頁的節，「頁數被壓成 1」
+    // 與正確答案是同一個數字，這份 fixture 就什麼也證明不了（ailments.ts）。
+    expect(paragraphs).toBeGreaterThan(40);
+  });
+
+  test("hidden-trailing-notes：只動最後一節，前面幾節保持健康", () => {
+    const book = open("hidden-trailing-notes");
+    const healthy = open("vertical-japanese");
+
+    // readingOrder 的長度不動——「readingOrder 只有一個 Section」是
+    // huge-single-section 那個病症，兩份在探針上必須分得開。
+    expect(book.readingOrder.length).toBe(healthy.readingOrder.length);
+    for (const [index, section] of book.readingOrder.slice(0, -1).entries()) {
+      expect(book.text(section.archivePath)).toBe(
+        healthy.text(healthy.readingOrder[index]!.archivePath),
+      );
+    }
   });
 });
 

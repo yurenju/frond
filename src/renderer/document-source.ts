@@ -21,6 +21,7 @@ import { resolveHref } from "../epub/resource-path.ts";
 import type { RenderableBook } from "./book.ts";
 import {
   demoteImportant,
+  inlineImports,
   normalisePageBreaks,
   normalisePrefixedWritingMode,
   relativiseFontSizes,
@@ -61,7 +62,13 @@ export class ResourceUrls {
   private readonly book: RenderableBook;
   private readonly settings: ReaderSettings;
   private readonly urls = new Map<string, string>();
-  /** 正在解析中的樣式表，用來擋住 `@import` 的循環。 */
+  /**
+   * 正在解析中的樣式表，用來擋住循環。
+   *
+   * `@import` 的循環**不走這裡**——那一條由 `expandImports` 自己的 `visiting` 擋，
+   * 因為它遞迴的是文字而不是位址。這一格擋的是另一條路：一份樣式表用 `url()`
+   * 指向另一份樣式表。
+   */
   private readonly resolving = new Set<string>();
 
   constructor(book: RenderableBook, settings: ReaderSettings) {
@@ -439,10 +446,16 @@ function transformBookStylesheet(
   settings: ReaderSettings,
   resources: ResourceUrls,
 ): string {
-  // 前綴與斷點的正規化先做：它們只補宣告，不動既有的文字，所以放在最前面時後面
+  // `@import` **最先展開**，理由與 `<link>` 內嵌是同一個（見檔頭），外加一個：
+  // 展開之後底下每一個改寫都會看到被 import 進來的那幾條宣告。四本樣本書的
+  // `writing-mode` 就長在那裡，少了這一步它們整本排成橫排（`css.ts` 的
+  // `inlineImports`）。
+  let output = expandImports(css, fromPath, resources, new Set([fromPath]));
+
+  // 前綴與斷點的正規化接著做：它們只補宣告，不動既有的文字，所以放在前面時後面
   // 每一個改寫都會看到補出來的那幾條（例如補出來的 `writing-mode` 也該被算進
   // 「這份樣式表宣告了什麼」）。
-  let output = normalisePrefixedWritingMode(css);
+  output = normalisePrefixedWritingMode(output);
   output = normalisePageBreaks(output);
 
   const overridden = overriddenProperties(settings);
@@ -450,6 +463,60 @@ function transformBookStylesheet(
   if (settings.fontSize !== undefined) output = relativiseFontSizes(output);
 
   return rewriteUrls(output, (reference) => resources.urlFor(reference, fromPath));
+}
+
+/**
+ * 遞迴展開 `@import`，把每一份被 import 的樣式表就地換成它的內容。
+ *
+ * ## 為什麼只有 `url()` 在這裡換掉，其餘的改寫留給上面那一輪
+ *
+ * 相對位址是**唯一一項與「這段文字出自哪一個檔案」有關的改寫**：`a.css` 裡的
+ * `url(fonts/x.woff)` 指的是 `a.css` 旁邊那個目錄，展開之後那個基準就消失了。
+ * 所以它必須在這裡、以被 import 那一份自己的路徑為基準做完。
+ *
+ * 其餘的改寫（前綴、斷點、`!important`、字級）與檔案位置無關，留給合併後那一輪
+ * 一次做完——每一條宣告因此**恰好被改寫一次**。在這裡也做一遍的話，合併後那一
+ * 輪會再看到同樣的宣告，於是補出來的 `writing-mode` 與 `break-*` 會出現兩份。
+ * 那不會改變畫面，但會讓「frond 動過什麼」這個問題的答案變得難讀，而那份文字是
+ * 查問題時唯一看得到的東西。
+ *
+ * 展開後的 `blob:` 位址不怕被上一輪的 `rewriteUrls` 再看一次：`blob:` 是絕對
+ * URL，`resolveHref` 判它不在封裝內，於是原樣留著（`resource-path.ts`）。
+ *
+ * @param visiting 正在展開中的路徑。循環（`a.css` import `b.css` import `a.css`）
+ *   時那一條 `@import` 原樣留著，而不是無限遞迴下去。
+ */
+function expandImports(
+  css: string,
+  fromPath: string,
+  resources: ResourceUrls,
+  visiting: Set<string>,
+): string {
+  return inlineImports(css, (reference) => {
+    const target = resolveHref(reference, fromPath);
+    if (target.kind !== "in-container") return undefined;
+    if (visiting.has(target.path)) return undefined;
+
+    let bytes: Uint8Array;
+    try {
+      bytes = resources.bytesOf(target.path);
+    } catch {
+      // 書宣告了但壓縮檔裡沒有。與缺一份 `<link>` 的樣式表同一個處置：那一份的
+      // 規則沒有了，書仍然讀得完（`resources.ts` 的權衡）。
+      return undefined;
+    }
+
+    visiting.add(target.path);
+    const expanded = expandImports(
+      new TextDecoder().decode(bytes),
+      target.path,
+      resources,
+      visiting,
+    );
+    visiting.delete(target.path);
+
+    return rewriteUrls(expanded, (inner) => resources.urlFor(inner, target.path));
+  });
 }
 
 function isStylesheet(mediaType: string): boolean {

@@ -398,6 +398,30 @@ body {
       "EPUB 3 的封面只用 <meta name=\"cover\"> 宣告，manifest 不帶 properties——按版本分派封面的實作會讓這本書沒有縮圖",
     afflict: coverByMetaName,
   },
+  {
+    name: "writing-mode-behind-import",
+    description:
+      "內容文件 <link> 的樣式表只有一行 @import 字串，排版意圖全在被 import 的那一份裡——不展開 @import 的實作會讓整份樣式表消失，整本排成橫排",
+    afflict: verticalBehindImport,
+  },
+  {
+    name: "hidden-trailing-notes",
+    description:
+      "一節的正文之後跟著 display:none 的註腳，文件順序的最後一個文字節點因此畫不出來——拿它當內容的終點會把整節的頁數壓成 1，讀者翻不過第一頁",
+    afflict: hiddenTrailingNotes,
+  },
+  {
+    name: "plate-taller-than-page",
+    description:
+      "圖版比一頁還高，而且包在一層沒有宣告高度的 div 裡——百分比的 max-block-size 在這裡解析不出來，圖的下半被裁掉而且翻不出來",
+    afflict: plateTallerThanPage,
+  },
+  {
+    name: "table-taller-than-page",
+    description:
+      "表格比一頁還高——Chromium 把它切到相鄰的欄，Firefox 與 WebKit 不切，於是下半被裁掉讀不到（三家分歧，釘住現況）",
+    afflict: tableTallerThanPage,
+  },
 ] as const satisfies readonly Ailment[];
 
 /** 病症名。也是 `<name>.epub` 這個檔名。 */
@@ -434,6 +458,239 @@ function percentEncodedComma(base: EpubSpec): EpubSpec {
  */
 function coverByMetaName(base: EpubSpec): EpubSpec {
   return { ...base, cover: { ...COVER_RESOURCE, declaredBy: ["meta-name"] } };
+}
+
+/**
+ * 被 `@import` 進來的那一份樣式表。內容目錄底下，與 `style.css` 同一層——照樣本
+ * 裡那條工具鏈的形狀（`item/style/book-style.css` 旁邊放著它 import 的那幾份）。
+ */
+const IMPORTED_STYLESHEET_PATH = "book-style.css";
+
+/**
+ * 排版意圖整份搬到被 `@import` 進來的樣式表裡，`style.css` 只剩那一行 `@import`。
+ *
+ * 這是樣本裡四本書的形狀（九歌112年散文選、創業投資聖經、原子習慣、大器可以晚
+ * 成，同一條 Kadokawa／BookCreator 工具鏈）：內容文件只 `<link>` 一支聚合檔，而
+ * 那支檔案除了 `@charset` 之外**只有 `@import` 字串**——`@import "style-standard.css";`
+ * 這種寫法裡一個 `url(` 都沒有。只認 `url()` 的實作因此連相對路徑都不必解就已經
+ * 輸了：那份樣式表整份消失，四本直排書全部排成橫排。
+ *
+ * ## 與 `vertical-japanese` 是一對
+ *
+ * 兩份宣告的內容**逐字元相同**（`HEALTHY_STYLESHEET` 加 `VERTICAL_ON_HTML`），
+ * 唯一的差別是那些位元組放在哪一個檔案裡。差別若不只這一項，「為什麼一本直排
+ * 一本橫排」就不再只有 `@import` 這一個解釋。
+ *
+ * 引號寫法而不是 `@import url(book-style.css)`：字串寫法才是樣本量到的那一種。
+ * `url()` 寫法是同一支展開器的另一個分支，測它不需要一份 fixture——那是純字串
+ * 函式的事（`tests/node/renderer/css.test.ts`）。
+ *
+ * `@charset` 刻意不寫，儘管那四本書都有。它會讓這個檔案疊上第二個軸（一份內嵌
+ * 進 `<style>` 的樣式表裡的 `@charset` 是不是還算數），而那件事在實書掃描裡驗，
+ * 不在這裡。
+ */
+function verticalBehindImport(base: EpubSpec): EpubSpec {
+  return {
+    ...base,
+    stylesheet: `@import "${IMPORTED_STYLESHEET_PATH}";\n`,
+    resources: [
+      {
+        path: IMPORTED_STYLESHEET_PATH,
+        mediaType: "text/css",
+        contents: new TextEncoder().encode(base.stylesheet + VERTICAL_ON_HTML),
+      },
+    ],
+  };
+}
+
+/**
+ * 正文之後跟著一段 `display: none` 的註腳。
+ *
+ * 樣本裡的常態：註腳放在正文**後面**、平常藏起來，讀者點上標才顯示（《投資最重要
+ * 的事》的 `.hide`、`.footnote`，同樣的形狀在另外幾本上也量到）。整份
+ * `nav.xhtml` 被藏起來也是同一個形狀。
+ *
+ * 病症是**文件順序的最後一個文字節點畫不出來**：拿它的矩形（全零）當「內容延伸
+ * 到哪裡」的答案，整節的頁數會被算成 1，於是讀者只讀得到第一頁
+ * （`section-view.ts` 的 `lastPageWithContent`）。
+ *
+ * ## 為什麼這一節的正文特別長
+ *
+ * 長度不是第二個病症，是**症狀成立的前提**：只有一頁的節，「頁數被壓成 1」與
+ * 正確答案是同一個數字，於是這份 fixture 什麼也證明不了。所以正文必須排得出
+ * 好幾頁——`PAGINATING_PARAGRAPH_COUNT` 就是為此而存在的那個數字。
+ *
+ * 只動最後一節，前兩節保持健康：`huge-single-section` 才是「readingOrder 只有
+ * 一個 Section」那個病症，這一份把 readingOrder 也改掉的話，兩份 fixture 在
+ * 探針上就分不開了（`single-ailment.test.ts`）。
+ */
+function hiddenTrailingNotes(base: EpubSpec): EpubSpec {
+  return {
+    ...base,
+    stylesheet: `${base.stylesheet}
+.note {
+  display: none;
+}
+`,
+    readingOrder: base.readingOrder.map((section, index) =>
+      index === base.readingOrder.length - 1
+        ? { ...section, body: paginatingBodyWithHiddenNotes(section.title) }
+        : section,
+    ),
+  };
+}
+
+/**
+ * 排得出好幾頁的正文，加上尾巴那一段藏起來的註腳。
+ *
+ * 段落數固定不取亂數（決定性）。這個值要讓正文在 800x600、16px、雙欄之下超過
+ * 一頁——實測落在四頁上下，餘裕足以吸收字型度量的小幅變動而不會退回一頁，而
+ * 一旦退回一頁，這份 fixture 就不再帶病（見 `hiddenTrailingNotes`）。
+ */
+const PAGINATING_PARAGRAPH_COUNT = 80;
+
+/** 註腳幾則。兩則就夠——要的是「尾巴上有藏起來的文字」，不是數量。 */
+const HIDDEN_NOTE_COUNT = 2;
+
+function paginatingBodyWithHiddenNotes(title: string): string {
+  const sentences = PROSE.flatMap((prose) => prose.paragraphs);
+
+  return [
+    `    <h1>${title}</h1>`,
+    ...Array.from(
+      { length: PAGINATING_PARAGRAPH_COUNT },
+      (_, index) => `    <p>${sentences[index % sentences.length]}</p>`,
+    ),
+    // 註腳在正文之後，而且是**最後**的東西——病症的全部重點在這個位置上。
+    ...Array.from(
+      { length: HIDDEN_NOTE_COUNT },
+      (_, index) =>
+        `    <div class="note" id="note-${index + 1}"><p>${
+          sentences[index % sentences.length]
+        }</p></div>`,
+    ),
+  ].join("\n");
+}
+
+const TALL_PLATE_PATH = "images/tall-plate.png";
+
+/**
+ * 一張**比一頁還高**的圖版，包在一層沒有宣告高度的 div 裡。
+ *
+ * 樣本裡的圖版寫法（四本書共七節）：
+ *
+ * ```html
+ * <div class="pic"><span><img src="…"/></span></div>
+ * ```
+ * ```css
+ * .pic { text-align: center; margin: 1.5em auto; width: 98% }
+ * .pic img { max-width: 100% }
+ * ```
+ *
+ * 書自己只管了**行內軸**（`max-width`），區塊軸沒有上限——那本來是 frond 的
+ * `cap-overflowing-boxes` 該補的一格。但 `max-block-size: 100%` 在這個形狀下
+ * **解析不出來**：百分比的 max-height 需要一個確定的包含塊尺寸，而 `.pic` 是
+ * `height: auto`，於是整條宣告被當成 `none`，圖照樣撐出去再被 `overflow: hidden`
+ * 裁掉（`src/renderer/layout.ts` 有實測數字）。
+ *
+ * **包裝那一層是這份 fixture 的重點，不是裝飾。** 圖直接放在 `<body>` 底下時
+ * 同一個機制也成立（layout.ts 把 body 的 block-size 設成 auto），但那樣就少掉
+ * 「書自己包了一層」這個實際的形狀，而修法一旦改成「只處理 body 的直接子元素」，
+ * 沒有包裝的 fixture 會通過而實際的書照壞。
+ *
+ * 圖的長寬比刻意極端（64 × 720），而且最下面留一條深色帶：下半被裁掉的時候，
+ * 那條帶子會從畫面上消失，判讀截圖時一眼看得出來。
+ */
+function plateTallerThanPage(base: EpubSpec): EpubSpec {
+  return {
+    ...base,
+    stylesheet: `${base.stylesheet}
+.plate {
+  margin: 1.5em auto;
+  text-align: center;
+}
+
+.plate img {
+  max-inline-size: 100%;
+}
+`,
+    readingOrder: base.readingOrder.map((section, index) =>
+      index === base.readingOrder.length - 1
+        ? {
+            ...section,
+            body: `${section.body}
+    <div class="plate"><img src="${TALL_PLATE_PATH}" alt="縦長の図版"/></div>`,
+          }
+        : section,
+    ),
+    resources: [
+      {
+        path: TALL_PLATE_PATH,
+        mediaType: "image/png",
+        contents: TALL_PLATE_IMAGE,
+      },
+    ],
+  };
+}
+
+/**
+ * 縱長的圖版。720px 高，比 800x600 的 viewport 在區塊軸上放得下的長度還長。
+ *
+ * 最下面那一條深色帶（最後 8%）是判讀用的：圖沒有被裁掉的時候它在畫面上，被裁
+ * 掉的時候它不在。橫紋讓「有沒有被壓扁」也看得出來——等距的紋路變密就是被壓扁了。
+ */
+const TALL_PLATE_IMAGE = encodePng({
+  width: 64,
+  height: 720,
+  sample: (_x, y) => (y >= 662 ? 0x10 : (y >> 5) % 2 === 0 ? 0x30 : 0xe0),
+});
+
+/**
+ * 一個**比一頁還高的表格**。
+ *
+ * 樣本裡三本書共九節是這個形狀（《幽靈帝國拜占庭》、《激進市場》、
+ * 《FIRE．致富實踐》），最嚴重的一節表格高 3115px 而一欄只有 552px。
+ *
+ * 與 `plate-taller-than-page` 是一對，而且**必須是兩份**：兩者都是「比一欄還高的
+ * 盒子」，但三家瀏覽器對它們的處置不同——圖片那一份可以靠 `max-block-size` 縮下來
+ * （`max-height` 對替換元素有效），表格不行（`max-height` 對表格是**下限**而不是
+ * 上限，表格照內容長）。所以圖片那一份 frond 修得掉，表格這一份修不掉，而
+ * Chromium 與另外兩家在表格上還分歧（`docs/browser-quirks.md`）。合在一份檔案裡
+ * 的話「哪一種盒子修得掉」就分不出來了。
+ *
+ * 刻意**不加任何 CSS**：一個沒有樣式的 `<table>` 就已經帶著這個病症，多一條規則
+ * 只會在同一個檔案上疊第二個軸。
+ */
+function tableTallerThanPage(base: EpubSpec): EpubSpec {
+  return {
+    ...base,
+    readingOrder: base.readingOrder.map((section, index) =>
+      index === base.readingOrder.length - 1
+        ? { ...section, body: `${section.body}\n${tallTable()}` }
+        : section,
+    ),
+  };
+}
+
+/**
+ * 表格幾列。列數要讓表格明顯超過一欄的區塊軸長度（800x600 之下約 552px）——
+ * 一列大約 29px，所以 30 列排得出八百多 px，餘裕足以吸收字型度量的變動。
+ */
+const TALL_TABLE_ROW_COUNT = 30;
+
+function tallTable(): string {
+  const sentences = PROSE.flatMap((prose) => prose.paragraphs);
+
+  return [
+    `    <table>`,
+    `      <tbody>`,
+    ...Array.from({ length: TALL_TABLE_ROW_COUNT }, (_, index) => {
+      const ordinal = index + 1;
+      return `        <tr><td>${ordinal}</td><td>${sentences[index % sentences.length]}</td></tr>`;
+    }),
+    `      </tbody>`,
+    `    </table>`,
+  ].join("\n");
 }
 
 /**

@@ -637,3 +637,110 @@ foliate 的 `paginator.js` 有一個 `uncollapse()`（本檔表二 #7），但�
 **環境**
 
 `Dockerfile` 的映像（`mcr.microsoft.com/playwright:v1.61.1-noble`）。三家皆重現。
+
+---
+
+## 包含塊高度不確定時，百分比的 `max-block-size` 解析不出來——而三家對「然後呢」不一致（#37）
+
+**症狀**
+
+frond 用 `:root img { max-block-size: 100% !important }` 擋「圖比一欄還高」（ADR-0003 的 `cap-overflowing-boxes`）。**那條宣告在實際的書上幾乎總是無效**：百分比的 max-height 要有一個**確定的**包含塊尺寸才解析得出來，而樣本裡的圖版寫法是
+
+```html
+<div class="pic"><img src="…"/></div>
+```
+
+而 `.pic` 是 `height: auto`。於是整條宣告被當成 `none`，圖照原尺寸排出去。
+
+**這一半三家一致，而且不是 bug**（CSS Sizing：百分比對不確定的包含塊解析為 `none`）。登記在這裡是因為**接下來三家分道揚鑣**，而分歧只有一個真的分頁器看得到。
+
+**量到的**
+
+`plate-taller-than-page`（原圖 64×720），800×600 容器、邊界 24，一欄的區塊軸長度 552：
+
+| 瀏覽器 | 修正前畫出來 | 症狀 | 修正後 |
+| --- | --- | --- | --- |
+| Chromium | 64×720，下緣 720 | 溢出 168px，被 `overflow: hidden` **裁掉** | 49×552，溢出 0 |
+| Firefox | 64×720，下緣 720 | 同上，逐數字相同 | 49×552，溢出 0 |
+| WebKit | union 460×552 | **圖被切成兩段分到相鄰兩欄**，讀者看到同一張圖的上半在這一頁、下半在下一頁 | 49×552，溢出 0 |
+
+| | 修正前 | 修正後 |
+| --- | --- | --- |
+| Chromium | ![](evidence/37/before-chromium-tall-plate.png) | ![](evidence/37/after-chromium-tall-plate.png) |
+| WebKit | ![](evidence/37/before-webkit-tall-plate.png) | ![](evidence/37/after-webkit-tall-plate.png) |
+
+WebKit 那一格值得看一眼：`break-inside: avoid` 在那裡**幫不上忙**——一個比一欄還高的盒子無論如何都避不開切割，所以 avoid 只能被忽略。三家都是「合規地做了一件讀者讀不到內容的事」。
+
+**繞法**
+
+區塊軸的上限寫成**像素**而不是百分比。一欄在區塊軸上的長度是 `PageMetrics.blockSize`，而那是 frond 自己設的數字——不必向任何一層包裝問，也就沒有「包含塊尺寸確不確定」這個問題。
+
+行內軸那一側留著 `100%`：那邊的百分比一律解析得出來（包含塊的行內尺寸永遠是確定的），而它要對齊的是**欄寬**而不是容器寬，雙欄時只有 `100%` 講得出這件事。
+
+**frond 是否需要處理**
+
+需要，已處理。`src/renderer/layout.ts`。這不是新增一項介入——`cap-overflowing-boxes` 早就在封閉清單上了，改的是讓它真的生效。
+
+**哪個測試會抓到**
+
+`tests/browser/renderer/rendering.spec.ts` 的〈比一欄還高的圖版〉兩條：圖被縮到一欄裝得下（且等比，不是壓扁），以及圖沒有一段落在容器外。
+
+**怎麼發現的**
+
+不是從規格推出來的，是拿 34 本實際流通的書跑一趟渲染掃描量到的（`npm run scan:books`，ADR-0007 的〈第三層跑過一趟了〉）。樣本裡四本書共七節是這個形狀，最嚴重的一節裁掉 738px——圖的 57%。合成 fixture 那時候全綠，因為它們的圖版只有 96×128。
+
+**環境**
+
+`Dockerfile` 的映像（`mcr.microsoft.com/playwright:v1.61.1-noble`）。
+
+---
+
+## Firefox 不把比一欄還高的表格切到相鄰的欄（#37）
+
+**症狀**
+
+一個 `<table>` 比一欄還高時，Chromium 與 WebKit 把它**切成好幾段分到相鄰的欄**，內容全部讀得到。**Firefox 一段都不切**：表格照內容長，伸出容器，再被 frond 的 `overflow: hidden` 裁掉。
+
+而且代價不只被裁掉的那幾列。不切欄等於內容**不往行內軸延伸**，於是 frond 算出來的頁數是 **1**——表格後面的東西讀者一併看不到，翻頁也翻不出來（分頁沿行內軸推進）。
+
+**量到的**
+
+`table-taller-than-page`（30 列），800×600 容器、邊界 24，一欄的區塊軸長度 552：
+
+| 瀏覽器 | 表格的 fragment 數 | 區塊軸溢出 | 最後一列的下緣 | 這一節的頁數 |
+| --- | --- | --- | --- | --- |
+| Chromium | 3 | 0 | 503 | 2 |
+| WebKit | 3 | 0 | 489 | 2 |
+| Firefox | **1** | **751px** | **1301** | **1** |
+
+| Chromium（切欄） | Firefox（不切） |
+| --- | --- |
+| ![](evidence/37/chromium-tall-table.png) | ![](evidence/37/firefox-tall-table.png) |
+
+Firefox 那張圖上第 13 列被橫向切掉一半——封閉缺陷清單裡的「裁切」與「溢出」同時命中，而第 14 到 30 列一列都到不了。
+
+**`cap-overflowing-boxes` 為什麼擋不住**
+
+frond 的介入清單裡有一項是給溢出的盒子加 `max-block-size` 上限，而它對表格是個 **no-op**：CSS 規定 `height` / `max-height` 對 `display: table` 的元素是**下限**而不是上限，表格一律照內容長。圖版那一份（同一份清單、同一條規則）修得掉，正是因為替換元素沒有這條例外。
+
+三家對這條 no-op 的表現也不一樣，量的時候要小心：Chromium 與 WebKit 的 `table.getBoundingClientRect().height` 回 552（所有 fragment 的聯集，剛好一欄高），Firefox 回 1302.8。**所以「表格比一欄還高嗎」不能用 bounding box 問**——那個問法在會切欄的引擎上永遠得到「沒有」。
+
+**繞法**
+
+沒有不付代價的。剩下的路是把 `display: table` 換掉：換完每一列變成區塊、內容流進相鄰的欄、全部讀得到，代價是**表格的對齊整個消失**。「讀得到但對不齊」與「對得齊但一半看不到」哪個對讀者好，是一個權衡決定。
+
+**frond 是否需要處理**
+
+**尚未處理**，登記成缺口（`src/renderer/interventions.ts` 的〈已知的缺口〉第 3 項）。理由不是「沒量到」——樣本裡三本書共九節是這個形狀，最嚴重的一節裁掉 2563px——而是上面那個權衡需要一張票去決定，不該在一次修 bug 的過程裡順手挑一邊。
+
+**哪個測試會抓到**
+
+`tests/browser/renderer/rendering.spec.ts` 的〈比一欄還高的表格（三家分歧，釘住現況）〉。它**釘住現況而不期待三家一致**，寫法同本檔的 generic family 那一條（#4）：Firefox 開始切表格時它會紅，而那時候要更新的是 `FRAGMENTS_TALL_TABLES`，缺口也就可以拿掉。換句話說這個缺口有可能不必動 frond 就自己消失。
+
+**怎麼發現的**
+
+實書掃描（`npm run scan:books`）。**第一輪只跑 Chromium，完全沒看到它**——Chromium 是會切欄的那一家。三家都跑才浮出來，而那正是 ADR-0004 要求三家同級的理由在掃描上的同一個版本。
+
+**環境**
+
+`Dockerfile` 的映像（`mcr.microsoft.com/playwright:v1.61.1-noble`）。

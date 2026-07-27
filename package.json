@@ -16,7 +16,8 @@
     "test:node": "vitest run",
     "test:browser": "playwright test",
     "test:container": "./scripts/test-in-container.sh",
-    "evidence": "./scripts/capture-evidence.sh"
+    "evidence": "./scripts/capture-evidence.sh",
+    "scan:books": "./scripts/scan-books.sh"
   },
   "dependencies": {
     "fast-xml-parser": "5.10.1",

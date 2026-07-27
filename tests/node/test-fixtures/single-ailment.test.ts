@@ -51,6 +51,13 @@ const REQUIRED_BY_ADR_0007 = [
   // 唯一一份沒有樣本支撐、照規格合成的（#30）。理由見 ADR-0007：混淆解錯不會
   // 丟錯，症狀只在讀者的畫面上。
   "obfuscated-font-idpf",
+  // 拿 34 本書實際跑一趟渲染才量到的四個病症。四者都不會報錯，只會讓讀者少看到
+  // 東西——整本排錯方向、一章只翻得到第一頁、圖版與表格的下半永遠看不到。最後
+  // 一份是三家分歧且 frond 修不掉的那一格，存在的理由是釘住現況。
+  "writing-mode-behind-import",
+  "hidden-trailing-notes",
+  "plate-taller-than-page",
+  "table-taller-than-page",
 ];
 
 const books = new Map<string, EpubArchive>(
@@ -156,6 +163,7 @@ const PROBES: readonly Probe[] = [
       "empty-and-image-only-sections",
       "manifest-href-parent-prefix",
       "obfuscated-font-idpf",
+      "plate-taller-than-page",
     ],
     // 「不是 XHTML 也不是 CSS」不夠精確：NCX 與封面圖也落在那一格，於是這個探針
     // 會被 EPUB 2 與封面的 fixture 一起命中，而它們帶的不是內文資源。要問的是
@@ -226,6 +234,10 @@ describe("一個 fixture 只帶一個病症", () => {
  *
  * 連 fallback 都不寫：`"Noto Serif CJK JP", serif` 在字型缺席時會靜默落回
  * generic，而那正是要避免的那種「不知道量到什麼」。
+ *
+ * **看的是這本書裡每一份 CSS，不只 `<link>` 到的那一份。** 只看第一份的話，
+ * 宣告搬進被 `@import` 的檔案（`writing-mode-behind-import` 就是這個形狀）之後
+ * 這條檢查會靜默地什麼都沒查——而那份檔案裡照樣可以寫 generic family。
  */
 describe("指名字面，不用 generic family", () => {
   const GENERIC_FAMILIES = [
@@ -240,7 +252,12 @@ describe("指名字面，不用 generic family", () => {
   test.for(syntheticFixtures.map((fixture) => fixture.name))(
     "%s 的 font-family 只指名字面",
     (name: string) => {
-      const declarations = [...books.get(name)!.stylesheet.matchAll(/font-family:([^;}]*)/g)];
+      const book = books.get(name)!;
+      const everyStylesheet = book.manifest
+        .filter((item) => item.mediaType === "text/css")
+        .map((item) => book.text(item.archivePath))
+        .join("\n");
+      const declarations = [...everyStylesheet.matchAll(/font-family:([^;}]*)/g)];
 
       expect(declarations.length).toBeGreaterThan(0);
       for (const [, value] of declarations) {

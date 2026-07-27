@@ -30,11 +30,17 @@ nested-toc-epub2.epub               NCX 的巢狀 TOC，navPoint 套 navPoint，
 manifest-href-parent-prefix.epub    manifest href 帶 ../ 走到封裝根、目標存在——好書，擋誤報
 writing-mode-prefixed-only.epub     直排只宣告 -epub- 與 -webkit- 前綴，Firefox 收不到
 obfuscated-font-idpf.epub           字型用 IDPF 演算法混淆，META-INF/encryption.xml 宣告
+writing-mode-behind-import.epub     <link> 的樣式表只有一行 @import 字串，排版意圖都在被 import 的那份裡
+hidden-trailing-notes.epub          正文之後跟著 display:none 的註腳，最後一個文字節點畫不出來
+plate-taller-than-page.epub         圖版比一頁還高，包在一層沒宣告高度的 div 裡
+table-taller-than-page.epub         表格比一頁還高——三家分歧，Chromium 切欄、另兩家裁掉
 ```
 
 體積小可 commit、零授權問題，且**測試紅燈直接指向唯一一個病因**——實際的書失敗得先花時間查是哪個特性造成的。橫排那六項全部來自 spine 已踩過的坑（見 ADR-0002），`healthy-epub2` 起三項來自 ADR-0010 那次掃描（#22），接下來七項照同一批樣本量到的結構合成（#23、#24）。
 
-**最後那一份是唯一沒有樣本支撐的**：`obfuscated-font-idpf` 演的是 IDPF 演算法混淆過的字型（#30）。那 33 本樣本裡 `META-INF/encryption.xml` 一本都沒有、內嵌字型也是零本，所以它的形狀照的是規格而不是量到的書。這一格仍然要有 fixture，理由是**解錯不會丟錯**：拿錯的金鑰或蓋錯範圍解出來的位元組照樣是位元組，症狀要到讀者的畫面上才會以「整頁豆腐字」的形式出現，而那時候沒有人查得到根因在解碼。合成 fixture 在這裡買到的正是「錯了會有東西紅」。
+最後四項來自**拿 34 本書實際跑一趟渲染**才量到的病症，見下節。
+
+**`obfuscated-font-idpf` 是唯一沒有樣本支撐的一份**：它演的是 IDPF 演算法混淆過的字型（#30）。那 33 本樣本裡 `META-INF/encryption.xml` 一本都沒有、內嵌字型也是零本，所以它的形狀照的是規格而不是量到的書。這一格仍然要有 fixture，理由是**解錯不會丟錯**：拿錯的金鑰或蓋錯範圍解出來的位元組照樣是位元組，症狀要到讀者的畫面上才會以「整頁豆腐字」的形式出現，而那時候沒有人查得到根因在解碼。合成 fixture 在這裡買到的正是「錯了會有東西紅」。
 
 那份「字型」不是真的 OTF——這份檔案演的是解碼那一步，真的字型會多帶授權與字面外觀兩個軸，而兩者都與解碼無關。
 
@@ -57,6 +63,27 @@ obfuscated-font-idpf.epub           字型用 IDPF 演算法混淆，META-INF/en
 代價要講清楚——#32 的視覺判讀**全部跑在合成 fixture 上**（`docs/evidence/32/`）。合成 fixture 的死角這份 ADR 已經寫過：**它只能測已知的病**。所以那一輪判讀證明的是「已知的那幾種病沒有復發」，不是「實際的書排得對」。
 
 補上它是自己一張票，不併進任何一張功能票：它的阻塞條件是網域放行，而那不是寫程式的人能解的，綁在功能票上只會讓那張票卡住。
+
+### 第三層跑過一趟了，而它一次抓到四個病
+
+第二層（公版書）仍然缺席，但**第三層（商業書，34 本）在 `Renderer` 完成之後跑了一趟完整的渲染掃描**，入口是 `npm run scan:books`（`scripts/scan-books.sh`，書由 `FROND_BOOKS` 唯讀掛進測試容器，不進 build context 也不落在 repo 樹裡）。
+
+那一趟證實了這份 ADR 對第一層的判斷：**合成 fixture 只測得到已知的病。** 34 本書在 `EpubBook` 那一層全部開得起來、`bytes()` 一節都沒有失敗，417 條瀏覽器測試全綠——然後掃描抓到四個一條測試都沒碰到的病：
+
+| 病症 | 樣本裡的分布 | 讀者看到什麼 |
+| --- | --- | --- |
+| `@import` 的字串寫法沒展開 | 4 本（12%），同一條 Kadokawa／BookCreator 工具鏈 | 整份樣式表消失，四本直排書全部排成橫排 |
+| 文件順序最後一個文字節點畫不出來 | 十餘本，註腳藏在正文後面是常態 | 一章只翻得到第一頁；最嚴重的一節 8778 個字只報得出 1 頁 |
+| 圖版比一欄還高 | 4 本共 7 節 | 圖的下半被裁掉，而且翻頁也翻不出來（最嚴重裁掉 738px，圖的 57%） |
+| 表格比一欄還高 | 3 本共 9 節 | **只有 Firefox** 裁掉下半（最嚴重 2563px），而且整節頁數變成 1——**這一格 frond 修不掉** |
+
+四者的共同形狀值得記下來：**沒有任何一個會報錯。** 頁數是一個看起來正常的數字、方向是一個看起來正常的方向、圖是一張看起來正常的圖。這正是 ADR 說「實際的書價值在發現而非回歸」時指的東西——而發現之後，每一個都各自變成一份合成 fixture（表上最後四項）與一組測試，回歸就交回第一層。
+
+**最後一格與前三格不同：它沒有被修掉。** 表格比一欄還高時，`max-block-size` 幫不上忙（`max-height` 對表格是**下限**而不是上限），而 Firefox 不把表格切到相鄰的欄（Chromium 與 WebKit 都切）。要讓那些內容讀得到，只剩「把 `display: table` 換掉」這一類會**犧牲表格對齊**的做法——那是一個權衡決定而不是一個 bug 修正，所以它登記成缺口（`src/renderer/interventions.ts`）並由 fixture 加測試**釘住現況**，寫法照 `regional-faces.spec.ts` 對 #4 的處置。`table-taller-than-page` 因此是表上第二份「不是為了守回歸、而是為了讓分歧變了有人知道」的 fixture。
+
+**只跑一家會漏掉東西。** 表格那一格**只在 Firefox 上出現**——第一輪掃描只跑 Chromium，於是四個病只抓到三個。掃描要三家都跑，理由與測試要三家都跑是同一個（ADR-0004）。
+
+掃描用的 spec 是一次性的，放 `tests/browser/evidence/`（已 gitignore，理由同 PR 證據圖）。**留下來的是入口與 fixture，不是那支 spec**：spec 服務單一次判讀，而它問的問題會隨著下一次掃描要找什麼而改。
 
 ## EPUB 版本是第二個軸，寫在檔名的後綴上
 
