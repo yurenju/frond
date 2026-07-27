@@ -14,19 +14,25 @@
  *    stored（method 0），完全不壓縮。**合成 fixture 很小（全部加起來 180 KB），
  *    省下的體積不值得拿決定性去換，而未壓縮的好處是 fixture 可以直接用眼睛看。
  *
- * 為什麼是手寫而不是用 `fflate`：**不是**為了躲開壓縮輸出的漂移。repo 已經有
- * `fflate`（釘死 `0.8.3`，目前只用於讀取），它是純 JS，輸出是 fflate 版本的
- * 函數而不是 Node 版本的函數，也支援指定 mtime 與權限——釘死版本的前提下，用
- * 它寫入一樣做得到決定性。手寫真正買到的是：寫入端不依賴任何函式庫的位元組
- * 行為，而 OCF 的硬性要求（`mimetype` 必須是第一個項目、stored、無 extra
- * field）在這裡是程式碼裡看得見的一行，不是某個函式庫選項的副作用。
+ * 為什麼是手寫而不是用 `fflate`：**不是**為了躲開壓縮輸出的漂移。`fflate` 是純
+ * JS，輸出是 fflate 版本的函數而不是 Node 版本的函數，也支援指定 mtime 與權限
+ * ——釘死版本的前提下，用它寫入一樣做得到決定性。手寫真正買到的是：寫入端不
+ * 依賴任何函式庫的位元組行為，而 OCF 的硬性要求（`mimetype` 必須是第一個項目、
+ * stored、無 extra field）在這裡是程式碼裡看得見的一行，不是某個函式庫選項的
+ * 副作用。
  *
- * 反過來要砍掉這 270 行改用 fflate 也是合理的，但前提是先實測「釘死版本的
- * fflate 逐位元組穩定」，不能用推的。
+ * 這一支現在還多守一件事：`fflate` 已經是**對照實作**（CONTEXT.md），只在測試裡
+ * 出現。產生器改用它的話，寫入與讀取的驗證會同時倒向同一份第三方實作，而
+ * `tests/node/test-fixtures/epub-container.test.ts` 那條「拿外部實作讀回自己的
+ * 產出」就失去獨立性了。
+ *
+ * CRC32 與讀取端（`src/epub/zip.ts`）共用 `src/crc32.ts`——那一份的理由寫在該檔。
  *
  * 有意不支援：ZIP64、加密、data descriptor、多磁碟區、目錄項目。合成 fixture
  * 不需要，而少一條分支就少一個決定性的破口。
  */
+
+import { crc32 } from "../crc32.ts";
 
 const LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50;
 const CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
@@ -134,24 +140,3 @@ export function concat(chunks: readonly Uint8Array[]): Uint8Array {
   return out;
 }
 
-const CRC32_TABLE = buildCrc32Table();
-
-function buildCrc32Table(): Uint32Array {
-  const table = new Uint32Array(256);
-  for (let index = 0; index < 256; index += 1) {
-    let value = index;
-    for (let bit = 0; bit < 8; bit += 1) {
-      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
-    }
-    table[index] = value >>> 0;
-  }
-  return table;
-}
-
-export function crc32(bytes: Uint8Array): number {
-  let crc = 0xffffffff;
-  for (const byte of bytes) {
-    crc = CRC32_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}

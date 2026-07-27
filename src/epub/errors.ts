@@ -8,6 +8,15 @@
 export type EpubOpenFailure =
   /** 位元組不是 ZIP——最常見的是拿到別的檔案，或下載到一半。 */
   | "not-a-zip"
+  /**
+   * 是 ZIP，但用了 frond 不讀的功能：ZIP64、加密、deflate 以外的壓縮方法、
+   * 多磁碟區（`src/epub/zip.ts`）。
+   *
+   * **與 `not-a-zip` 分開，因為書櫃該做的事不同**：那一格代表這個檔案根本不是
+   * 書，可以直接不收；這一格代表這確實是一本書，只是 frond 開不了它——那值得
+   * 讓讀者知道，也值得回報上來。
+   */
+  | "unsupported-zip-feature"
   /** ZIP 開得起來，但裡面沒有 `META-INF/container.xml`，所以不是 OCF 容器。 */
   | "missing-container"
   /**
