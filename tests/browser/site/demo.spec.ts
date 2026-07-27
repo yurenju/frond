@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, test } from "@playwright/test";
+import { type Page, expect, test } from "@playwright/test";
 import { buildDemoBook } from "../../../src/test-fixtures/demo-book.ts";
 
 /**
@@ -49,13 +49,8 @@ const CONTENT_TYPES: Record<string, string> = {
 
 test.use({ viewport: { width: 1180, height: 780 } });
 
-test("展示頁開得起一本繁中直排書", async ({ page }) => {
-  const failures: string[] = [];
-  page.on("pageerror", (error) => failures.push(String(error)));
-  page.on("console", (message) => {
-    if (message.type() === "error") failures.push(message.text());
-  });
-
+/** 把 `site/` 供給這個分頁。路由攔截，理由見檔頭。 */
+async function serveSite(page: Page): Promise<void> {
   await page.route(`${ORIGIN}/**`, async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname === "/" ? "/index.html" : url.pathname;
@@ -70,6 +65,24 @@ test("展示頁開得起一本繁中直排書", async ({ page }) => {
       await route.fulfill({ status: 404, body: "not found" });
     }
   });
+}
+
+const DEMO_EPUB = {
+  name: "demo-zh-tw.epub",
+  mimeType: "application/epub+zip",
+  get buffer(): Buffer {
+    return Buffer.from(buildDemoBook());
+  },
+};
+
+test("展示頁開得起一本繁中直排書", async ({ page }) => {
+  const failures: string[] = [];
+  page.on("pageerror", (error) => failures.push(String(error)));
+  page.on("console", (message) => {
+    if (message.type() === "error") failures.push(message.text());
+  });
+
+  await serveSite(page);
 
   await page.goto(`${ORIGIN}/`);
 
@@ -77,11 +90,7 @@ test("展示頁開得起一本繁中直排書", async ({ page }) => {
   await expect(page.locator("#dropzone")).toBeVisible();
   await expect(page.locator("#workspace")).toBeHidden();
 
-  await page.setInputFiles("#file-input", {
-    name: "demo-zh-tw.epub",
-    mimeType: "application/epub+zip",
-    buffer: Buffer.from(buildDemoBook()),
-  });
+  await page.setInputFiles("#file-input", DEMO_EPUB);
 
   // 開書之後：書名、直排、頁數都要有值。
   await expect(page.locator("#workspace")).toBeVisible();
@@ -107,4 +116,45 @@ test("展示頁開得起一本繁中直排書", async ({ page }) => {
   await expect(page.locator(".facts")).toContainText("rtl");
 
   expect(failures).toEqual([]);
+});
+
+/**
+ * 書框排成書的比例：寬螢幕上是攤開（1.4），窄螢幕上是單頁（0.7）。
+ *
+ * ## 為什麼這件事需要一支測試
+ *
+ * 比例是靠 `100cqh` 從外面那一層量出來的（`site/style.css` 的 `.viewer-frame`），
+ * 而**容器查詢單位在高度不確定的祖先鏈上會解析成 0**——那時 `#viewer` 塌成只剩
+ * 邊框的 2px，書一個字都畫不出來。這條鏈上任何一層把 `height` 改回 `min-height`
+ * 就會踩到，而 JavaScript 那一側完全正常：`attach()` 成功、狀態列有值、沒有任何
+ * 錯誤。寫這一版的時候就先踩了一次。
+ *
+ * 所以斷言分兩半：比例對不對，以及書框有沒有真的量到大小。
+ */
+test("書框在寬螢幕上是攤開的比例，窄螢幕上是單頁", async ({ page }) => {
+  await serveSite(page);
+  await page.goto(`${ORIGIN}/`);
+  await page.setInputFiles("#file-input", DEMO_EPUB);
+  await expect(page.locator("#status-cfi")).toContainText("epubcfi(");
+
+  const shapeOfViewer = async () => {
+    const box = await page.locator("#viewer").boundingBox();
+    if (box === null) throw new Error("#viewer 量不到");
+    return box;
+  };
+
+  // 1180×780：書框比攤開還寬，於是攤開，且被高度卡住——它填滿可用的高度。
+  const spread = await shapeOfViewer();
+  expect(spread.width / spread.height).toBeCloseTo(1.4, 1);
+  expect(spread.height).toBeGreaterThan(300);
+
+  // 390×844：手機。攤開在這裡會被寬度卡住而只用掉一半的高度，所以改單頁。
+  await page.setViewportSize({ width: 390, height: 844 });
+  const single = await shapeOfViewer();
+  expect(single.width / single.height).toBeCloseTo(0.7, 1);
+  expect(single.height).toBeGreaterThan(300);
+
+  // 換了大小之後書要重排——frond 自己盯著容器（`Renderer` 的 ResizeObserver），
+  // 頁數是它有沒有重排的證據。
+  await expect(page.locator("#status-page")).toContainText("第 1 /");
 });
