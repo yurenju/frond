@@ -17,8 +17,22 @@ npm run test:container -- --project=firefox
 現有的入口：`typecheck`、`test:node`（Vitest／Node）、`test:container`（容器內，
 兩個 runner 都跑）、`test:browser`（Playwright／三家瀏覽器，**只在容器內跑得
 動**，見下）、`evidence`（在容器裡產 PR 用的截圖，見
-`docs/agents/pull-requests.md`）、`fixtures`（重新產生合成 fixture）。需要新的
-跑法時**加一支 script**，別在文件或提交訊息裡留一行裸指令。
+`docs/agents/pull-requests.md`）、`fixtures`（重新產生合成 fixture）、
+`scan:books`（拿一批實際流通的書跑一趟渲染，見下）。需要新的跑法時**加一支
+script**，別在文件或提交訊息裡留一行裸指令。
+
+### 找「合成 fixture 上全綠、書上壞掉」的那類缺陷：`scan:books`
+
+```
+FROND_BOOKS=/path/to/books npm run scan:books -- tests/browser/evidence/<名字>.spec.ts
+```
+
+書由 `FROND_BOOKS` **唯讀掛進**測試容器（掛在 `tests/books/commercial`，已
+gitignore），不進 build context 也不落在 repo 樹裡——那些書有版權（ADR-0007）。
+
+這一趟的產出是**病症清單，不是紅綠燈**：找到的每一項要各自變成一份合成 fixture
+與一組測試，回歸才守得住。上一次跑的結果與它抓到的三個病記在 ADR-0007 的〈第三層
+跑過一趟了〉。掃描用的 spec 是一次性的，放 `tests/browser/evidence/`，不留在 repo。
 
 跟容器講話的那一段（挑引擎、確認連得到、建置）收在 `scripts/container.sh`，由
 上面兩支 source。要再加一種容器跑法就 source 它，不要複製那段判斷——兩份對

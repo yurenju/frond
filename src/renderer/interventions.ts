@@ -104,9 +104,9 @@ export const INTERVENTIONS: readonly Intervention[] = [
   },
   {
     id: "cap-overflowing-boxes",
-    what: "body 與 img／svg／video／table 加上 max-inline-size 與 max-block-size 的上限，並給 img／svg／video 一條不帶 !important 的 break-inside: avoid",
+    what: "body 與 img／svg／video／table 加上 max-inline-size 與 max-block-size 的上限（區塊軸那一側是像素而不是百分比），並給 img／svg／video 一條不帶 !important 的 break-inside: avoid",
     reason: "content-unreadable",
-    why: "書寫死 width: 800px 時小螢幕上右半邊被裁掉讀不到（ADR-0003 實例表）。放得下的時候這條是 no-op，所以它只在內容真的會被裁掉時才生效",
+    why: "書寫死 width: 800px 時小螢幕上右半邊被裁掉讀不到（ADR-0003 實例表）。放得下的時候這條是 no-op，所以它只在內容真的會被裁掉時才生效。區塊軸的上限必須是像素：`max-block-size: 100%` 要有確定的包含塊尺寸才解析得出來，而圖版外面那層 `height: auto` 的 div 讓它靜默地變成 no-op（layout.ts 有實測數字）",
     where: "src/renderer/layout.ts",
     onlyWhenReaderOverrides: false,
   },
@@ -158,22 +158,54 @@ export const INTERVENTIONS: readonly Intervention[] = [
  * 登記在這段註解裡而不是做成一個匯出的陣列：它沒有任何程式碼會讀，做成資料只是
  * 讓同一份說明存在兩個地方。
  *
- * 每一項都是「知道它在、也知道為什麼現在不做」，不是待辦清單。共同的判準是
- * **樣本裡沒有量到這個形狀**——那 33 本書上一次都沒出現的東西，先做等於照著規格
- * 而不是照著書實際的樣子寫（CONTEXT.md 的「範本書」）。
+ * 每一項都是「知道它在、也知道為什麼現在不做」，不是待辦清單。**理由分兩種，而
+ * 分清楚很重要**：
+ *
+ * - **樣本裡沒有量到這個形狀**（第 1、2 項）。那些書上一次都沒出現的東西，先做等於
+ *   照著規格而不是照著書實際的樣子寫（CONTEXT.md 的「範本書」）。這種缺口的正確
+ *   處置是**等量到再說**——而底下的補記記著一次把這個判準用錯的教訓。
+ * - **量到了，但要怎麼修是一個權衡決定**（第 3 項）。這種缺口不能用「沒量到」帶過，
+ *   所以它額外要求：現況要有 fixture 與測試釘住，讓它變了有人知道。
  *
  * 1. **`font` 縮寫裡的絕對字級不換算成 `rem`。** 縮寫的值要拆開才知道哪一段是
  *    字級（`font: 12px/1.4 serif`），拆錯會把整條宣告寫壞，而寫壞比不換算更糟。
  *    `!important` 仍然拿得掉（`demote-important` 的範圍含 `font`），所以擋得住
  *    讀者的只剩「不帶 `!important` 的縮寫絕對字級」。
  *
- * 2. **`@import "a.css"` 的字串寫法不解析。** 只認 `@import url(a.css)`。字串
- *    寫法在 EPUB 裡少見，而多一條解析路徑就多一種把樣式表改寫壞的方式。
+ * 2. **`@import` 的 `layer()` 與 `supports()` 寫法不展開。** 兩者改變的是層疊的
+ *    分層與條件，而 frond 展開 `@import` 的做法是把文字插進它原本的位置
+ *    （`css.ts` 的 `inlineImports`）——插入重現不了分層。那一條 `@import` 原樣
+ *    留著，也就仍然是非同步載入的。樣本裡一本都沒有。
  *
- * 3. **`@import` 進來的樣式表是非同步載入的。** 它會變成一個 `blob:` 的
- *    `@import`，而 frond 在 iframe 的 load 事件之後立刻量內容總長算頁數——樣式
- *    若還沒到位，量到的頁數是錯的。`<link>` 那一條已經靠內嵌解掉了
- *    （`document-source.ts`），`@import` 沒有：要解需要把它也遞迴內嵌進來，而
- *    那要處理循環與順序，代價與它出現的頻率不成比例。
+ * 3. **比一欄還高的表格，下半讀不到。** 這一項與其他缺口不同：**樣本裡量到了**
+ *    （3 本共 9 節，最嚴重的一節被裁掉 2563px），而且 `cap-overflowing-boxes`
+ *    對它是個 no-op——CSS 規定 `max-height` 對 `display: table` 是**下限**而不是
+ *    上限，表格一律照內容長。而 **Firefox 不把表格切到相鄰的欄**（Chromium 與
+ *    WebKit 都切），所以那些列伸出容器再被 `overflow: hidden` 裁掉；更糟的是不切
+ *    欄等於內容不往行內軸延伸，於是**整節的頁數變成 1**，表格後面的東西一併讀
+ *    不到。
+ *
+ *    不做的理由不是「沒量到」，是**這不是一個 bug 修正而是一個權衡決定**：剩下
+ *    的路是把 `display: table` 換掉，換完每一列變成區塊、內容流進相鄰的欄、全部
+ *    讀得到，代價是表格的對齊整個消失。「讀得到但對不齊」與「對得齊但一半看不
+ *    到」哪個對讀者好，需要一張票去決定，而不是在一次修 bug 的過程裡順手挑一個。
+ *
+ *    現況由 fixture 加測試釘住（`table-taller-than-page`、
+ *    `rendering.spec.ts` 的〈比一欄還高的表格〉），量測與三家對照見
+ *    `docs/browser-quirks.md`。Firefox 開始切表格時那條測試會紅，屆時這一項就可以
+ *    拿掉——換句話說這個缺口有可能不必動 frond 就自己消失，而那正是「釘住現況」
+ *    要買到的東西。
+ *
+ * ## 補記：原本第 2、3 項已經不是缺口
+ *
+ * 「`@import` 的字串寫法不解析」與「`@import` 進來的樣式表非同步載入」曾經登記
+ * 在這裡，判準是「樣本裡沒有量到這個形狀」。**那個判準當時就是錯的**——後來拿
+ * 34 本書實際跑一趟渲染，四本（九歌112年散文選、創業投資聖經、原子習慣、
+ * 大器可以晚成，同一條 Kadokawa／BookCreator 工具鏈）的內容文件只 `<link>` 一支
+ * 純 `@import` 字串的聚合檔，於是整份樣式表消失、四本直排書全部排成橫排。
+ *
+ * 留著這段記錄是因為教訓不在那兩行本身：**「樣本裡沒有」是一個要去量的斷言，
+ * 不是一個可以推得的結論。** 那次登記靠的是「字串寫法在 EPUB 裡少見」這個印象，
+ * 而樣本裡它佔 12%。
  */
 

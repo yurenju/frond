@@ -111,6 +111,102 @@ test.describe("書的兩端", () => {
   });
 });
 
+test.describe("藏起來的內容不影響頁數", () => {
+  /**
+   * 實書量到的形狀：註腳放在正文**後面**、用 `display: none` 藏起來（讀者點上標
+   * 才看到），或者整份 `nav.xhtml` 被藏起來。於是**文件順序的最後一個文字節點
+   * 畫不出來**，而它的矩形是全零。
+   *
+   * 拿那個全零的矩形當「內容延伸到哪裡」的答案，整節的頁數會被算成 1
+   * ——讀者只讀得到一章的第一頁，其餘翻不過去，而且不會有任何錯誤：頁數看起來
+   * 是一個正常的數字。樣本裡最嚴重的一節有 8778 個畫得出來的字元，只報得出 1 頁。
+   *
+   * 病長在**最後一節**上，前兩節保持健康（`ailments.ts`）。
+   */
+  const AFFLICTED_SECTION = 2;
+
+  test("正文後面跟著藏起來的註腳，頁數照正文算", async ({ page }) => {
+    await mountFixture(page, "hidden-trailing-notes");
+
+    const afflicted = await page.evaluate(
+      (index) => window.frond.goToSection(index),
+      AFFLICTED_SECTION,
+    );
+
+    // 這一條的牙齒全在這個數字上：病在的時候它是 1。
+    expect(afflicted.sectionIndex).toBe(AFFLICTED_SECTION);
+    expect(afflicted.pageCount).toBeGreaterThan(1);
+  });
+
+  test("翻得到正文的最後一頁", async ({ page }) => {
+    // 頁數對了還不夠——真正的要求是那些頁翻得過去、而且上面有字。
+    await mountFixture(page, "hidden-trailing-notes");
+    const start = await page.evaluate(
+      (index) => window.frond.goToSection(index),
+      AFFLICTED_SECTION,
+    );
+
+    // 頁數先斷言一次。少了這一行，病在的時候 `pageCount` 是 1、底下那個迴圈一次
+    // 都不跑，於是這條測試會停在第 0 頁然後綠燈通過——一條沒有牙齒的測試。
+    expect(start.pageCount).toBeGreaterThan(1);
+
+    let current = start;
+    for (let step = 0; step < start.pageCount - 1; step += 1) {
+      current = await page.evaluate(() => window.frond.next());
+    }
+
+    expect(current.sectionIndex).toBe(AFFLICTED_SECTION);
+    expect(current.page).toBe(start.pageCount - 1);
+
+    // 最後一頁不是空的。空白頁是封閉缺陷清單裡的一項，而「頁數多算了」與
+    // 「頁數少算了」都會在這一條上現形。
+    const visibleParagraphs = await page.evaluate(() => {
+      const frame = document.querySelector("#viewport iframe");
+      if (!(frame instanceof HTMLIFrameElement)) return 0;
+      const inner = frame.contentDocument;
+      if (inner === null) return 0;
+
+      const size = window.frond.containerSize();
+      let visible = 0;
+      for (const element of inner.querySelectorAll("p")) {
+        for (const rect of element.getClientRects()) {
+          if (rect.right > 0 && rect.left < size.width && rect.bottom > 0) {
+            visible += 1;
+          }
+        }
+      }
+      return visible;
+    });
+
+    expect(visibleParagraphs).toBeGreaterThan(0);
+  });
+
+  test("藏起來的註腳一個字都沒有畫出來", async ({ page }) => {
+    // 對照組：頁數變多不是因為 frond 把註腳顯示出來了。書要求藏起來就是藏起來
+    // ——那是書的宣告，frond 沒有介入的理由（ADR-0003）。
+    await mountFixture(page, "hidden-trailing-notes");
+    await page.evaluate(
+      (index) => window.frond.goToSection(index),
+      AFFLICTED_SECTION,
+    );
+
+    const noteRects = await page.evaluate(() => {
+      const frame = document.querySelector("#viewport iframe");
+      if (!(frame instanceof HTMLIFrameElement)) return -1;
+      const inner = frame.contentDocument;
+      if (inner === null) return -1;
+
+      let rects = 0;
+      for (const note of inner.querySelectorAll(".note")) {
+        rects += note.getClientRects().length;
+      }
+      return rects;
+    });
+
+    expect(noteRects).toBe(0);
+  });
+});
+
 test.describe("typed events", () => {
   test("掛書時送出 load 與 relocate", async ({ page }) => {
     await mountFixture(page, "vertical-japanese");

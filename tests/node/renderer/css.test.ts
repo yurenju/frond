@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   demoteImportant,
+  inlineImports,
   mapStylesheet,
   normalisePageBreaks,
   normalisePrefixedWritingMode,
@@ -297,5 +298,119 @@ describe("url() 的改寫", () => {
     );
 
     expect(rewritten).toContain('url("blob:https://example/abc") format("opentype")');
+  });
+});
+
+/**
+ * `@import` 的就地展開。
+ *
+ * 這一支的存在理由是實書量到的：樣本裡四本書的內容文件只 `<link>` 一支聚合檔，
+ * 而那支檔案除了 `@charset` 之外只有 `@import` 字串——不展開就等於整份樣式表
+ * 消失，四本直排書全部排成橫排（`src/renderer/css.ts` 的 `inlineImports`）。
+ *
+ * 兩種寫法各測一次不是為了覆蓋率：`writing-mode-behind-import` 那份 fixture 只
+ * 演字串寫法（那是量到的那一種），`url()` 寫法是同一支展開器的另一個分支，而
+ * 純字串函式測得起來的東西不該為它多產一本書（ADR-0007）。
+ */
+describe("@import 的展開", () => {
+  /** 展開器只回傳「這個位址對應的 CSS」，路徑怎麼解是 document-source 的事。 */
+  const expand = (reference: string): string | undefined =>
+    reference === "book-style.css" ? "html { writing-mode: vertical-rl }" : undefined;
+
+  test("字串寫法展得開——樣本裡量到的就是這一種", () => {
+    expect(inlineImports(`@import "book-style.css";`, expand)).toBe(
+      "html { writing-mode: vertical-rl }",
+    );
+  });
+
+  test("單引號與 url() 兩種寫法一樣認得", () => {
+    for (const rule of [
+      `@import 'book-style.css';`,
+      "@import url(book-style.css);",
+      `@import url("book-style.css");`,
+    ]) {
+      expect(inlineImports(rule, expand)).toBe("html { writing-mode: vertical-rl }");
+    }
+  });
+
+  test("展開的位置就是 @import 原本的位置——層疊看順序", () => {
+    expect(
+      inlineImports(`p { color: red }\n@import "book-style.css";\np { color: blue }`, expand),
+    ).toBe("p { color: red }\nhtml { writing-mode: vertical-rl }\np { color: blue }");
+  });
+
+  test("展不開的原樣留著，不刪掉", () => {
+    // 刪掉會讓查問題的人看不出書本來要求了什麼，而一個解析不到的 @import 與
+    // 沒有它對畫面是同一件事。
+    const css = `@import "missing.css";\np { margin: 0 }`;
+    expect(inlineImports(css, expand)).toBe(css);
+  });
+
+  test("帶媒體查詢的包一層 @media，那個條件不能弄丟", () => {
+    expect(inlineImports(`@import "book-style.css" print;`, expand)).toBe(
+      "@media print {\nhtml { writing-mode: vertical-rl }\n}",
+    );
+    expect(
+      inlineImports(`@import "book-style.css" screen and (min-width: 30em);`, expand),
+    ).toBe(
+      "@media screen and (min-width: 30em) {\nhtml { writing-mode: vertical-rl }\n}",
+    );
+  });
+
+  test("layer() 與 supports() 的寫法原樣留著", () => {
+    // 兩者改變的是層疊的分層與條件，而把文字插進來重現不了那件事。
+    for (const rule of [
+      `@import "book-style.css" layer(book);`,
+      `@import "book-style.css" supports(display: grid);`,
+    ]) {
+      expect(inlineImports(rule, expand)).toBe(rule);
+    }
+  });
+
+  test("註解與字串裡的 @import 不是 at-rule", () => {
+    for (const css of [
+      `/* @import "book-style.css"; */ p { margin: 0 }`,
+      `p { content: "@import \\"book-style.css\\";" }`,
+    ]) {
+      expect(inlineImports(css, expand)).toBe(css);
+    }
+  });
+
+  test("區塊裡面的 @import 不合規，原樣留著", () => {
+    const css = `@media print { @import "book-style.css"; }`;
+    expect(inlineImports(css, expand)).toBe(css);
+  });
+
+  test("一個 @import 都沒有的樣式表逐字元不變", () => {
+    const css = `@charset "UTF-8";\n/* 書自己的 */\nhtml { font-family: "書" }\n`;
+    expect(inlineImports(css, expand)).toBe(css);
+  });
+
+  test("同一份樣式表裡多個 @import 全部展開", () => {
+    const two = (reference: string): string | undefined =>
+      reference === "a.css" ? "p { margin: 0 }" : reference === "b.css" ? "p { padding: 0 }" : undefined;
+
+    expect(inlineImports(`@import "a.css";\n@import "b.css";`, two)).toBe(
+      "p { margin: 0 }\np { padding: 0 }",
+    );
+  });
+});
+
+describe("@import 的邊界", () => {
+  const expand = (): string | undefined => "p { margin: 0 }";
+
+  test("名字只是開頭像 @import 的 at-rule 不動", () => {
+    // 少了 lookahead 的話 `@imports` 也會命中，而那條規則會被整段吃掉。
+    const css = "@imports-are-fun x;\np { color: red }";
+    expect(inlineImports(css, expand)).toBe(css);
+  });
+
+  test("大小寫不拘", () => {
+    expect(inlineImports(`@IMPORT "a.css";`, expand)).toBe("p { margin: 0 }");
+  });
+
+  test("認不出位址的 @import 原樣留著", () => {
+    const css = "@import ;";
+    expect(inlineImports(css, expand)).toBe(css);
   });
 });

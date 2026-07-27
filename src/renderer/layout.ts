@@ -67,9 +67,25 @@ export function layoutStylesheet(
     `  block-size: auto !important;`,
     `}`,
     ``,
+    // ## 區塊軸的上限是像素，不是百分比
+    //
+    // `max-block-size: 100%` 在實際的書上**幾乎總是無效**，而它失效的方式沒有任何
+    // 東西看得出來。百分比的 max-height 要有一個**確定的**包含塊尺寸才解析得出來；
+    // 圖片外面包一層 `<div class="pic">`（樣本裡最常見的圖版寫法）時那一層是
+    // `height: auto`，於是這條宣告被當成 `none`——一張比一欄還高的圖照樣撐出去，
+    // 再被 `overflow: hidden` 裁掉。
+    //
+    // 實測：《精準敘事》OEBPS/Text/08-2.xhtml 的圖版在 800x600 下高 1290px，一欄
+    // 只有 552px——讀者看得到上面 43%，其餘 738px 永遠看不到，而且翻頁也翻不出來。
+    // 樣本裡四本書共七節是這個形狀。
+    //
+    // 寫成像素就沒有這個問題：一欄在區塊軸上的長度是 `blockSize`，而那是 frond
+    // 自己設的數字，不必向任何一層包裝問。行內軸留著 `100%`——那一側的百分比一律
+    // 解析得出來（包含塊的行內尺寸永遠是確定的），而它要對齊的是**欄寬**而不是
+    // 容器寬，雙欄時只有 `100%` 講得出這件事。
     `:root img, :root svg, :root video, :root table {`,
     `  max-inline-size: 100% !important;`,
-    `  max-block-size: 100% !important;`,
+    `  max-block-size: ${metrics.blockSize}px !important;`,
     `}`,
     ``,
     // 圖片被切成兩半跨在欄的邊界上是最刺眼的破版之一，而它在 DOM 斷言上完全

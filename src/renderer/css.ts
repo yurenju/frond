@@ -57,6 +57,164 @@ export function mapDeclarationList(
 }
 
 /**
+ * 把 `@import` 進來的樣式表**就地展開**，遞迴展到底。
+ *
+ * ## 為什麼不能只把 `@import` 的位址換成 `blob:`
+ *
+ * 兩個獨立的理由，而樣本裡有四本書同時踩到它們：
+ *
+ * 1. **字串寫法根本不是 `url()`。** `@import "style-standard.css";` 裡沒有
+ *    `url(`，所以 `rewriteUrls` 一個字都不會動它。相對路徑在 `blob:` 底下一律
+ *    解析失敗（`document-source.ts` 檔頭），於是那份樣式表**整份消失**。四本書
+ *    （九歌112年散文選、創業投資聖經、原子習慣、大器可以晚成，全部出自同一條
+ *    Kadokawa／BookCreator 的工具鏈）的內容文件只 `<link>` 一支
+ *    `book-style.css`，而那支檔案除了 `@charset` 之外**只有 `@import` 字串**
+ *    ——排版意圖全部在被 import 的檔案裡。症狀是那四本直排書整本排成橫排。
+ *
+ * 2. **`@import` 是非同步載入的。** 就算換成了 `blob:`，frond 在 iframe 的
+ *    load 事件之後立刻量內容總長算頁數，而樣式若還沒到位，量到的是沒有套樣式的
+ *    版面——頁數因此是錯的，而且只在載入比較慢的時候錯。`<link>` 那一條已經靠
+ *    內嵌解掉了，`@import` 走的是同一個理由。
+ *
+ * 就地展開一次解掉兩個：層疊順序原樣保留（規格要求 `@import` 在所有規則之前，
+ * 所以「插在它原本的位置」與「當成寫在那裡」是同一件事），而文字進到 `<style>`
+ * 裡就沒有第二次網路往返可言。
+ *
+ * ## 展不開時留著原樣
+ *
+ * `expand` 回 `undefined` 的情況：指向書外（`@import url(https://…)`）、壓縮檔
+ * 裡沒有那個檔案、或是循環。原樣留著而不是刪掉——刪掉會讓查問題的人看不出書
+ * 本來要求了什麼，而一個解析不到的 `@import` 與沒有它對畫面是同一件事。
+ *
+ * `layer()` 與 `supports()` 的寫法也留著原樣：兩者改變的是層疊的分層與條件，
+ * 而「把文字插進來」重現不了那件事。樣本裡一本都沒有，做等於照著規格寫。
+ */
+export function inlineImports(
+  css: string,
+  expand: (reference: string) => string | undefined,
+): string {
+  let output = "";
+  let index = 0;
+  let depth = 0;
+
+  while (index < css.length) {
+    // 註解與字串整段原樣搬運——裡面的 `@import` 不是 at-rule。
+    const skipped = skipOpaque(css, index);
+    if (skipped > index) {
+      output += css.slice(index, skipped);
+      index = skipped;
+      continue;
+    }
+
+    const character = css[index]!;
+    if (character === "{") depth += 1;
+    else if (character === "}") depth = Math.max(0, depth - 1);
+
+    // `@import` 只在最外層有意義。區塊裡面的（例如 `@media` 內）不合規，原樣留著。
+    if (depth === 0 && character === "@" && IMPORT_AT_RULE.test(css.slice(index))) {
+      const rule = readImportRule(css, index);
+      if (rule !== undefined) {
+        const expanded = rule.reference === undefined ? undefined : expand(rule.reference);
+        output +=
+          expanded === undefined
+            ? css.slice(index, rule.end)
+            : wrapInMedia(expanded, rule.media);
+        index = rule.end;
+        continue;
+      }
+    }
+
+    output += character;
+    index += 1;
+  }
+
+  return output;
+}
+
+/**
+ * `@import`，大小寫不拘。
+ *
+ * 後面必須接空白、引號或 `(`——少了這個 lookahead，`@imports-are-fun` 這種自訂
+ * at-rule 也會命中。`url(` 那條路由空白涵蓋（`@import url(…)` 一定有空白，
+ * `@importurl(…)` 不是合法的 CSS）。
+ */
+const IMPORT_AT_RULE = /^@import(?=[\s"'(])/i;
+
+interface ImportRule {
+  /** 被 import 的位址。認不出來（例如 `layer()` 那些寫法）時是 `undefined`。 */
+  readonly reference: string | undefined;
+  /** 位址之後、`;` 之前那一段——媒體查詢。沒有時是空字串。 */
+  readonly media: string;
+  /** 這條規則在原文裡結束的位置（`;` 之後）。 */
+  readonly end: number;
+}
+
+/**
+ * 讀一條 `@import`。
+ *
+ * 兩種寫法都認：`@import "a.css"` 與 `@import url(a.css)`。**兩種都要認**是因為
+ * 字串寫法正是樣本裡量到的那一種，而只認 `url()` 的實作在那四本書上讓整份樣式
+ * 表消失。
+ */
+function readImportRule(css: string, start: number): ImportRule | undefined {
+  let index = start + "@import".length;
+
+  while (index < css.length && /\s/.test(css[index]!)) index += 1;
+
+  let reference: string | undefined;
+
+  if (css[index] === '"' || css[index] === "'") {
+    const closing = skipOpaque(css, index);
+    reference = unquote(css.slice(index, closing));
+    index = closing;
+  } else if (/^url\(/i.test(css.slice(index))) {
+    const opening = index + "url".length;
+    const closing = skipOpaque(css, opening);
+    reference = unquote(css.slice(opening + 1, closing - 1).trim());
+    index = closing;
+  }
+
+  // 位址之後到 `;` 之間那一段是媒體查詢。走 `skipOpaque` 才不會被
+  // `@import "a.css" (min-width: 30em);` 裡的括號騙過去。
+  let media = "";
+  while (index < css.length) {
+    const skipped = skipOpaque(css, index);
+    if (skipped > index) {
+      media += css.slice(index, skipped);
+      index = skipped;
+      continue;
+    }
+    if (css[index] === ";") {
+      index += 1;
+      break;
+    }
+    // 沒有分號就撞上區塊邊界——這條 `@import` 寫壞了，原樣留著。
+    if (css[index] === "}" || css[index] === "{") return undefined;
+    media += css[index];
+    index += 1;
+  }
+
+  media = media.trim();
+
+  // `layer` 與 `supports()` 改變的是層疊的分層與條件，插入文字重現不了。
+  if (/^layer\b|\bsupports\s*\(/i.test(media)) {
+    return { reference: undefined, media, end: index };
+  }
+
+  return { reference, media, end: index };
+}
+
+/**
+ * 帶媒體查詢的 `@import` 展開後要包一層 `@media`。
+ *
+ * `@import "print.css" print;` 的意思是「這份樣式表只在 print 下生效」，而把它
+ * 的內容裸著插進來會讓那個條件消失——那些規則就變成無條件生效的。
+ */
+function wrapInMedia(css: string, media: string): string {
+  return media === "" ? css : `@media ${media} {\n${css}\n}`;
+}
+
+/**
  * `-epub-` 與 `-webkit-` 前綴的 `writing-mode`，補上一條無前綴的等價宣告。
  *
  * Firefox 兩種前綴都不認，於是只寫前綴的書（《入境大廳》那個形狀）在 Firefox

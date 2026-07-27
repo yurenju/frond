@@ -321,16 +321,34 @@ export class SectionView {
    *
    * 「內容」包含文字與被取代元素（圖片、影片）——只看文字的話，
    * `empty-and-image-only-sections` 那種純圖片的節會被判成零頁。
+   *
+   * ## 文件順序的最後一個文字節點不一定畫得出來
+   *
+   * 這是實際的書上量到的一個病症（`hidden-trailing-notes`）：書把註腳放在正文
+   * **後面**、用 `display: none` 藏起來，讀者點上標才看到，是很常見的做法；整份
+   * `nav.xhtml` 被藏起來也是。那些節點在文件順序上是最後幾個，但它們一個矩形都
+   * 量不到。
+   *
+   * 拿那種節點當內容的終點，`getBoundingClientRect()` 給的是**全零**——於是
+   * `axisEndOf` 算出 0、`pageContaining` 算出第 0 頁，整節的頁數被壓成 1。
+   * 症狀是讀者只讀得到一章的第一頁，其餘全部翻不過去，而且**不會有任何錯誤**：
+   * 頁數看起來是一個正常的數字。樣本裡最嚴重的一節有 8778 個畫得出來的字元，
+   * 全書只報得出 1 頁。
+   *
+   * 所以要從後往前找**第一個量得到矩形的**文字節點，而不是取最後一個。走訪的
+   * 長度就是尾巴上藏起來的節點數，正常的書是零步。
    */
   private lastPageWithContent(): number | undefined {
     let end: number | undefined;
 
-    const last = this.textNodes[this.textNodes.length - 1];
-    if (last !== undefined) {
+    for (let index = this.textNodes.length - 1; index >= 0; index -= 1) {
       const range = this.document.createRange();
-      range.selectNodeContents(last);
-      const rect = lastVisibleRect(range);
-      if (rect !== undefined) end = this.axisEndOf(rect);
+      range.selectNodeContents(this.textNodes[index]!);
+      const rect = renderedRect(range);
+      if (rect !== undefined) {
+        end = this.axisEndOf(rect);
+        break;
+      }
     }
 
     for (const element of this.document.querySelectorAll(REPLACED_ELEMENTS)) {
@@ -546,7 +564,21 @@ function measurable(range: Range): readonly Range[] {
   return expanded === undefined ? [range] : [expanded, range];
 }
 
-function lastVisibleRect(range: Range): DOMRect | undefined {
+/**
+ * 一個範圍**實際畫出來**的最後一個矩形。畫不出來時是 `undefined`。
+ *
+ * 與 `lastVisibleRect` 的差別只有畫不出來那一格，而那一格的兩種處置服務兩個不同
+ * 的問題，所以是兩支函式而不是一個旗標：
+ *
+ * | | 問的是 | 量不到時要什麼 |
+ * | --- | --- | --- |
+ * | `renderedRect` | 內容延伸到哪裡（頁數） | **`undefined`**——藏起來的內容不佔頁 |
+ * | `lastVisibleRect` | 這個位置在畫面的哪裡（CFI） | 一個大概的位置，見下 |
+ *
+ * 混用的代價是實際踩過的：頁數那一側拿到全零的矩形，整節就被壓成一頁
+ * （`lastPageWithContent`）。
+ */
+function renderedRect(range: Range): DOMRect | undefined {
   for (const candidate of measurable(range)) {
     let found: DOMRect | undefined;
     for (const rect of candidate.getClientRects()) {
@@ -554,6 +586,13 @@ function lastVisibleRect(range: Range): DOMRect | undefined {
     }
     if (found !== undefined) return found;
   }
+
+  return undefined;
+}
+
+function lastVisibleRect(range: Range): DOMRect | undefined {
+  const rendered = renderedRect(range);
+  if (rendered !== undefined) return rendered;
 
   // 一個矩形都量不到。空白節點那一格已經在 `text-index.ts` 濾掉了，剩下的是
   // `display: none` 之類的內容——退回它所在的元素，讓位置至少落在對的區域。
