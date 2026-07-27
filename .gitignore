@@ -4,3 +4,7 @@ playwright-report/
 
 # 商業真書不進 repo（ADR-0007）。本機驗證用的書放這裡。
 tests/books/commercial/
+
+# 產生 PR 證據圖用的一次性 spec。它服務單一次判讀，不是回歸測試——留在 repo 裡
+# 會變成沒有人維護、CI 卻要跑的東西（docs/agents/pull-requests.md）。
+tests/browser/evidence/

@@ -16,8 +16,13 @@ npm run test:container -- --project=firefox
 
 現有的入口：`typecheck`、`test:node`（Vitest／Node）、`test:container`（容器內，
 兩個 runner 都跑）、`test:browser`（Playwright／三家瀏覽器，**只在容器內跑得
-動**，見下）、`fixtures`（重新產生合成 fixture）。需要新的跑法時**加一支
-script**，別在文件或提交訊息裡留一行裸指令。
+動**，見下）、`evidence`（在容器裡產 PR 用的截圖，見
+`docs/agents/pull-requests.md`）、`fixtures`（重新產生合成 fixture）。需要新的
+跑法時**加一支 script**，別在文件或提交訊息裡留一行裸指令。
+
+跟容器講話的那一段（挑引擎、確認連得到、建置）收在 `scripts/container.sh`，由
+上面兩支 source。要再加一種容器跑法就 source 它，不要複製那段判斷——兩份對
+rootless socket 的診斷遲早會漂開。
 
 ### 瀏覽器測試走 `test:container`，不是 `test:browser`
 
