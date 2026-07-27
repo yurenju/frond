@@ -54,7 +54,7 @@ describe("EPUB 3", () => {
 });
 
 describe("公開的進入點", () => {
-  test("frond/epub 這個 exports 進入點開得起書", async () => {
+  test("@yurenju/frond/epub 這個 exports 進入點開得起書", async () => {
     // 其餘測試走相對路徑（那是這個 repo 內部的寫法），但消費端拿到的是
     // package.json 的 exports 那條路——沒有人走過的話，路徑打錯了不會有東西紅。
     //
@@ -70,23 +70,24 @@ describe("公開的進入點", () => {
     //
     // ## 為什麼 specifier 繞過一個變數
     //
-    // 寫成字面的 `import("frond/epub")` 會讓 **tsc 也去解析那條路**，於是
-    // `npm run typecheck` 跟著要求 `dist/` 存在——一個剛 clone 下來、還沒 build
-    // 的樹會得到 `TS2307: Cannot find module 'frond/epub'`，而那個訊息完全看不
-    // 出真正的原因是「還沒 build」。
+    // 寫成字面的 `import("@yurenju/frond/epub")` 會讓 **tsc 也去解析那條
+    // 路**，於是 `npm run typecheck` 跟著要求 `dist/` 存在——一個剛 clone 下
+    // 來、還沒 build 的樹會得到 `TS2307: Cannot find module
+    // '@yurenju/frond/epub'`，而那個訊息完全看不出真正的原因是「還沒 build」。
     //
     // 繞過變數之後 tsc 放棄解析（型別退成 `any`），這條測試回到它本來就該是的
     // 樣子：**一個關於執行期的斷言**。出貨產物的型別那一半不歸這裡管，那是
     // `release.yml` 用一個 repo 外的假消費端、開著 `skipLibCheck: false` 在驗的
     // 事——而那個位置比這裡準，因為它從外面看，跟真的消費端一樣。
-    // `dist/` 不在的時候，Node 丟的是 `Cannot find package 'frond/epub'`——那個
-    // 訊息把人指向 `exports` 設定，而真正的原因是「還沒 build」。先自己說清楚。
+    // `dist/` 不在的時候，Node 丟的是 `Cannot find package
+    // '@yurenju/frond'`——那個訊息把人指向 `exports` 設定，而真正的原因是「還沒
+    // build」。先自己說清楚。
     expect(
       existsSync(new URL("../../../dist/epub/index.js", import.meta.url)),
       "dist/ 不存在。這條測試走的是出貨產物，先跑 `npm run build`",
     ).toBe(true);
 
-    const publishedEntryPoint = "frond/epub";
+    const publishedEntryPoint = "@yurenju/frond/epub";
     const entry = await import(publishedEntryPoint);
     const book = await entry.EpubBook.open(await readFixture("vertical-japanese.epub"));
 
