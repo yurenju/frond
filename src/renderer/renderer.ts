@@ -83,6 +83,14 @@ export class Renderer {
   private destroyed = false;
   /** 上一次送出去的位置，用來擋掉沒有變化的 `relocate`。 */
   private lastEmitted: string | undefined;
+  /**
+   * 第幾次載入。每呼叫一次 `loadSection` 就加一，用來認出**已經過期的那幾次**。
+   *
+   * 需要它是因為載入中間要 await（掛 iframe、等字型），而消費端不會等：讀者拖
+   * 邊界滑桿時，`input` 事件一格一個，每一格都是一次 `applySettings`。詳見
+   * `loadSection`。
+   */
+  private loadGeneration = 0;
 
   private constructor(
     book: RenderableBook,
@@ -346,13 +354,31 @@ export class Renderer {
     this.container.style.backgroundColor = theme === undefined ? "" : theme.background;
   }
 
+  /**
+   * 掛上一節，並拆掉上一節。
+   *
+   * ## 要拆的是「現在畫面上那一個」，不是「我開始時看到的那一個」
+   *
+   * 這中間有 await（掛 iframe、等 `document.fonts.ready`），而**消費端不會等**：
+   * 讀者拖邊界滑桿時 `input` 一格發一次，每一格都是一次 `applySettings`，也就是
+   * 一次 `loadSection`。於是同一時間有好幾次載入在飛。
+   *
+   * 在 await **之前**就把 `this.view` 記成「待拆的那一個」的話，那幾次全部記到
+   * 同一個舊 view：先完成的那次寫回 `this.view`，後完成的那次把它覆寫掉，而覆寫
+   * 掉的那一個**沒有任何人拆它**——它的 iframe 還掛在容器上。iframe 是絕對定位、
+   * 底色透明的，所以殘留的那幾個會從目前這一個的邊緣露出來，讀者看到的是「拖邊界
+   * 的時候底下疊著書的其他內容」。實測拖過 6 格之後容器裡留著 6 個 iframe。
+   *
+   * 所以：await 之後才讀 `this.view`，而且先確認自己還是最新的那一次——不是的話
+   * 把剛掛好的拆掉走人，讓贏的那一次去接手。
+   */
   private async loadSection(index: number, anchor: SectionAnchor): Promise<void> {
     if (this.destroyed) return;
 
     const section = this.book.readingOrder[index];
     if (section === undefined) return;
 
-    const previous = this.view;
+    const generation = (this.loadGeneration += 1);
     let view: SectionView;
 
     try {
@@ -379,12 +405,13 @@ export class Renderer {
       return;
     }
 
-    if (this.destroyed) {
+    // 過期的那一次自己收自己：`destroy()` 已經跑過，或後面又來了一次載入。
+    if (this.destroyed || generation !== this.loadGeneration) {
       view.destroy();
       return;
     }
 
-    previous?.destroy();
+    this.view?.destroy();
     this.view = view;
     this.sectionIndex = index;
 
