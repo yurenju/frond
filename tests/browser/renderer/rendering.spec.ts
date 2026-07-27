@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { mountFixture, openHarness } from "../support/harness.js";
+import { mountFixture, openHarness, VIEWPORT_ID } from "../support/harness.js";
 
 /**
  * 把書渲染進容器，並認出它的書寫方向。
@@ -44,6 +44,52 @@ test.describe("渲染進容器", () => {
     const html = await page.evaluate(() => window.frond.html());
 
     expect(html).not.toContain("<script");
+  });
+});
+
+/**
+ * 容器裡永遠只有一個 iframe——**包括還有載入在飛的時候**。
+ *
+ * 掛新的那一節要 await（掛 iframe、等字型），而消費端不會等：拖邊界滑桿時
+ * `input` 一格發一次，每一格都是一次 `applySettings`，也就是一次重建。曾經漏掉的
+ * 那一版在 await **之前**就決定要拆哪一個，於是中間那幾個沒有任何人拆它們——
+ * iframe 是絕對定位、底色透明的，殘留的會從目前這一個的邊緣露出來，畫面上是「拖
+ * 邊界的時候底下疊著書的其他內容」。
+ *
+ * 斷言放在 iframe 的**個數**而不是畫面上：多出來的那幾個只在邊緣露出幾個像素，
+ * 截圖比對量不到，而個數是這件事的因。
+ */
+test.describe("載入在飛的時候，容器裡仍然只有一份文件", () => {
+  test("連續換設定不等前一次做完", async ({ page }) => {
+    await mountFixture(page, "vertical-japanese");
+
+    const frames = await page.evaluate(async (id) => {
+      await Promise.all(
+        [10, 20, 30, 40, 50, 60].map((margin) =>
+          window.frond.applySettings({ margin }),
+        ),
+      );
+      return document.getElementById(id)!.querySelectorAll("iframe").length;
+    }, VIEWPORT_ID);
+
+    expect(frames).toBe(1);
+  });
+
+  test("連續換節不等前一次做完", async ({ page }) => {
+    // 快速連點翻頁走的是同一條路，而且它多守一件事：**贏的要是最後發出的那一次，
+    // 不是最快跑完的那一次**。三節的長度差很多（空的、只有圖的、有文字的），所以
+    // 「誰先跑完」與「誰最後發出」在這裡真的會分岔。
+    await mountFixture(page, "empty-and-image-only-sections");
+
+    const result = await page.evaluate(async (id) => {
+      await Promise.all([0, 1, 2, 1, 0].map((index) => window.frond.goToSection(index)));
+      return {
+        frames: document.getElementById(id)!.querySelectorAll("iframe").length,
+        sectionIndex: window.frond.snapshot().sectionIndex,
+      };
+    }, VIEWPORT_ID);
+
+    expect(result).toEqual({ frames: 1, sectionIndex: 0 });
   });
 });
 
