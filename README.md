@@ -25,7 +25,7 @@ side, and no TypeScript needed in your project.
 
 `0.x` means what semver says it means: nothing is promised. frond's API still
 moves, and a minor bump can break you — pin an exact version and read the
-[changelog](CHANGELOG.md) before you move. See
+[release notes](https://github.com/yurenju/frond/releases) before you move. See
 [ADR-0008](docs/adr/0008-distribution-and-license.md) for why it ships on npm
 anyway.
 
