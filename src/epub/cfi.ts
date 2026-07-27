@@ -202,7 +202,7 @@ export function parseCfi(source: string): Cfi {
 /**
  * 把結構寫回字串。
  *
- * `parseCfi` → `serializeCfi` 是 identity，**除了三種正規化**——三者都是「同一個
+ * `parseCfi` → `serializeCfi` 是 identity，**除了四種正規化**——四者都是「同一個
  * 位置的兩種寫法」收斂成一種，不是資訊遺失：
  *
  * 1. **一律補上 `epubcfi(…)`**。裸的路徑進來，帶包裝出去。
@@ -223,10 +223,15 @@ export function serializeCfi(cfi: Cfi): string {
 /**
  * 兩個 CFI 在書中的先後（user story 22：把 annotation 依書中順序排列）。
  *
- * 範圍以「起點，起點相同再比終點」定序——與點的比較是同一套，因為一個點就是
- * 起訖相同的範圍。所以一個落在某個範圍**裡面**的點會排在那個範圍之後（起點
- * 相同、終點比較前面），而不是「不可比」：讀者要的是一份穩定的排序，而重疊的
- * annotation 在書中確實有一個共同的起點。
+ * 範圍以「先比起點，起點相同再比終點」定序——與點的比較是同一套，因為一個點就是
+ * 起訖相同的範圍。落在別人範圍裡的位置因此仍然排得出先後，而不是「不可比」：
+ *
+ * - 點在範圍的起點**之後**（範圍已經開始了）→ 點排在範圍後面，起點就分出來了
+ * - 點**正好在**範圍的起點上 → 起點相同，比終點；點的終點是自己，比範圍的終點
+ *   前面，所以點排在範圍前面
+ *
+ * 讀者要的是一份穩定的排序，而重疊的 annotation（畫重點常常疊著畫）在書中確實
+ * 有一個共同的起點。
  *
  * ## 斷言不參與比較
  *
@@ -508,8 +513,9 @@ function readAssertion(cursor: Cursor, source: string): CfiAssertion | undefined
   const fields: string[] = [];
   const parameters: CfiParameter[] = [];
   let current = "";
-  /** 已經讀到 `;` 之後了嗎——也就是現在讀的是參數而不是欄位。 */
+  /** 這個參數的名字，也就是它的 `=` 已經讀過了。 */
   let parameterName: string | undefined;
+  /** 已經讀到 `;` 之後了嗎——也就是現在讀的是參數而不是欄位。 */
   let inParameters = false;
 
   const finish = (): void => {

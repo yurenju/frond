@@ -31,9 +31,15 @@ import {
  * `Renderer`（#31 的界線）。它們的**字串**仍然是這一層的義務，所以照樣收進來
  * 跑 parse → serialize。
  *
+ * **那份檔案裡出現的每一個 CFI 字串都在這裡跑過**，包含它兩個 10 次的迴圈——
+ * 「大致跑過」與「跑過」的差別，正是驗收表存在的理由。
+ *
  * **不一致的地方：一條都沒有。** 唯一需要說明的差異是正規化而不是解讀——見下面
  * 〈`^/` 這種多餘的逃逸〉。
  */
+
+/** foliate 的兩個迴圈都跑 0…9。 */
+const LOOP = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 /** parse → serialize 回到原字串（原字串補上 `epubcfi(…)` 之後）。 */
 function roundtrips(cfi: string): void {
@@ -97,7 +103,7 @@ describe("區塊 2：XHTML 上的位移與範圍", () => {
     expect(cfi.end[0]?.offset?.characters).toBe(1);
   });
 
-  test.for([0, 1, 2, 9])("/4/10,/3:%i,/3:… roundtrip 是 identity", (index: number) => {
+  test.for(LOOP)("/4/10,/3:%i,/3:… roundtrip 是 identity", (index: number) => {
     roundtrips(`/4/10,/3:${index},/3:${index + 1}`);
   });
 });
@@ -137,6 +143,21 @@ describe("區塊 4：ID 斷言裡的特殊字元", () => {
       cfi: "/4[body0^]!/1^^]/16[s^]^[vgimg]",
       fields: [["body0]!/1^"], ["s][vgimg"]],
     },
+    // 底下三條的重點是**斷言收在哪裡**：`]` 之後緊接著 `/` 或 `:`。斷言的收尾
+    // 判斷若被逃逸弄糊塗，後面那個 `:0` 會被吞進斷言裡，而結果仍然是一個
+    // 「解得動」的 CFI——只是指到別的地方。
+    {
+      cfi: "/4[body0^]!/1^^]/10[para^]/0^,/5]/1:0",
+      fields: [["body0]!/1^"], ["para]/0,/5"]],
+    },
+    {
+      cfi: "/4[body0^]!/1^^]/10[para^]/0^,/5]/2/1:0",
+      fields: [["body0]!/1^"], ["para]/0,/5"]],
+    },
+    {
+      cfi: "/4[body0^]!/1^^]/10[para^]/0^,/5]/2/1:3",
+      fields: [["body0]!/1^"], ["para]/0,/5"]],
+    },
   ] as const;
 
   test.for(ESCAPED)("$cfi 的斷言解得對", ({ cfi, fields }: (typeof ESCAPED)[number]) => {
@@ -172,6 +193,18 @@ describe("區塊 4：ID 斷言裡的特殊字元", () => {
     expect(serializeCfi(parseCfi(redundant))).toBe(`epubcfi(${canonical})`);
     expect(parseCfi(redundant)).toEqual(parseCfi(canonical));
   });
+
+  test.for(LOOP)(
+    "帶多餘逃逸的那個迴圈，第 %i 圈也只差那一個 ^",
+    (index: number) => {
+      // foliate 第二個 10 次迴圈的形狀。每一圈都要解得動、而且只在 `^/` 那一處
+      // 與輸入不同——跑一圈就宣稱「全數一致」，等於沒有檢查位移那個數字。
+      const redundant = `/4[body0^]!/1^^]/10[para^]/0^,^/5],/3:${index},/3:${index + 1}`;
+      const canonical = `/4[body0^]!/1^^]/10[para^]/0^,/5],/3:${index},/3:${index + 1}`;
+
+      expect(serializeCfi(parseCfi(redundant))).toBe(`epubcfi(${canonical})`);
+    },
+  );
 
   test("多餘逃逸的那條再 parse 一次就穩定了", () => {
     // roundtrip 是 identity 的意思是「正規化過的字串是不動點」。第一次可能被

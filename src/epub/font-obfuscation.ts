@@ -1,7 +1,7 @@
 import { sha1, SHA1_LENGTH } from "../sha1.ts";
 import type { EpubContainer } from "./container.ts";
 import { EpubResourceError } from "./errors.ts";
-import { resolveHref } from "./resource-path.ts";
+import { CONTAINER_ROOT, resolveHref } from "./resource-path.ts";
 import { parseXml } from "./xml.ts";
 
 /**
@@ -35,9 +35,6 @@ import { parseXml } from "./xml.ts";
 
 /** OCF 宣告混淆與加密的地方。 */
 const ENCRYPTION_PATH = "META-INF/encryption.xml";
-
-/** `CipherReference URI` 的基底是封裝根，與 `container.xml` 的 `full-path` 相同。 */
-const CONTAINER_ROOT = "";
 
 /** IDPF 的字型混淆演算法。 */
 const IDPF_ALGORITHM = "http://www.idpf.org/2008/embedding";

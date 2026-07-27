@@ -8,7 +8,7 @@ import {
   type ReadingOrderItem,
 } from "./package-document.ts";
 import { resolveResources, type Resource } from "./resources.ts";
-import { readToc, type NavigationDocument, type TocItem } from "./toc.ts";
+import { readToc, type NavigationDocument, type Toc, type TocItem } from "./toc.ts";
 
 /**
  * 一本開好的 EPUB。
@@ -65,8 +65,7 @@ export class EpubBook {
     metadata: BookMetadata,
     readingOrder: readonly Section[],
     cover: CoverImage | undefined,
-    toc: readonly TocItem[],
-    navigationDocument: NavigationDocument | undefined,
+    toc: Toc,
     resources: ReadonlyMap<string, Resource>,
     container: EpubContainer,
     obfuscation: FontObfuscation,
@@ -74,8 +73,8 @@ export class EpubBook {
     this.metadata = metadata;
     this.readingOrder = readingOrder;
     this.cover = cover;
-    this.toc = toc;
-    this.navigationDocument = navigationDocument;
+    this.toc = toc.items;
+    this.navigationDocument = toc.readFrom;
     this.resources = [...resources.values()];
     this.byId = resources;
     this.container = container;
@@ -99,13 +98,7 @@ export class EpubBook {
    * @throws EpubResourceError 壓縮檔裡沒有這個路徑，或那一項的混淆解不開
    */
   bytes(path: string): Uint8Array {
-    if (!this.container.has(path)) {
-      throw new EpubResourceError(
-        "missing-resource",
-        `壓縮檔內沒有 ${path}`,
-      );
-    }
-    return this.obfuscation.restore(path, this.container.bytes(path));
+    return readBytes(this.container, this.obfuscation, path);
   }
 
   /** 依 manifest 的 id 找一項資源。manifest 沒有宣告過這個 id 時是 `undefined`。 */
@@ -128,15 +121,16 @@ export class EpubBook {
       container,
       packageDocument.metadata.identifier,
     );
-    const readBytes = (path: string): Uint8Array =>
-      obfuscation.restore(path, container.bytes(path));
 
     return new EpubBook(
       packageDocument.metadata,
       readReadingOrder(packageDocument.readingOrder, resources),
-      readCover(resources, packageDocument.coverMetaId, readBytes),
-      toc.items,
-      toc.readFrom,
+      // 封面走的是與 `bytes()` 同一個函式，不是另一條「差不多」的路——同一個
+      // 路徑在同一本書上只能有一種答案。
+      readCover(resources, packageDocument.coverMetaId, (path) =>
+        readBytes(container, obfuscation, path),
+      ),
+      toc,
       resources,
       container,
       obfuscation,
@@ -210,6 +204,24 @@ function readReadingOrder(
       linear: item.linear,
     };
   });
+}
+
+/**
+ * 取一份資源的位元組——`bytes()` 與封面共用的那一個。
+ *
+ * 提成模組層的函式而不是留在方法裡，是因為封面在**實例存在之前**就要讀
+ * （`open()` 裡）。各寫一次的話兩條路會在錯誤型別上分岔：直接叫
+ * `container.bytes()` 缺檔時丟的是 `EpubOpenError`，而那是開書階段的錯誤型別。
+ */
+function readBytes(
+  container: EpubContainer,
+  obfuscation: FontObfuscation,
+  path: string,
+): Uint8Array {
+  if (!container.has(path)) {
+    throw new EpubResourceError("missing-resource", `壓縮檔內沒有 ${path}`);
+  }
+  return obfuscation.restore(path, container.bytes(path));
 }
 
 async function toBytes(source: EpubSource): Promise<Uint8Array> {

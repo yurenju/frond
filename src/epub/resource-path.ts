@@ -35,6 +35,15 @@ const ORIGIN = "https://frond.invalid";
 /** 墊在封裝根之上的一層。名字不會出現在任何回傳值裡。 */
 const SENTINEL = "/__container__/";
 
+/**
+ * 封裝根，當作 `fromArchivePath` 用。
+ *
+ * `META-INF/` 底下那幾個檔案（`container.xml` 的 `full-path`、`encryption.xml`
+ * 的 `CipherReference URI`）指的路徑相對的是封裝根，而不是它們自己所在的目錄。
+ * 各自寫一個空字串也會動，但那個空字串看起來像「忘了填」而不是一個決定。
+ */
+export const CONTAINER_ROOT = "";
+
 export type ResolvedHref =
   /** 解析後落在封裝內，`path` 是壓縮檔內的項目名稱。 */
   | {

@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import { unzipSync } from "fflate";
 import { describe, expect, test } from "vitest";
-import { EpubBook, EpubResourceError } from "../../../src/epub/index.ts";
+import {
+  EpubBook,
+  EpubResourceError,
+  type EpubResourceFailure,
+  type Resource,
+} from "../../../src/epub/index.ts";
 import { readFixture } from "../support/fixtures.ts";
 import {
   handmadeBook,
@@ -58,6 +63,31 @@ function storedBytes(archive: Uint8Array, path: string): Uint8Array {
   return found;
 }
 
+/** 一項資源在壓縮檔內的路徑。不在包裡的資源沒有位元組可拿，測試要的都在包裡。 */
+function pathOf(resource: Resource | undefined): string {
+  if (resource?.location.kind !== "in-container") {
+    throw new Error(`${resource?.id ?? "(找不到)"} 不在壓縮檔內`);
+  }
+  return resource.location.path;
+}
+
+/**
+ * 讀不到位元組時丟的是哪一種失敗。
+ *
+ * 只用這一種寫法問，是因為 `toThrow()` 只問到「有丟東西」——而這幾條要守的正是
+ * **丟的是哪一種**：consumer 靠 `reason` 分辨「這本書沒有這一項」與「這一項解不
+ * 開」，兩者該做的事不同。
+ */
+function expectFailure(read: () => unknown, reason: EpubResourceFailure): void {
+  try {
+    read();
+    expect.unreachable("應該丟 EpubResourceError");
+  } catch (error) {
+    expect(error).toBeInstanceOf(EpubResourceError);
+    expect((error as EpubResourceError).reason).toBe(reason);
+  }
+}
+
 /** 宣告一份混淆資源的 `META-INF/encryption.xml`。 */
 function encryptionXml(path: string, algorithm: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -103,10 +133,7 @@ describe("manifest 上任一資源", () => {
     );
     const image = book.resources.find((resource) => resource.mediaType === "image/png");
 
-    expect(image?.location.kind).toBe("in-container");
-    const bytes = book.bytes(
-      image!.location.kind === "in-container" ? image!.location.path : "",
-    );
+    const bytes = book.bytes(pathOf(image));
     // PNG 的簽章。拿到的是不是圖片，不能靠 media type 說了算——那是書的宣告。
     expect([...bytes.subarray(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
   });
@@ -117,16 +144,9 @@ describe("manifest 上任一資源", () => {
       (resource) => resource.mediaType === "text/css",
     );
 
-    expect(stylesheet?.location.kind).toBe("in-container");
-    expect(
-      new TextDecoder().decode(
-        book.bytes(
-          stylesheet!.location.kind === "in-container"
-            ? stylesheet!.location.path
-            : "",
-        ),
-      ),
-    ).toContain("writing-mode");
+    expect(new TextDecoder().decode(book.bytes(pathOf(stylesheet)))).toContain(
+      "writing-mode",
+    );
   });
 
   test("依 manifest 的 id 找得到", async () => {
@@ -139,12 +159,7 @@ describe("manifest 上任一資源", () => {
   test("壓縮檔裡沒有的路徑丟明確錯誤", async () => {
     const book = await EpubBook.open(await readFixture("vertical-japanese.epub"));
 
-    expect(() => book.bytes("EPUB/どこにもない.xhtml")).toThrow(EpubResourceError);
-    try {
-      book.bytes("EPUB/どこにもない.xhtml");
-    } catch (error) {
-      expect((error as EpubResourceError).reason).toBe("missing-resource");
-    }
+    expectFailure(() => book.bytes("EPUB/どこにもない.xhtml"), "missing-resource");
   });
 });
 
@@ -300,13 +315,10 @@ describe("不支援的混淆方式", () => {
     // 這裡寧可讓消費端拿到一個說得出原因的錯誤。
     const book = await EpubBook.open(obfuscatedWith(ADOBE_ALGORITHM));
 
-    expect(() => book.bytes("OEBPS/fonts/face.otf")).toThrow(EpubResourceError);
-    try {
-      book.bytes("OEBPS/fonts/face.otf");
-    } catch (error) {
-      expect((error as EpubResourceError).reason).toBe("unsupported-obfuscation");
-      expect((error as Error).message).toContain(ADOBE_ALGORITHM);
-    }
+    expectFailure(() => book.bytes("OEBPS/fonts/face.otf"), "unsupported-obfuscation");
+    // 訊息要說得出是哪一套演算法——「不支援」而不說是什麼，查的人還是得自己
+    // 去翻壓縮檔。
+    expect(() => book.bytes("OEBPS/fonts/face.otf")).toThrow(ADOBE_ALGORITHM);
   });
 
   test("真的加密過的資源同樣是明確錯誤", async () => {
@@ -314,7 +326,7 @@ describe("不支援的混淆方式", () => {
       obfuscatedWith("http://www.w3.org/2001/04/xmlenc#aes256-cbc"),
     );
 
-    expect(() => book.bytes("OEBPS/fonts/face.otf")).toThrow(EpubResourceError);
+    expectFailure(() => book.bytes("OEBPS/fonts/face.otf"), "unsupported-obfuscation");
   });
 
   test("這本書照樣開得起來，其他資源照樣拿得到", async () => {
@@ -348,12 +360,7 @@ describe("不支援的混淆方式", () => {
     );
 
     expect(book.metadata.identifier).toBeUndefined();
-    try {
-      book.bytes("OEBPS/fonts/face.otf");
-      expect.unreachable("應該丟 EpubResourceError");
-    } catch (error) {
-      expect((error as EpubResourceError).reason).toBe("missing-obfuscation-key");
-    }
+    expectFailure(() => book.bytes("OEBPS/fonts/face.otf"), "missing-obfuscation-key");
   });
 });
 

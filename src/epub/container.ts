@@ -1,6 +1,6 @@
 import { unzipSync } from "fflate";
 import { EpubOpenError } from "./errors.ts";
-import { resolveHref } from "./resource-path.ts";
+import { CONTAINER_ROOT, resolveHref } from "./resource-path.ts";
 import { parseXml } from "./xml.ts";
 
 /**
@@ -17,9 +17,6 @@ import { parseXml } from "./xml.ts";
  */
 
 const CONTAINER_PATH = "META-INF/container.xml";
-
-/** 封裝根。`full-path` 的基底就是它，不是 `container.xml` 所在的目錄。 */
-const CONTAINER_ROOT = "";
 
 export interface EpubContainer {
   /** 封裝文件（OPF）在壓縮檔內的路徑。 */

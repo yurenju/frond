@@ -103,11 +103,18 @@ function element(
   attributes: Record<string, unknown> | undefined,
 ): XmlElement {
   const children = (name: string): readonly XmlElement[] =>
-    nodes
-      .filter((node) => node[name] !== undefined && name !== TEXT_KEY)
-      .map((node) =>
-        element(node[name] as RawNode[], node[ATTRIBUTES_KEY] as Record<string, unknown>),
-      );
+    // 文字節點的鍵也是一個鍵（`#text`），但它的值是字串而不是子節點的陣列——
+    // 當成元素往下走會拿到一個形狀不對的東西。文字要用 `text()`。
+    name === TEXT_KEY
+      ? []
+      : nodes
+          .filter((node) => node[name] !== undefined)
+          .map((node) =>
+            element(
+              node[name] as RawNode[],
+              node[ATTRIBUTES_KEY] as Record<string, unknown>,
+            ),
+          );
 
   return {
     child: (name) => children(name)[0],
