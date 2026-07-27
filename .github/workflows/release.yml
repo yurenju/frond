@@ -1,0 +1,208 @@
+name: release
+
+# 打一個版本 tag。手動觸發，因為「要不要發一版」是一個決定，不是一個事件。
+#
+# ## tag 是消費端真的會拿到的東西
+#
+# frond 不發 npm（ADR-0008），消費端用 git dependency 釘 tag：
+#
+#     npm install github:yurenju/frond#v0.1.0
+#
+# npm 為 git dependency 安裝 devDependencies 然後跑 `prepare`，也就是在**他們的
+# 機器上**跑 `npm run build`。所以 tag 打在一個建不起來的 commit 上，症狀不是
+# 「我們的 CI 紅了」，而是「每一個安裝 frond 的人都裝不起來」，而且錯誤訊息出現
+# 在他們的終端機裡。
+#
+# 這是下面那幾個驗證步驟存在的理由——它們不是為了證明程式碼是對的（那是
+# `test.yml` 在 main 上每次推送都做的事），是為了證明**安裝這條路走得通**。
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "要動哪一格"
+        type: choice
+        required: true
+        default: patch
+        options:
+          # 0.1.0 → 0.1.1。修正、文件、內部重構。
+          - patch
+          # 0.1.0 → 0.2.0。API 有變動——0.x 期間這是常態（ADR-0008）。
+          - minor
+          # 0.1.0 → 1.0.0。**這一格不只是一個數字。**
+          #
+          # 1.0 在 ADR-0008 裡等於「API 穩定了、可以發 npm 了」這個承諾。要跨過
+          # 去之前先去改那份 ADR，不要先打 tag——tag 刪得掉，但已經照著它安裝的
+          # 人不會知道你刪了。
+          - major
+
+# 同時跑兩次會各自算出同一個版本號，然後第二個推不上去（tag 已存在）。排隊而不是
+# 取消：被取消的那一個可能已經 push 了 commit 但還沒 push tag。
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # Action 一律釘 commit SHA，不用 tag——理由與 test.yml 同一條：tag 是可移動
+      # 的參照，只有 SHA 是真的釘死。版本寫在註解裡給人看。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # `npm version` 要看得到既有的 tag 才不會撞號。
+          fetch-depth: 0
+
+      # 只從 main 發版。
+      #
+      # `workflow_dispatch` 的下拉選單裡每一個分支都選得到，而從功能分支打出來的
+      # tag 指向一個沒有進 main 的 commit——那個 tag 之後永遠對不上任何一段歷史，
+      # 而發現的方式通常是某個消費端裝到了一份不存在於 main 的程式碼。
+      - name: 確認在 main 上
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::release 只能從 main 跑，現在在 ${{ github.ref }}"
+          exit 1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      # `--ignore-scripts` 擋掉 `prepare`。下面會顯式跑一次 build，那一次的失敗
+      # 訊息指得準；混在 `npm ci` 裡的話，紅燈長得像相依裝不起來。
+      - run: npm ci --ignore-scripts
+
+      - run: npm run typecheck
+
+      # --- 消費端那條路 ---------------------------------------------------
+      #
+      # 到這裡為止驗的都是 repo 內部。下面兩步驗的是**別人拿到的東西**。
+
+      # `prepare` 會在消費端的機器上跑的，就是這一行。它同時檢查 dist/ 的兩條
+      # 不變式（無 .ts specifier、無 bare specifier），見 scripts/finish-build.ts。
+      - run: npm run build
+
+      # 打包、安裝、import。
+      #
+      # 這一步抓的是 `npm run build` 抓不到的那一類錯：`exports` 的路徑打錯、
+      # `files` 漏掉東西、`.d.ts` 指到不存在的檔案。它們的共同點是**在這個 repo
+      # 裡怎麼跑都是綠的**——因為我們自己的程式碼走相對路徑，從來不經過 exports。
+      - name: 裝成消費端的樣子，確認兩個進入點都通
+        run: |
+          set -euo pipefail
+
+          # 不用 `tarball="$(npm pack)"` 取檔名。`npm pack` 會跑 `prepare`，而
+          # `prepare` 的 stdout（build script 印的那兩行）跟著進了同一條管道——
+          # 於是那個變數拿到的是三行文字而不是一個檔名，`--silent` 也擋不掉。
+          # 改成丟進一個乾淨的目錄再用 glob 取，檔名怎麼組成的就不必猜。
+          rm -rf /tmp/pack /tmp/consumer
+          mkdir -p /tmp/pack
+          npm pack --pack-destination /tmp/pack > /dev/null
+          tarball="$(ls /tmp/pack/*.tgz)"
+          echo "打包出：$tarball"
+
+          mkdir -p /tmp/consumer
+          cd /tmp/consumer
+          npm init -y > /dev/null
+          npm pkg set type=module
+          npm install --ignore-scripts "$tarball"
+
+          cat > check.js <<'JS'
+          import { EpubBook } from "frond/epub";
+          import { Renderer, MemoryBook } from "frond/renderer";
+
+          for (const [name, value] of Object.entries({ EpubBook, Renderer, MemoryBook })) {
+            if (typeof value !== "function") throw new Error(`${name} 沒有從進入點出來`);
+          }
+          console.log("執行期進入點：OK");
+          JS
+          node check.js
+
+          # 型別那一半要分開驗。`.d.ts` 壞掉的時候 import 照樣跑得動，只是每一個
+          # 型別都變成 any——那正是最難發現的一種壞法（TypeScript 7.0.2 的
+          # rewriteRelativeImportExtensions 不改寫 .d.ts，見 tsconfig.build.json）。
+          cat > check.ts <<'TS'
+          import { EpubBook, type BookMetadata } from "frond/epub";
+          import { Renderer, type RenderLocation } from "frond/renderer";
+
+          export async function demo(bytes: ArrayBuffer, host: HTMLElement) {
+            const book = await EpubBook.open(bytes);
+            const meta: BookMetadata = book.metadata;
+            const renderer = await Renderer.attach(book, host, {
+              on: { relocate: (at: RenderLocation) => void at.cfi },
+            });
+            await renderer.next();
+            return meta.epubVersion;
+          }
+          TS
+
+          # skipLibCheck 關掉：開著的話，出貨的 .d.ts 就算解析不到也不會紅。
+          cat > tsconfig.json <<'JSON'
+          {
+            "compilerOptions": {
+              "module": "nodenext",
+              "moduleResolution": "nodenext",
+              "target": "ES2022",
+              "lib": ["ES2022", "DOM"],
+              "strict": true,
+              "noEmit": true,
+              "skipLibCheck": false
+            },
+            "files": ["check.ts"]
+          }
+          JSON
+          # 直接叫 repo 裡那支 tsc，而不是 npx 另外裝一份。這是 AGENTS.md「一律走
+          # npm run」的例外，而例外的理由要說清楚：被檢查的是 /tmp 底下一個假的
+          # 消費端專案，不是這個 repo，所以沒有一支 npm script 該負責它。用 repo
+          # 釘死的那個版本，量到的才是消費端拿到的 .d.ts 在我們宣稱支援的
+          # TypeScript 上解不解得開。
+          "$GITHUB_WORKSPACE/node_modules/.bin/tsc" -p tsconfig.json
+          echo "型別進入點：OK"
+
+      # --- 打版 -------------------------------------------------------------
+
+      - name: 設定提交身分
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # `npm version` 一次做三件事：改 package.json 與 package-lock.json、提交、
+      # 打一個帶訊息的 tag（前綴 `v` 是預設值）。自己 sed 版本號再手動 tag 也可以，
+      # 但那樣 package-lock.json 裡的版本會漏掉——而那份檔案是消費端 `npm ci` 的
+      # 依據。
+      - id: version
+        name: 升版並打 tag
+        run: |
+          set -euo pipefail
+          version="$(npm version "${{ inputs.bump }}" -m "release: %s")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "升到 $version"
+
+      # `--follow-tags` 只推帶訊息的 tag，也就是上一步剛打的那一個。commit 與 tag
+      # 一起推是重點：分兩次推的話，中間失敗會留下一個推上去卻沒有 tag 的 commit。
+      #
+      # 兩件與這一步有關、但不在這個檔案裡的事：
+      #
+      #   1. main 若開了「必須經 PR」的分支保護，這一行會被擋下來。要嘛給
+      #      github-actions[bot] 一個 bypass，要嘛改成開 PR 的流程。
+      #   2. 用 GITHUB_TOKEN 推上去的 commit **不會觸發其他 workflow**，所以這一
+      #      次推送不會跑 test.yml 也不會重新部署 pages。兩者在這裡都無所謂：升版
+      #      的 commit 只動 package.json 與 package-lock.json，站的內容沒變，而
+      #      程式碼本身在打 tag 之前已經驗過。
+      - name: 推上去
+        run: git push --follow-tags origin main
+
+      - name: 寫進執行摘要
+        run: |
+          {
+            echo "## ${{ steps.version.outputs.version }} 發出去了"
+            echo
+            echo '```bash'
+            echo "npm install github:${{ github.repository }}#${{ steps.version.outputs.version }}"
+            echo '```'
+            echo
+            echo "消費端的安裝路徑（build 加兩個進入點、執行期與型別）在打 tag 之前驗過。"
+          } >> "$GITHUB_STEP_SUMMARY"

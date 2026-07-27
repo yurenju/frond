@@ -1,0 +1,63 @@
+name: pages
+
+# 展示頁跟著 main 走。frond 的 API 還在 0.x（ADR-0008），所以站上示範的寫法與
+# main 的原始碼必須是同一份——固定在某個 tag 上會讓「照著站上寫卻編不過」變成
+# 可能，而那是最勸退人的一種第一印象。
+on:
+  push:
+    branches: [main]
+  # 部署壞掉時要能不推 commit 就重跑。
+  workflow_dispatch:
+
+# Pages 的部署是「取代」而不是「累加」，同時跑兩個會互相蓋。這裡不取消進行中的
+# 那一個——半途中斷的部署留下的是一個部分更新的站。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # Action 一律釘 commit SHA，不用 tag——理由與 test.yml 同一條：tag 是可移動
+      # 的參照，只有 SHA 是真的釘死。版本寫在註解裡給人看。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      # `--ignore-scripts` 擋掉 `prepare`。那支 script 跑 `npm run build`，而下面
+      # 的 `npm run site` 會再跑一次——重複一次沒有壞處，但這裡擋掉之後，站建不
+      # 起來時紅的是 `npm run site` 那一步，訊息指得準。
+      - run: npm ci --ignore-scripts
+
+      # 型別要通過才值得部署。站上那段範例程式碼示範的是 frond 的 API，而 API
+      # 錯了的話站是綠的、消費端是紅的。
+      - run: npm run typecheck
+
+      # 建出貨產物並複製進 site/frond/。這一步同時證明「不需要打包器」——它是
+      # 一次 tsc 加一次 cp，沒有第三個工具。
+      - run: npm run site
+
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

@@ -8,3 +8,14 @@ tests/books/commercial/
 # 產生 PR 證據圖用的一次性 spec。它服務單一次判讀，不是回歸測試——留在 repo 裡
 # 會變成沒有人維護、CI 卻要跑的東西（docs/agents/pull-requests.md）。
 tests/browser/evidence/
+
+# 出貨產物。`npm run build` 產生，消費端以 git dependency 安裝時由 `prepare`
+# 在他們那邊生成——commit 進來只會讓兩份不同步。
+dist/
+
+# demo 站在建置時把 dist/ 複製到這裡（scripts/build-site.sh）。
+site/frond/
+
+# 展示用的合成書。`npm run demo:book` 隨時產得出來（決定性），內容與理由在
+# src/test-fixtures/demo-book.ts——產物不必進 repo。
+tests/books/demo-zh-tw.epub

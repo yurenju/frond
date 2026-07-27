@@ -1,0 +1,39 @@
+{
+  // 出貨產物的建置設定。根 `tsconfig.json` 服務的是「在這個 repo 裡工作」——它
+  // 收 scripts/ 與 tests/、不 emit、吃 @types/node。這一份只服務一件事：把
+  // `src/epub` 與 `src/renderer` 變成消費端 import 得動的 JavaScript。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
+
+    // 消費端拿到的是 .js，型別要靠 .d.ts。declarationMap 與 sourceMap 讓
+    // 「跳到定義」落在 frond 的原始碼上而不是 emit 出來的那一份——這是消費端
+    // 回報問題時唯一能指得準的東西。
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+
+    // 這一格是整份設定的關鍵。src/ 內部一律以 .ts 副檔名互相 import（理由見
+    // 根 tsconfig.json），而瀏覽器與 Node 都只認 .js。這個開關在 emit 時把
+    // `./x.ts` 改寫成 `./x.js`，.d.ts 裡的型別 import 一併改寫。
+    //
+    // 沒有它就只剩兩條路：消費端一律得有能編 TypeScript 的打包器，或我們自己
+    // 引入一個打包器。兩條都會讓「零相依、瀏覽器直接 import」這個性質消失。
+    "rewriteRelativeImportExtensions": true,
+
+    // **刻意不吃 @types/node。**
+    //
+    // `EpubBook` 與 `Renderer` 本來就零 Node 相依（ADR-0005：前者要在瀏覽器與
+    // Node 兩邊跑，後者只要 DOM），而這件事目前只靠紀律維持。把 node 型別從
+    // 建置設定裡拿掉，紀律就變成機器守得住的事：哪天有人在這兩層 import 了
+    // `node:crypto`，紅的是 `npm run build`，而不是某個消費端的執行期。
+    //
+    // `src/test-fixtures/` 用 node:fs 寫檔，所以它在下面被排除掉——它是我們產
+    // 合成 fixture 的工具，不是出貨表面的一部分。
+    "types": []
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/test-fixtures/**"]
+}

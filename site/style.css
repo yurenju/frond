@@ -1,0 +1,389 @@
+/*
+ * 展示頁的樣式。
+ *
+ * 刻意留在一個檔案、不用任何預處理器或框架——這一頁要示範的是「frond
+ * 不需要建置流程」，而一份需要編譯的樣式表會讓那句話變得只有一半是真的。
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --ink: #1c1e21;
+  --ink-soft: #5c6169;
+  --paper: #fbfaf8;
+  --panel: #ffffff;
+  --line: #e2ddd5;
+  --accent: #2f6b4f;
+  --danger: #a4362c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #dfe1e4;
+    --ink-soft: #9aa1ab;
+    --paper: #14161a;
+    --panel: #1b1e23;
+    --line: #2e333a;
+    --accent: #6fbf95;
+    --danger: #e0796d;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/*
+ * `hidden` 屬性要真的藏得住。
+ *
+ * UA 樣式表給 `[hidden]` 的是 `display: none`，但那條規則的優先權極低——這份
+ * 檔案裡任何一條 id 或 class 選擇器的 `display` 都蓋得過它。於是
+ * `element.hidden = true` 變成什麼都沒發生，而 JavaScript 那一側看起來完全正常。
+ *
+ * 這正是它在這裡的理由：整頁的顯示切換（開書前後、兩個分頁）都靠 `hidden`。
+ */
+[hidden] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: system-ui, "Noto Sans CJK TC", "Noto Sans TC", sans-serif;
+  line-height: 1.7;
+}
+
+a {
+  color: var(--accent);
+}
+
+code,
+pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+}
+
+/* --- 頁首 ---------------------------------------------------------------- */
+
+.masthead {
+  padding: 2rem 1.5rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.masthead h1 {
+  margin: 0;
+  font-size: 1.9rem;
+  letter-spacing: 0.02em;
+}
+
+.tagline {
+  margin: 0.4rem 0 0;
+  max-width: 46rem;
+  color: var(--ink-soft);
+}
+
+.masthead-links {
+  margin-top: 0.6rem;
+  display: flex;
+  gap: 1rem;
+  font-size: 0.9rem;
+}
+
+main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* --- 開書之前 ------------------------------------------------------------ */
+
+#intro {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.dropzone {
+  border: 2px dashed var(--line);
+  border-radius: 12px;
+  padding: 3rem 1.5rem;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.dropzone.is-hovered {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.dropzone-headline {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.dropzone-sub {
+  margin: 0.5rem 0;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.file-button {
+  display: inline-block;
+  padding: 0.5rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.file-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.file-button.small {
+  padding: 0.25rem 0.8rem;
+  font-size: 0.85rem;
+}
+
+.file-button input {
+  /* 視覺上藏起來，但保留在無障礙樹裡——鍵盤使用者要 tab 得到它。 */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.intro-columns {
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+}
+
+.intro-columns h2 {
+  font-size: 1.05rem;
+  margin: 0 0 0.6rem;
+}
+
+.intro-columns ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.intro-columns li + li {
+  margin-top: 0.5rem;
+}
+
+.note {
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+}
+
+pre {
+  overflow-x: auto;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  line-height: 1.55;
+}
+
+/* --- 開書之後 ------------------------------------------------------------ */
+
+#workspace {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.workspace-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.tab {
+  padding: 0.3rem 0.9rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.tab[aria-selected="true"] {
+  border-color: var(--line);
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.book-title {
+  flex: 1;
+  /* 分隔線是必要的，不是裝飾：書名緊接在兩個分頁按鈕後面時，看起來像第三個
+     分頁。截圖上一眼就看得出來（`讀 檢查 渡口`）。 */
+  margin: 0;
+  padding-left: 1rem;
+  border-left: 1px solid var(--line);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.85rem;
+}
+
+.toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--ink-soft);
+}
+
+.toolbar input[type="range"] {
+  width: 6.5rem;
+}
+
+.toolbar button,
+.toolbar select {
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: inherit;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.toolbar button:disabled,
+.toolbar select:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+#toc {
+  max-width: 16rem;
+}
+
+/*
+ * 渲染的容器。
+ *
+ * frond 要的只有一件事：一個有大小的元素。它會把自己的 iframe 絕對定位進來，
+ * 所以容器如果是 `position: static`，frond 會暫時改成 `relative` 並在
+ * `destroy()` 時還原。高度必須由這一層給——內容在 iframe 裡，撐不起父層。
+ */
+.viewer {
+  flex: 1;
+  min-height: 24rem;
+}
+
+.statusbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+}
+
+.statusbar code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.error {
+  margin: 0;
+  padding: 0.6rem 1rem;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  font-size: 0.88rem;
+}
+
+/* --- 檢查 ---------------------------------------------------------------- */
+
+#panel-inspect {
+  overflow-y: auto;
+  padding: 1.25rem 1.5rem 3rem;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: minmax(8rem, max-content) 1fr;
+  gap: 0.4rem 1.5rem;
+  margin: 1rem 0 0;
+  font-size: 0.9rem;
+}
+
+.facts dt {
+  color: var(--ink-soft);
+}
+
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.cover {
+  max-width: 150px;
+  max-height: 220px;
+  margin-top: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+/* --- 頁尾 ---------------------------------------------------------------- */
+
+.colophon {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+}
+
+.colophon p {
+  margin: 0;
+}
