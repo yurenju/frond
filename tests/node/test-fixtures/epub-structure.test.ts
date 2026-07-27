@@ -37,11 +37,13 @@ describe("產出物是一本合規的書", () => {
 
   test.for(fixtureNames)("%s 的壓縮檔裡沒有 manifest 沒宣告的內容", (name) => {
     const book = open(name);
-    // OCF 自己的三個檔案不必在 manifest 裡；其餘每一項都必須被宣告，否則
-    // EpubBook 會讀到一份與壓縮檔內容不符的清單。
+    // OCF 自己那幾個檔案不必在 manifest 裡（`encryption.xml` 只有帶混淆資源的
+    // 書才有）；其餘每一項都必須被宣告，否則 EpubBook 會讀到一份與壓縮檔內容
+    // 不符的清單。
     const declared = new Set([
       "mimetype",
       "META-INF/container.xml",
+      "META-INF/encryption.xml",
       book.packageDocumentPath,
       ...book.manifest.map((item) => item.archivePath),
     ]);

@@ -1,4 +1,3 @@
-import type { EpubContainer } from "./container.ts";
 import type { Resource } from "./resources.ts";
 
 /**
@@ -23,10 +22,16 @@ export interface CoverImage {
 
 export type CoverNotation = "cover-image-property" | "meta-name";
 
+/**
+ * @param readBytes 取一份資源的位元組，與 `EpubBook.bytes()` 走同一條——**不是
+ * 直接讀壓縮檔**。差別在混淆：直接讀的話，一本把封面也列進 `encryption.xml` 的
+ * 書會讓書櫃拿到一張解不開的圖，而 `book.bytes(cover.path)` 拿到的卻是另一批
+ * 位元組。同一個路徑在同一本書上只能有一種答案。
+ */
 export function readCover(
   resources: ReadonlyMap<string, Resource>,
   coverMetaId: string | undefined,
-  container: EpubContainer,
+  readBytes: (path: string) => Uint8Array,
 ): CoverImage | undefined {
   const byProperty = [...resources.values()].find((resource) =>
     resource.properties.includes("cover-image"),
@@ -41,13 +46,32 @@ export function readCover(
     [byMeta, "meta-name"],
   ] as const) {
     if (resource?.location.kind !== "in-container") continue;
+
+    const bytes = tryRead(readBytes, resource.location.path);
+    // 解不開的封面與「指到一張不在包裡的圖」落在同一格：**這本書沒有封面**，
+    // 不是這本書開不起來。一本封面被 DRM 加密過的書仍然讀得完，而書櫃要的
+    // 只是有沒有縮圖。
+    if (bytes === undefined) continue;
+
     return {
       path: resource.location.path,
       mediaType: resource.mediaType,
-      bytes: container.bytes(resource.location.path),
+      bytes,
       foundBy,
     };
   }
 
   return undefined;
+}
+
+/** 拿不到就是拿不到。這裡不分辨為什麼——差別對「有沒有封面」沒有影響。 */
+function tryRead(
+  readBytes: (path: string) => Uint8Array,
+  path: string,
+): Uint8Array | undefined {
+  try {
+    return readBytes(path);
+  } catch {
+    return undefined;
+  }
 }

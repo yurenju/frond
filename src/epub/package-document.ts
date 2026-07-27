@@ -78,6 +78,13 @@ export interface PackageDocument {
   readonly coverMetaId: string | undefined;
   readonly manifest: readonly ManifestItem[];
   readonly readingOrder: readonly ReadingOrderItem[];
+  /**
+   * `<spine toc="…">` 指向的 manifest **id**——EPUB 2 用它指出 NCX 在哪。
+   *
+   * 這是封裝文件對導覽文件的唯一一種指法（EPUB 3 改用 manifest 的
+   * `properties="nav"`），所以它跟著封裝文件一起讀出來，由 `toc.ts` 決定怎麼用。
+   */
+  readonly readingOrderTocId: string | undefined;
 }
 
 export function parsePackageDocument(
@@ -117,6 +124,7 @@ export function parsePackageDocument(
       ?.attribute("content"),
     manifest: readManifest(packageElement, label),
     readingOrder: readReadingOrder(readingOrderElement),
+    readingOrderTocId: readingOrderElement.attribute("toc"),
   };
 }
 

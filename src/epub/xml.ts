@@ -7,11 +7,23 @@ import { EpubOpenError, type EpubOpenFailure } from "./errors.ts";
  * **不用 `DOMParser`**：`EpubBook` 零 DOM 依賴（ADR-0005），而那正是它能在 Node
  * 裡跑、在測試金字塔底層被測到的原因。fast-xml-parser 是純 JS。
  *
- * 這一層存在的理由是把 fast-xml-parser 的產物（巢狀的 plain object，單一子元素
- * 是物件、多個是陣列、純文字元素直接是字串）收成一個**只有三個問題**的介面：
- * 子元素、屬性、文字。沒有這一層的話，每一處讀 XML 的地方都要自己處理那三種
- * 形狀，而漏掉「單一 vs 多個」正是解析 manifest 時最典型的錯法——只有一個
- * `<item>` 的書會走進另一條分支。
+ * 這一層存在的理由是把 fast-xml-parser 的產物收成一個**只有三個問題**的介面：
+ * 子元素、屬性、文字。沒有這一層的話，每一處讀 XML 的地方都要自己處理解析器的
+ * 表述形狀，而那些形狀與 XML 本身無關，只與解析器的選項有關。
+ *
+ * ## 文件順序要保留（`preserveOrder`）
+ *
+ * 解析器預設會把同名的子元素收成一個鍵，於是**混合內容的順序就沒了**：
+ * `<a>前<span>言</span>後</a>` 變成 `{ span: "言", "#text": "前後" }`，讀不回
+ * 「前言後」。開著 `preserveOrder` 之後每個節點是 `{ 標籤: [子節點…] }`，文字
+ * 節點是 `{ "#text": … }`，順序就是陣列的順序。
+ *
+ * 這不是潔癖，是量到的：本機那 33 本書裡，導覽文件的 1527 個目錄連結有 **73 個
+ * 的標題帶著行內標籤**（5 本書），而其中一本（《我的公寓》）**39 個目錄項目的
+ * 文字全部包在 `<span>` 裡**——只讀節點自己那一層 `#text` 的實作，會讓那本書
+ * 整份目錄的標題是空字串。另一本的第二層是 `<span><small>輯一</small>・儲藏室
+ * </span>`，順序丟掉之後標題會變成「・儲藏室輯一」。兩種都是靜默的錯：目錄長度
+ * 對、href 對、只有字是壞的。
  *
  * ## 命名空間前綴一律剝掉
  *
@@ -27,7 +39,14 @@ export interface XmlElement {
   /** 所有叫這個名字的子元素，依文件順序。 */
   children(name: string): readonly XmlElement[];
   attribute(name: string): string | undefined;
-  /** 元素的文字內容。沒有文字時是空字串。 */
+  /**
+   * 元素底下**所有**文字，依文件順序接起來（DOM 的 `textContent` 語意）。沒有
+   * 文字時是空字串。
+   *
+   * 「所有」是刻意的，只取節點自己那一層的話，`<a><span>序</span></a>` 這種
+   * 目錄項目會讀出空字串——而那是量到的形狀，見檔頭。只提供這一個方法也是
+   * 刻意的：多一個「只取自己那層」的方法，就多一個在真實的書上靜默讀空的選項。
+   */
   text(): string;
 }
 
@@ -41,6 +60,9 @@ export interface XmlParseFailure {
 const TEXT_KEY = "#text";
 const ATTRIBUTE_PREFIX = "@_";
 
+/** `preserveOrder` 把屬性收在這個鍵底下，與子元素分開。 */
+const ATTRIBUTES_KEY = ":@";
+
 const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: ATTRIBUTE_PREFIX,
@@ -49,6 +71,8 @@ const parser = new XMLParser({
   // 欄位是數字。
   parseTagValue: false,
   parseAttributeValue: false,
+  // 見檔頭：導覽文件的標題常常包在行內標籤裡，順序丟掉就讀不回原本的字。
+  preserveOrder: true,
 });
 
 export function parseXml(source: string, failure: XmlParseFailure): XmlElement {
@@ -63,36 +87,49 @@ export function parseXml(source: string, failure: XmlParseFailure): XmlElement {
     );
   }
 
-  return element(parser.parse(source) as Record<string, unknown>);
+  // 最外層是一串節點而不是單一根元素——XML 宣告（`<?xml … ?>`）也是其中一個。
+  // 包成一個沒有名字的元素之後，取根元素與取任何一層子元素就是同一個動作。
+  return element(parser.parse(source) as RawNode[], undefined);
 }
 
-function element(raw: Record<string, unknown>): XmlElement {
+/**
+ * `preserveOrder` 的一個節點：恰好一個以標籤為名的鍵（值是子節點的陣列），屬性
+ * 另外收在 `:@` 底下。文字節點的鍵是 `#text`，值是字串。
+ */
+type RawNode = Record<string, unknown>;
+
+function element(
+  nodes: readonly RawNode[],
+  attributes: Record<string, unknown> | undefined,
+): XmlElement {
   const children = (name: string): readonly XmlElement[] =>
-    asArray(raw[name]).map(toElement);
+    nodes
+      .filter((node) => node[name] !== undefined && name !== TEXT_KEY)
+      .map((node) =>
+        element(node[name] as RawNode[], node[ATTRIBUTES_KEY] as Record<string, unknown>),
+      );
 
   return {
     child: (name) => children(name)[0],
     children,
     attribute: (name) => {
-      const value = raw[`${ATTRIBUTE_PREFIX}${name}`];
+      const value = attributes?.[`${ATTRIBUTE_PREFIX}${name}`];
       return value === undefined ? undefined : String(value);
     },
-    text: () => {
-      const value = raw[TEXT_KEY];
-      return value === undefined ? "" : String(value);
-    },
+    text: () => textOf(nodes),
   };
 }
 
-/** 只有文字的元素在解析結果裡直接是字串，不是物件。 */
-function toElement(raw: unknown): XmlElement {
-  if (typeof raw === "object" && raw !== null) {
-    return element(raw as Record<string, unknown>);
-  }
-  return element({ [TEXT_KEY]: raw });
-}
-
-function asArray(value: unknown): unknown[] {
-  if (value === undefined) return [];
-  return Array.isArray(value) ? value : [value];
+/** 依文件順序把整棵子樹的文字接起來。 */
+function textOf(nodes: readonly RawNode[]): string {
+  return nodes
+    .map((node) => {
+      const text = node[TEXT_KEY];
+      if (text !== undefined) return String(text);
+      // 一個節點只有一個標籤鍵（屬性在 `:@` 底下），所以往下走不必知道它叫
+      // 什麼名字。
+      const child = Object.entries(node).find(([key]) => key !== ATTRIBUTES_KEY);
+      return child === undefined ? "" : textOf(child[1] as RawNode[]);
+    })
+    .join("");
 }

@@ -9,8 +9,31 @@
 export { EpubBook } from "./epub-book.ts";
 export type { EpubSource, Section } from "./epub-book.ts";
 export type { CoverImage, CoverNotation } from "./cover.ts";
-export { EpubOpenError } from "./errors.ts";
-export type { EpubOpenFailure } from "./errors.ts";
+export type {
+  NavigationDocument,
+  NavigationVehicle,
+  TocItem,
+} from "./toc.ts";
+// TOC 項目指向哪裡是用它表達的，所以解析器的產物型別在公開面上（`toc.ts` 的
+// `TocItem.target`）。
+export type { ResolvedHref } from "./resource-path.ts";
+export { compareCfi, parseCfi, serializeCfi, CfiParseError } from "./cfi.ts";
+export type {
+  Cfi,
+  CfiAssertion,
+  CfiComparison,
+  CfiOffset,
+  CfiParameter,
+  CfiParseFailure,
+  CfiPath,
+  CfiPoint,
+  CfiRange,
+  CfiSegment,
+  CfiStep,
+} from "./cfi.ts";
+export { EpubOpenError, EpubResourceError } from "./errors.ts";
+export type { EpubOpenFailure, EpubResourceFailure } from "./errors.ts";
+export type { Resource, ResourceLocation } from "./resources.ts";
 export type {
   BookMetadata,
   EpubVersion,

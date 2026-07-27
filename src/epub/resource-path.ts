@@ -1,5 +1,11 @@
 /**
- * 把封裝文件裡的 `href` 對應到壓縮檔內的項目名稱。
+ * 把書裡的 `href` 對應到壓縮檔內的項目名稱。
+ *
+ * **這是全專案唯一的一條路。** manifest（`resources.ts`）、容器的 `full-path`
+ * （`container.ts`）與 TOC（`toc.ts`）都叫這個函式，各自只換一個基底：解析
+ * 相對於引用它的那份文件。spine 的原罪正是同一種正規化被獨立實作了兩次、彼此
+ * 不知道對方存在，於是修好一邊另一邊照壞（#1）。多一個呼叫端不算重複，多一個
+ * `decodeURIComponent` 才是。
  *
  * **這不是字串接合。** `href` 是 URL 而不是檔案系統路徑，要照 URL 的規則相對於
  * 引用它的那份文件解析。實證（#8 的留言）：一本 Kobo 通路的 EPUB 3，OPF 在
@@ -31,7 +37,21 @@ const SENTINEL = "/__container__/";
 
 export type ResolvedHref =
   /** 解析後落在封裝內，`path` 是壓縮檔內的項目名稱。 */
-  | { readonly kind: "in-container"; readonly path: string }
+  | {
+      readonly kind: "in-container";
+      readonly path: string;
+      /**
+       * href 的 `#` 之後那一段，已解碼。沒有 fragment 時是 `undefined`。
+       *
+       * manifest 的 href 不會有它（那裡指的是整份檔案），**TOC 的常常有**：量到
+       * 的數字是那 33 本書的導覽文件裡 1568 個目錄 href 有 914 個帶 fragment，
+       * 分布在 22 本書上。丟掉它的實作在第一層目錄上完全正常，只有跳到章節中段
+       * 時才會靜默地停在 Section 開頭。
+       *
+       * 解碼是必要的：id 可以是非 ASCII，而 URL 裡的它是 percent-encoded 的。
+       */
+      readonly fragment: string | undefined;
+    }
   /** 絕對 URL——不在這個壓縮檔裡。EPUB 3 允許遠端資源，frond 不下載它。 */
   | { readonly kind: "remote"; readonly url: string }
   /** 解析後跳出封裝根。不合規。 */
@@ -63,6 +83,10 @@ export function resolveHref(href: string, fromArchivePath: string): ResolvedHref
   return {
     kind: "in-container",
     path: decodePath(resolved.pathname.slice(SENTINEL.length)),
+    // `hash` 帶著 `#`，而空的 fragment（`a.xhtml#`）與沒有 fragment 是同一件事
+    // ——兩者都指向那份文件的開頭。
+    fragment:
+      resolved.hash.length > 1 ? decodePath(resolved.hash.slice(1)) : undefined,
   };
 }
 

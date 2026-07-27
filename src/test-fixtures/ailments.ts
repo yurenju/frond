@@ -377,6 +377,22 @@ body {
     }),
   },
   {
+    name: "obfuscated-font-idpf",
+    description:
+      "字型用 IDPF 演算法混淆過，由 META-INF/encryption.xml 宣告——解錯不會丟錯，症狀是讀者那一頁全是豆腐字",
+    afflict: (base) => ({
+      ...base,
+      resources: [
+        {
+          path: FONT_PATH,
+          mediaType: "font/otf",
+          contents: FONT_BYTES,
+          obfuscation: "idpf",
+        },
+      ],
+    }),
+  },
+  {
     name: "cover-meta-name",
     description:
       "EPUB 3 的封面只用 <meta name=\"cover\"> 宣告，manifest 不帶 properties——按版本分派封面的實作會讓這本書沒有縮圖",
@@ -497,6 +513,21 @@ const ROOT_SCRIPT = new TextEncoder().encode(
 );
 
 const IMAGE_PATH = "images/plate.png";
+
+const FONT_PATH = "fonts/obfuscated.otf";
+
+/**
+ * 混淆過的那份「字型」。
+ *
+ * **它不是一份真的 OTF**，而這是刻意的：這份 fixture 演的病症是**解碼那一步**
+ * ——金鑰推導、蓋住的範圍、以及蓋過頭有沒有毀掉後面的位元組。真的字型會多帶
+ * 兩個軸（授權，以及「這份字型長什麼樣」），而那兩個軸與解碼無關。要測「書用
+ * 自己的字型排出來長什麼樣」的話，那是 Renderer 的票，需要的也是另一份 fixture。
+ *
+ * 長度刻意超過 1040：混淆只蓋開頭那 1040 個位元組，蓋過頭是最容易寫錯的一步，
+ * 而檔案若不夠長，那個錯就沒有東西照得出來。內容是決定性的等差序列，不是亂數。
+ */
+const FONT_BYTES = Uint8Array.from({ length: 1200 }, (_, index) => (index * 31 + 7) % 256);
 
 const COVER_PATH = "images/cover.png";
 
