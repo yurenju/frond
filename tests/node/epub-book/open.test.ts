@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { EpubBook } from "../../../src/epub/index.ts";
 import { readFixture } from "../support/fixtures.ts";
@@ -66,7 +67,27 @@ describe("公開的進入點", () => {
     // 斷言是「開得起一本書」而不是「與相對路徑 import 到的是同一個物件」：後者
     // 在 exports 指向 src 的時代恰好成立，但那是巧合而不是要守的事實。指向
     // `dist/` 之後兩者本來就是不同的模組實例，而消費端在乎的從來是它能不能用。
-    const entry = await import("frond/epub");
+    //
+    // ## 為什麼 specifier 繞過一個變數
+    //
+    // 寫成字面的 `import("frond/epub")` 會讓 **tsc 也去解析那條路**，於是
+    // `npm run typecheck` 跟著要求 `dist/` 存在——一個剛 clone 下來、還沒 build
+    // 的樹會得到 `TS2307: Cannot find module 'frond/epub'`，而那個訊息完全看不
+    // 出真正的原因是「還沒 build」。
+    //
+    // 繞過變數之後 tsc 放棄解析（型別退成 `any`），這條測試回到它本來就該是的
+    // 樣子：**一個關於執行期的斷言**。出貨產物的型別那一半不歸這裡管，那是
+    // `release.yml` 用一個 repo 外的假消費端、開著 `skipLibCheck: false` 在驗的
+    // 事——而那個位置比這裡準，因為它從外面看，跟真的消費端一樣。
+    // `dist/` 不在的時候，Node 丟的是 `Cannot find package 'frond/epub'`——那個
+    // 訊息把人指向 `exports` 設定，而真正的原因是「還沒 build」。先自己說清楚。
+    expect(
+      existsSync(new URL("../../../dist/epub/index.js", import.meta.url)),
+      "dist/ 不存在。這條測試走的是出貨產物，先跑 `npm run build`",
+    ).toBe(true);
+
+    const publishedEntryPoint = "frond/epub";
+    const entry = await import(publishedEntryPoint);
     const book = await entry.EpubBook.open(await readFixture("vertical-japanese.epub"));
 
     expect(book.metadata.title).toBe("frond fixture — vertical-japanese");
