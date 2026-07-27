@@ -42,6 +42,48 @@ export interface Viewport {
 /** 讀者要幾欄。`"auto"` 只在橫排有意義（ADR-0003）。 */
 export type ColumnChoice = 1 | 2 | "auto";
 
+/**
+ * 版面四周的邊界。
+ *
+ * 純量是四邊等距。物件版**依書寫方向分軸**，而不是分上下左右：
+ *
+ * | | 行內軸（`inline`） | 區塊軸（`block`） |
+ * | --- | --- | --- |
+ * | `horizontal-tb` | 左右 | 上下 |
+ * | `vertical-rl` | **上下** | **左右** |
+ *
+ * 分軸而不是分實體邊，是因為讀者調的其實是**行長**。橫排書調左右、直排書調上下，
+ * 看起來是兩件事，實際上都是「把行縮短一點」——都落在行內軸上。用實體邊表達的話，
+ * 同一個偏好在換一本直排書之後要換一個欄位填，而那個轉換每個消費端都要自己做一次
+ * （spine 現在就是這樣：`vertical ? '${m}px 16px' : '16px ${m}px'`）。
+ */
+export type Margin = number | { readonly block: number; readonly inline: number };
+
+/** 四個實體邊的內縮量，px。 */
+export interface Insets {
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+  readonly left: number;
+}
+
+/**
+ * 邊界落到四個實體邊。
+ *
+ * 直排時行內軸是垂直的（字由上而下），所以 `inline` 給的是上下——與橫排相反。
+ * 這一格算錯的症狀不是報錯，是「直排書調邊界時行長沒變、換頁的縫變寬了」。
+ */
+export function marginInsets(margin: Margin, writingMode: WritingMode): Insets {
+  if (typeof margin === "number") {
+    return { top: margin, right: margin, bottom: margin, left: margin };
+  }
+
+  const { block, inline } = margin;
+  return writingMode === "vertical-rl"
+    ? { top: inline, right: block, bottom: inline, left: block }
+    : { top: block, right: inline, bottom: block, left: inline };
+}
+
 export interface ColumnRequest {
   readonly writingMode: WritingMode;
   /** 可用的版面大小，已扣掉讀者設定的邊界。 */

@@ -17,7 +17,7 @@
  * 的哪幾個 `!important`」，而答案只包含讀者真的設過的那幾項。
  */
 
-import type { ColumnChoice } from "./geometry.ts";
+import type { ColumnChoice, Margin } from "./geometry.ts";
 
 /** 主題的前景與背景。任何 CSS 顏色值都可以。 */
 export interface Theme {
@@ -37,13 +37,14 @@ export interface ReaderSettings {
   /** 行高，倍數（無單位）。 */
   readonly lineHeight: number | undefined;
   /**
-   * 版面四周的邊界，px。
+   * 版面的邊界，px。純量是四邊等距，物件版依書寫方向分軸（`geometry.ts` 的
+   * `Margin`）。
    *
    * 它**不是**注入書的 CSS，而是把 iframe 在容器裡縮進來——見
    * `section-view.ts`。邊界因此完全不經過書的層疊，也不必跟書的 `body` padding
    * 打架。
    */
-  readonly margin: number;
+  readonly margin: Margin;
   /** 欄數。直排一律單欄，設了也不生效（ADR-0003）。 */
   readonly columns: ColumnChoice;
   readonly theme: Theme | undefined;

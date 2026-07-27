@@ -12,6 +12,7 @@ import type {
   FrondHarness,
   MountOptions,
   Rect,
+  SectionAtSnapshot,
   SettingsPatch,
   Snapshot,
 } from "../harness.ts";
@@ -85,6 +86,41 @@ const harness: FrondHarness = {
   async applySettings(patch): Promise<Snapshot> {
     await active().applySettings(toSettings(patch));
     return snapshot();
+  },
+
+  /**
+   * **刻意不逐次 await。** 全部發出去之後才一起等，因為要測的正是「前一次還沒
+   * 落地就來了下一次」——逐次 await 的話佇列裡永遠只有一個人。
+   */
+  async rapidNext(times): Promise<Snapshot> {
+    const renderer = active();
+    const turns: Promise<void>[] = [];
+    for (let index = 0; index < times; index += 1) turns.push(renderer.next());
+    await Promise.all(turns);
+    return snapshot();
+  },
+
+  async rapidApplySettings(patches): Promise<Snapshot> {
+    const renderer = active();
+    await Promise.all(patches.map((patch) => renderer.applySettings(toSettings(patch))));
+    return snapshot();
+  },
+
+  locate(fraction): SectionAtSnapshot | null {
+    return active().locate(fraction) ?? null;
+  },
+
+  frameBox(): Rect {
+    const container = document.getElementById(VIEWPORT_ID);
+    const frame = container?.querySelector("iframe");
+    if (!(frame instanceof HTMLIFrameElement)) return { x: 0, y: 0, width: 0, height: 0 };
+
+    return {
+      x: frame.offsetLeft,
+      y: frame.offsetTop,
+      width: frame.clientWidth,
+      height: frame.clientHeight,
+    };
   },
 
   async resize(width, height): Promise<Snapshot> {
@@ -226,12 +262,17 @@ async function attach(book: RenderableBook, options: MountOptions): Promise<Snap
   // 是在 attach 裡面送的，事後掛就收不到了。
   renderer = await Renderer.attach(book, container, {
     settings: toSettings(options.settings),
+    start: options.start,
     on: {
       relocate: record("relocate"),
       load: record("load"),
       linkactivate: record("linkactivate"),
       error: record("error"),
       selection: record("selection"),
+      pointerdown: record("pointerdown"),
+      pointerup: record("pointerup"),
+      keydown: record("keydown"),
+      keyup: record("keyup"),
       indexed: (event) => {
         record("indexed")(event);
         resolveIndexed(event.characters);

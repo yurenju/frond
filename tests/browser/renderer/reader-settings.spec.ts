@@ -207,6 +207,71 @@ test.describe("邊界", () => {
 
     expect(await computed(page, "html", "width")).toBe("780px");
   });
+
+  /**
+   * 軸向的邊界：讀者調的是**行長**。
+   *
+   * 橫排調左右、直排調上下，看起來是兩件事，實際上都是行內軸。用實體邊表達的話
+   * 同一個偏好換一本直排書就要換一個欄位填，而那個轉換每個消費端都要自己做一次。
+   *
+   * 這兩條測試的重點是**兩者相反**：同一組 `{ block, inline }` 在橫排與直排下要
+   * 落到不同的實體邊。算反了不會報錯——邊界照樣縮，只是讀者拖滑桿時行長一格都不
+   * 會動。
+   */
+  test("橫排：inline 落在左右，block 落在上下", async ({ page }) => {
+    await mountFixture(page, "huge-single-section", {
+      settings: { margin: { block: 10, inline: 60 } },
+    });
+
+    const box = await page.evaluate(() => window.frond.frameBox());
+    expect(box).toMatchObject({ x: 60, y: 10, width: 680, height: 580 });
+  });
+
+  test("直排：inline 落在上下，block 落在左右——與橫排相反", async ({ page }) => {
+    await mountFixture(page, "vertical-japanese", {
+      settings: { margin: { block: 10, inline: 60 } },
+    });
+
+    const box = await page.evaluate(() => window.frond.frameBox());
+    expect(box).toMatchObject({ x: 10, y: 60, width: 780, height: 480 });
+  });
+
+  test("純量仍然是四邊等距", async ({ page }) => {
+    await mountFixture(page, "vertical-japanese", { settings: { margin: 30 } });
+
+    const box = await page.evaluate(() => window.frond.frameBox());
+    expect(box).toMatchObject({ x: 30, y: 30, width: 740, height: 540 });
+  });
+
+  /**
+   * `rectsFor()` 的原點與 iframe 的位置必須一致。
+   *
+   * 消費端拿矩形去畫 highlight，畫在容器上。兩者用不同的參考系時，症狀是整片
+   * highlight 偏移一個邊界的距離——而軸向邊界下上下左右不等，偏移量在兩個方向上
+   * 還不一樣。
+   */
+  test("軸向邊界下，矩形仍然落在容器裡的正確位置", async ({ page }) => {
+    await mountFixture(page, "vertical-japanese", {
+      settings: { margin: { block: 10, inline: 60 } },
+    });
+    await page.evaluate(() => window.frond.selectText("p"));
+
+    const [box, rects] = await Promise.all([
+      page.evaluate(() => window.frond.frameBox()),
+      page.evaluate(() => {
+        const location = window.frond.snapshot();
+        return window.frond.rectsFor(location.cfi);
+      }),
+    ]);
+
+    expect(rects.length).toBeGreaterThan(0);
+    for (const rect of rects) {
+      expect(rect.x).toBeGreaterThanOrEqual(box.x);
+      expect(rect.y).toBeGreaterThanOrEqual(box.y);
+      expect(rect.x).toBeLessThanOrEqual(box.x + box.width);
+      expect(rect.y).toBeLessThanOrEqual(box.y + box.height);
+    }
+  });
 });
 
 async function computed(

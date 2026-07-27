@@ -39,6 +39,15 @@ import {
 } from "./settings.ts";
 import { charactersBefore, countCharacters, positionAtCharacter, textNodesIn } from "./text-index.ts";
 
+/** 一個全書進度落在書的哪裡。`locate()` 的產物。 */
+export interface SectionAt {
+  readonly sectionIndex: number;
+  /** 這一節在壓縮檔內的路徑——與 `TocItem.target.path` 是同一個值。 */
+  readonly sectionPath: string;
+  /** 從這一節開頭算起的第幾個字元。 */
+  readonly charactersIntoSection: number;
+}
+
 /** 要跳到一節的哪裡。 */
 export type SectionAnchor =
   | { readonly kind: "first-page" }
@@ -46,6 +55,22 @@ export type SectionAnchor =
   | { readonly kind: "fragment"; readonly id: string }
   | { readonly kind: "cfi"; readonly cfi: Cfi }
   | { readonly kind: "characters"; readonly characters: number };
+
+/**
+ * 第一節要渲染哪裡。
+ *
+ * ## 為什麼沒有 `{ fraction }`
+ *
+ * fraction 要整書索引才算得出來，而索引是 `attach()` 之後才在背景建的
+ * （user story 25）。所以 `start: { fraction }` 只有兩種實作方式，而兩種都比不給
+ * 還糟：等索引建完再渲染第一頁（讀者要等整本書掃過一遍才看得到字），或者先渲染
+ * 第 0 節再跳過去（就是這個欄位要省掉的那條路，一次掛載也沒省到）。
+ *
+ * 消費端存的進度本來就是 CFI——那正是 CFI 存在的理由——所以 `{ cfi }` 就夠。
+ */
+export type RendererStart =
+  | { readonly cfi: string }
+  | { readonly sectionIndex: number; readonly fragment?: string };
 
 export interface RendererOptions {
   readonly settings?: Partial<ReaderSettings>;
@@ -61,6 +86,17 @@ export interface RendererOptions {
    * 「狀態實際改變的順序」不一致，而那是最難查的一種 bug。
    */
   readonly on?: RendererListeners;
+  /**
+   * 第一節要渲染哪裡。省略時是第 0 節的第一頁。
+   *
+   * 有這個欄位而不是讓消費端 `attach()` 之後再 `goToCfi()`，省下的是**一整次
+   * `SectionView` 掛載**——建 iframe、等 `document.fonts.ready`、量頁數。不是一次
+   * 重排。回復閱讀位置是每一次開書都會做的事，所以那一次白工是每一次都付的。
+   *
+   * 指不到的 CFI 或越界的 `sectionIndex` 退回第 0 節第一頁，不丟錯：書換了一版、
+   * 進度來自別的閱讀器，兩種都會走到這裡，而它們的處置不是把開書打斷。
+   */
+  readonly start?: RendererStart;
 }
 
 export type RendererListeners = {
@@ -91,6 +127,15 @@ export class Renderer {
    * `loadSection`。
    */
   private loadGeneration = 0;
+  /**
+   * 已經入列的操作串成的那一條鏈。見 `enqueue()`。
+   *
+   * `catch` 掉是刻意的：一次失敗不該把後面每一次翻頁都變成 rejected promise。
+   * 失敗仍然會傳給**發起那一次**的呼叫端。
+   */
+  private chain: Promise<void> = Promise.resolve();
+  /** 每一個合併鍵目前最新的那一次。入列時比對，不是最新的就整個跳過。 */
+  private readonly latest = new Map<string, symbol>();
 
   private constructor(
     book: RenderableBook,
@@ -151,10 +196,43 @@ export class Renderer {
       );
     }
 
-    await renderer.loadSection(0, { kind: "first-page" });
+    const start = renderer.resolveStart(options.start);
+    await renderer.loadSection(start.index, start.anchor);
     void renderer.buildIndex();
 
     return renderer;
+  }
+
+  /**
+   * `options.start` 落到一個節與一個錨點。認不出來時退回第 0 節第一頁。
+   *
+   * 不入列——這一刻佇列是空的，而且 `attach()` 還沒回傳，沒有人能在它前面插隊。
+   */
+  private resolveStart(start: RendererStart | undefined): {
+    readonly index: number;
+    readonly anchor: SectionAnchor;
+  } {
+    const beginning = { index: 0, anchor: { kind: "first-page" } as const };
+    if (start === undefined) return beginning;
+
+    if ("cfi" in start) {
+      const parsed = tryParse(start.cfi);
+      if (parsed === undefined) return beginning;
+
+      const index = sectionIndexOf(parsed);
+      if (index === undefined || index >= this.book.readingOrder.length) return beginning;
+
+      return { index, anchor: { kind: "cfi", cfi: parsed } };
+    }
+
+    const { sectionIndex, fragment } = start;
+    if (sectionIndex < 0 || sectionIndex >= this.book.readingOrder.length) return beginning;
+
+    return {
+      index: sectionIndex,
+      anchor:
+        fragment === undefined ? { kind: "first-page" } : { kind: "fragment", id: fragment },
+    };
   }
 
   get settings(): ReaderSettings {
@@ -184,37 +262,41 @@ export class Renderer {
    * 的那個事實。
    */
   async next(): Promise<void> {
-    const view = this.view;
-    if (view === undefined) return;
+    return this.enqueue(async () => {
+      const view = this.view;
+      if (view === undefined) return;
 
-    if (view.page + 1 < view.pageCount) {
-      view.goToPage(view.page + 1);
-      this.emitRelocate();
-      return;
-    }
+      if (view.page + 1 < view.pageCount) {
+        view.goToPage(view.page + 1);
+        this.emitRelocate();
+        return;
+      }
 
-    if (this.sectionIndex + 1 >= this.book.readingOrder.length) return;
-    await this.loadSection(this.sectionIndex + 1, { kind: "first-page" });
+      if (this.sectionIndex + 1 >= this.book.readingOrder.length) return;
+      await this.loadSection(this.sectionIndex + 1, { kind: "first-page" });
+    });
   }
 
   /** 往前翻一頁，翻過這一節的開頭時接到**上一節的最後一頁**。 */
   async previous(): Promise<void> {
-    const view = this.view;
-    if (view === undefined) return;
+    return this.enqueue(async () => {
+      const view = this.view;
+      if (view === undefined) return;
 
-    if (view.page > 0) {
-      view.goToPage(view.page - 1);
-      this.emitRelocate();
-      return;
-    }
+      if (view.page > 0) {
+        view.goToPage(view.page - 1);
+        this.emitRelocate();
+        return;
+      }
 
-    if (this.sectionIndex === 0) return;
-    await this.loadSection(this.sectionIndex - 1, { kind: "last-page" });
+      if (this.sectionIndex === 0) return;
+      await this.loadSection(this.sectionIndex - 1, { kind: "last-page" });
+    });
   }
 
   async goToSection(index: number, anchor: SectionAnchor = { kind: "first-page" }): Promise<void> {
     if (index < 0 || index >= this.book.readingOrder.length) return;
-    await this.loadSection(index, anchor);
+    return this.enqueue(() => this.loadSection(index, anchor));
   }
 
   /**
@@ -230,11 +312,13 @@ export class Renderer {
     );
     if (index === -1) return;
 
-    await this.loadSection(
-      index,
-      target.fragment === undefined
-        ? { kind: "first-page" }
-        : { kind: "fragment", id: target.fragment },
+    return this.enqueue(() =>
+      this.loadSection(
+        index,
+        target.fragment === undefined
+          ? { kind: "first-page" }
+          : { kind: "fragment", id: target.fragment },
+      ),
     );
   }
 
@@ -246,7 +330,7 @@ export class Renderer {
     const index = sectionIndexOf(parsed);
     if (index === undefined || index >= this.book.readingOrder.length) return;
 
-    await this.loadSection(index, { kind: "cfi", cfi: parsed });
+    return this.enqueue(() => this.loadSection(index, { kind: "cfi", cfi: parsed }));
   }
 
   /**
@@ -256,14 +340,39 @@ export class Renderer {
    * 定位軸本來就該是停用的。
    */
   async goToFraction(fraction: number): Promise<void> {
+    const at = this.locate(fraction);
+    if (at === undefined) return;
+
+    return this.enqueue(() =>
+      this.loadSection(at.sectionIndex, {
+        kind: "characters",
+        characters: Math.round(at.charactersIntoSection),
+      }),
+    );
+  }
+
+  /**
+   * 一個全書進度落在哪一節——**不跳過去**（user story 23）。
+   *
+   * 定位軸拖曳中要顯示落點的章節標題，而那是一次查詢：讀者還沒放開手，畫面不該
+   * 動。`goToFraction()` 是同一個查詢加上導航，兩者共用這一支。
+   *
+   * 索引還沒建好時是 `undefined`——與 `location.fraction` 同一個時機，定位軸本來
+   * 就該在那之前停用。
+   *
+   * `sectionPath` 一併給：消費端把 TOC 對回節靠的是路徑（`TocItem.target.path`），
+   * 只給序號會逼它自己再查一次 `readingOrder`。
+   */
+  locate(fraction: number): SectionAt | undefined {
     const index = this.index;
-    if (index === undefined) return;
+    if (index === undefined) return undefined;
 
     const { sectionIndex, charactersIntoSection } = index.locate(fraction);
-    await this.loadSection(sectionIndex, {
-      kind: "characters",
-      characters: Math.round(charactersIntoSection),
-    });
+    return {
+      sectionIndex,
+      sectionPath: this.book.readingOrder[sectionIndex]?.path ?? "",
+      charactersIntoSection,
+    };
   }
 
   /**
@@ -275,17 +384,23 @@ export class Renderer {
    * 理由，也是 user story 19 要的行為。
    */
   async applySettings(patch: Partial<ReaderSettings>): Promise<void> {
-    const cfi = this.currentCfi();
+    // **設定本身同步就套用，只有重建入列。** 設定是累積的（每一次只換提到的那幾
+    // 項），而重建是取代的（只有最後一次算數）。把兩者一起延後到佇列裡的話，被
+    // 後來者取代掉的那幾次會連 patch 都沒套上——讀者連續調字級再調邊界，字級會
+    // 靜默地消失。
     this.currentSettings = withSettings(this.currentSettings, patch);
     this.applyContainerTheme();
 
     const previousResources = this.resources;
     this.resources = new ResourceUrls(this.book, this.currentSettings);
 
-    await this.loadSection(
-      this.sectionIndex,
-      cfi === undefined ? { kind: "first-page" } : { kind: "cfi", cfi },
-    );
+    await this.enqueue(async () => {
+      const cfi = this.currentCfi();
+      await this.loadSection(
+        this.sectionIndex,
+        cfi === undefined ? { kind: "first-page" } : { kind: "cfi", cfi },
+      );
+    }, "settings");
 
     // 舊的位址等新文件掛好之後才收——收早了，換設定的那一瞬間畫面會缺圖。
     previousResources.release();
@@ -299,15 +414,20 @@ export class Renderer {
    * 往返就少一組會對不上的邊界條件。
    */
   async resize(): Promise<void> {
-    const view = this.view;
-    if (view === undefined || this.destroyed) return;
+    // 合併鍵與 `applySettings` 分開：拖視窗與拖字級滑桿同時發生時，兩者都該留下
+    // 最後一次，而不是互相取消。
+    return this.enqueue(() => {
+      const view = this.view;
+      if (view === undefined || this.destroyed) return Promise.resolve();
 
-    const anchor = view.positionAtPageStart(view.page);
-    view.relayout(this.currentSettings);
+      const anchor = view.positionAtPageStart(view.page);
+      view.relayout(this.currentSettings);
 
-    if (anchor !== undefined) view.goToPage(view.pageOf(view.rangeAt(anchor)));
+      if (anchor !== undefined) view.goToPage(view.pageOf(view.rangeAt(anchor)));
 
-    this.emitRelocate();
+      this.emitRelocate();
+      return Promise.resolve();
+    }, "resize");
   }
 
   /**
@@ -339,6 +459,57 @@ export class Renderer {
   }
 
   // --- 內部 -----------------------------------------------------------------
+
+  /**
+   * 把一個操作排進那一條序列。
+   *
+   * ## 為什麼要排隊
+   *
+   * 跨節的操作中間有 await（掛 iframe、等字型），而消費端不會等。節尾連按兩次
+   * 「下一頁」時，第二次進來看到的 `this.view` 還是舊的、`page` 還是最後一頁，
+   * 於是又載入一次**同一節**——`loadGeneration` 讓第一次自己收掉，淨結果是兩次
+   * 輸入只前進一節。滑動翻頁比按鍵快得多，所以這一格在接上指標事件之後是常態。
+   *
+   * 排進序列之後，每一次都是**排到的時候才讀 `this.view`**，看到的是最新的狀態，
+   * 「按 N 次前進 N 頁」因此成立。
+   *
+   * ## 為什麼有兩種入列語意
+   *
+   * | | 哪些 | 規則 |
+   * | --- | --- | --- |
+   * | 累積（沒有 `coalesceKey`） | 翻頁與跳位 | 每一次都該生效 |
+   * | 取代（有 `coalesceKey`） | `applySettings`、`resize` | 只有最後一次算數 |
+   *
+   * 一律累積是錯的：讀者拖邊界滑桿時 `input` 一格發一次 `applySettings`，串行跑
+   * 完每一格會讓總延遲變成 N 倍，滑桿卡死。ResizeObserver 更誇張——拖一次視窗發
+   * 幾十個。那兩者要的是「最後一次算數」，而那正是 `coalesceKey` 表達的東西。
+   *
+   * 被取代的那幾次**仍然 resolve**（不是 reject）：呼叫端要的是「這次設定生效了」，
+   * 而合併之後最新的那一次生效就等於它的意圖達成了。
+   *
+   * `loadGeneration` 沒有被這條取代——它守的是第三件事：`destroy()` 之後才落地的
+   * 那一次載入。
+   */
+  private enqueue(work: () => Promise<void>, coalesceKey?: string): Promise<void> {
+    let token: symbol | undefined;
+    if (coalesceKey !== undefined) {
+      token = Symbol(coalesceKey);
+      this.latest.set(coalesceKey, token);
+    }
+
+    const run = this.chain.then(async () => {
+      if (this.destroyed) return;
+      if (coalesceKey !== undefined && this.latest.get(coalesceKey) !== token) return;
+      await work();
+    });
+
+    this.chain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+
+    return run;
+  }
 
   /**
    * 讀者的底色也要塗在容器上，不只塗在文件裡。
@@ -389,6 +560,8 @@ export class Renderer {
         {
           onLinkActivate: (href) => this.emitLinkActivate(href),
           onSelectionChange: () => this.emitSelection(),
+          onPointer: (kind, event) => this.emitter.emit(kind, event),
+          onKey: (kind, event) => this.emitter.emit(kind, event),
         },
         section.path,
       );

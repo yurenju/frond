@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   blockExtentOf,
   inlineExtentOf,
+  marginInsets,
   pageAt,
   pageAxisFor,
   pageCountFor,
@@ -36,6 +37,46 @@ describe("分頁軸", () => {
   test("區塊軸與行內軸互補", () => {
     expect(blockExtentOf("horizontal-tb", VIEWPORT)).toBe(600);
     expect(blockExtentOf("vertical-rl", VIEWPORT)).toBe(800);
+  });
+});
+
+describe("邊界落到實體邊", () => {
+  test("純量是四邊等距，與書寫方向無關", () => {
+    const expected = { top: 24, right: 24, bottom: 24, left: 24 };
+    expect(marginInsets(24, "horizontal-tb")).toEqual(expected);
+    expect(marginInsets(24, "vertical-rl")).toEqual(expected);
+  });
+
+  test("橫排：行內軸是左右，區塊軸是上下", () => {
+    expect(marginInsets({ block: 16, inline: 48 }, "horizontal-tb")).toEqual({
+      top: 16,
+      right: 48,
+      bottom: 16,
+      left: 48,
+    });
+  });
+
+  /**
+   * 直排時行內軸**是垂直的**（字由上而下），所以 `inline` 給的是上下。
+   *
+   * 這一格算反的話不會報錯：邊界照樣縮，只是讀者調的變成頁與頁之間那條看不見的
+   * 縫，行長一格都沒動。也就是「拖滑桿沒有反應」。
+   */
+  test("直排：行內軸是上下，區塊軸是左右——與橫排相反", () => {
+    expect(marginInsets({ block: 16, inline: 48 }, "vertical-rl")).toEqual({
+      top: 48,
+      right: 16,
+      bottom: 48,
+      left: 16,
+    });
+  });
+
+  test("同一組軸向設定在兩個方向下佔用的總邊界相同，只是換了一軸", () => {
+    const horizontal = marginInsets({ block: 16, inline: 48 }, "horizontal-tb");
+    const vertical = marginInsets({ block: 16, inline: 48 }, "vertical-rl");
+
+    expect(horizontal.left + horizontal.right).toBe(vertical.top + vertical.bottom);
+    expect(horizontal.top + horizontal.bottom).toBe(vertical.left + vertical.right);
   });
 });
 
