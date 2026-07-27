@@ -192,7 +192,7 @@ test.describe("版面變動之後回到原位", () => {
   });
 
   test("調字級之後，剛才在讀的那段文字還在畫面上", async ({ page }) => {
-    // user story 19：不是被丟回章節開頭。
+    // user story 19：不是被丟回這一節的開頭。
     await mountFixture(page, "vertical-japanese", { settings: LARGE });
     await page.evaluate(() => window.frond.next());
 
@@ -201,7 +201,7 @@ test.describe("版面變動之後回到原位", () => {
     await page.evaluate(() => window.frond.applySettings({ fontSize: 40 }));
 
     expect(await isOnScreen(page, marked.cfi)).toBe(true);
-    // 而且不是被丟回章節開頭——那一段文字與這一節的第一段不同。
+    // 而且不是被丟回這一節的開頭——那一段文字與這一節的第一段不同。
     expect(before).not.toContain("朝の光");
   });
 

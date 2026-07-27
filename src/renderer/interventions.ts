@@ -56,7 +56,7 @@ export interface Intervention {
 export const INTERVENTIONS: readonly Intervention[] = [
   {
     id: "multicol-pagination",
-    what: "在 documentElement 上寫 column-width／column-gap／column-fill／行內與區塊尺寸／overflow",
+    what: "在 documentElement 上寫分頁需要的每一條：writing-mode（跟著書實際排出來的方向，容器與內容才同軸）、column-width、column-count、column-gap、column-fill、inline-size、block-size、max-inline-size 與 max-block-size 解除、box-sizing、overflow",
     reason: "frond-own-layer",
     why: "分頁是 frond 的職責，multi-column 是它的工具。書從未宣告過這一層，所以這不是覆寫（ADR-0003 實例表第一列）",
     where: "src/renderer/layout.ts",
@@ -72,7 +72,7 @@ export const INTERVENTIONS: readonly Intervention[] = [
   },
   {
     id: "reset-root-box",
-    what: "把 documentElement 與 body 的 margin／padding 歸零",
+    what: "把 documentElement 與 body 的 margin、padding、border 歸零，並把 body 的 block-size 放回 auto",
     reason: "frond-own-layer",
     why: "版面的邊界由 frond 在 iframe 外層給（讀者設定的 margin），書的根元素間距會把欄的邊界推出畫面——spine 為此掛了一個永不解除的 MutationObserver",
     where: "src/renderer/layout.ts",
@@ -104,7 +104,7 @@ export const INTERVENTIONS: readonly Intervention[] = [
   },
   {
     id: "cap-overflowing-boxes",
-    what: "body 與 img／svg／video／table 加上 max-inline-size: 100%",
+    what: "body 與 img／svg／video／table 加上 max-inline-size 與 max-block-size 的上限，並給 img／svg／video 一條不帶 !important 的 break-inside: avoid",
     reason: "content-unreadable",
     why: "書寫死 width: 800px 時小螢幕上右半邊被裁掉讀不到（ADR-0003 實例表）。放得下的時候這條是 no-op，所以它只在內容真的會被裁掉時才生效",
     where: "src/renderer/layout.ts",
@@ -128,7 +128,7 @@ export const INTERVENTIONS: readonly Intervention[] = [
   },
   {
     id: "reader-stylesheet",
-    what: "注入讀者設定的字面／字級／行高／顏色，全部帶 !important",
+    what: "注入讀者設定的 font-size、font-family、line-height、color 與 background-color，全部帶 !important",
     reason: "reader-blocked",
     why: "ADR-0003 要求 frond 提供覆寫面。只包含讀者實際設過的項目——沒設的欄位一個字都不注入",
     where: "src/renderer/settings.ts",
@@ -136,9 +136,9 @@ export const INTERVENTIONS: readonly Intervention[] = [
   },
   {
     id: "strip-scripted-content",
-    what: "拿掉內容文件裡的 <script> 與 on* 事件屬性",
+    what: "拿掉內容文件裡任何命名空間的 <script>、on* 事件屬性，以及巢狀的瀏覽環境（iframe／object／embed／frame）",
     reason: "frond-own-layer",
-    why: "ADR-0006 明列 frond 不支援 EPUB scripted content，而且那是安全決策不是功能取捨。iframe 為了讓 parent 收得到事件必須帶 allow-scripts（WebKit bug 218086），於是 sandbox 擋不住書內的腳本——擋得住的只有這一步",
+    why: "ADR-0006 明列 frond 不支援 EPUB scripted content，而且那是安全決策不是功能取捨。iframe 為了讓 parent 收得到事件必須帶 allow-scripts（WebKit bug 218086），於是 sandbox 擋不住書內的腳本——擋得住的只有這一步。巢狀的瀏覽環境會**繼承** parent 的 sandbox 旗標，而內容以 blob: 供給等於帶著消費端 app 的來源，所以漏掉它就等於整條防線沒有",
     where: "src/renderer/document-source.ts",
     onlyWhenReaderOverrides: false,
   },
@@ -153,7 +153,10 @@ export const INTERVENTIONS: readonly Intervention[] = [
 ];
 
 /**
- * 已知的缺口，登記在這裡而不是留白。
+ * ## 已知的缺口
+ *
+ * 登記在這段註解裡而不是做成一個匯出的陣列：它沒有任何程式碼會讀，做成資料只是
+ * 讓同一份說明存在兩個地方。
  *
  * 每一項都是「知道它在、也知道為什麼現在不做」，不是待辦清單。共同的判準是
  * **樣本裡沒有量到這個形狀**——那 33 本書上一次都沒出現的東西，先做等於照著規格
@@ -173,8 +176,4 @@ export const INTERVENTIONS: readonly Intervention[] = [
  *    （`document-source.ts`），`@import` 沒有：要解需要把它也遞迴內嵌進來，而
  *    那要處理循環與順序，代價與它出現的頻率不成比例。
  */
-export const KNOWN_GAPS: readonly string[] = [
-  "font 縮寫裡的絕對字級不換算成 rem",
-  "@import 的字串寫法（@import \"a.css\"）不解析，只認 @import url(…)",
-  "@import 進來的樣式表非同步載入，可能讓第一次量到的頁數偏低",
-];
+

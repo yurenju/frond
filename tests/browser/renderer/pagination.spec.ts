@@ -51,7 +51,7 @@ test.describe("在同一節裡翻頁", () => {
 
 test.describe("跨 Section 接續", () => {
   test("翻到這一節的結尾，自動接到下一節的第一頁", async ({ page }) => {
-    // user story 28：不必自己找章節。
+    // user story 28：不必自己換節。
     await mountFixture(page, "vertical-japanese", { settings: LARGE });
 
     const location = await turnUntilSectionChanges(page);

@@ -1,12 +1,10 @@
 import { describe, expect, test } from "vitest";
 import {
   demoteImportant,
-  demoteImportantInDeclarations,
   mapStylesheet,
   normalisePageBreaks,
   normalisePrefixedWritingMode,
   relativiseFontSizes,
-  relativiseFontSizesInDeclarations,
   rewriteUrls,
 } from "../../../src/renderer/css.ts";
 
@@ -197,7 +195,7 @@ describe("拿掉 !important", () => {
   test("style 屬性裡的 !important 也拿得掉", () => {
     // 這才是關鍵的一格：層疊規則裡沒有任何位置贏得了 inline 的 !important。
     expect(
-      demoteImportantInDeclarations("font-size: 12px !important; color: red", OVERRIDDEN),
+      demoteImportant("font-size: 12px !important; color: red", OVERRIDDEN, "declarations"),
     ).toBe("font-size: 12px; color: red");
   });
 });
@@ -251,7 +249,7 @@ p span { font-size: 10px }`);
   });
 
   test("style 屬性裡的絕對字級也換算", () => {
-    expect(relativiseFontSizesInDeclarations("font-size: 24px; color: red")).toBe(
+    expect(relativiseFontSizes("font-size: 24px; color: red", "declarations")).toBe(
       "font-size: 1.5rem; color: red",
     );
   });

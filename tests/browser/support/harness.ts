@@ -134,6 +134,17 @@ export interface Snapshot {
 /** 頁面那一側的操作面。實作在 `tests/browser/support/page/frond-page.ts`。 */
 export interface FrondHarness {
   mount(fixture: string, options: MountOptions): Promise<Snapshot>;
+  /**
+   * 用手寫的 XHTML 掛一本 `MemoryBook`，不經過任何 committed fixture。
+   *
+   * 給的是「這份內容會不會被正確處理」這類問題——例如帶著腳本的書。那種內容
+   * 不該變成一份 committed fixture：ADR-0007 的紀律是一個檔一個病症，而
+   * 「書裡有 script」不是一個排版病症，它是一個安全性質，做成檔案只會讓每一支
+   * 掃過 fixture 目錄的測試都多處理一個特例。
+   *
+   * 這也正是 ADR-0002 要求 frond 自己提供 in-memory 實作的用途。
+   */
+  mountInline(sections: readonly string[], options: MountOptions): Promise<Snapshot>;
   next(): Promise<Snapshot>;
   previous(): Promise<Snapshot>;
   goToSection(index: number): Promise<Snapshot>;

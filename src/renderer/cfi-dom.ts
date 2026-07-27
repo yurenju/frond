@@ -30,6 +30,7 @@
  */
 
 import type { Cfi, CfiOffset, CfiPath, CfiSegment, CfiStep } from "../epub/cfi.ts";
+import { isDocument, isElement, isIgnored, isTextLike } from "./node-type.ts";
 
 /**
  * 封裝文件裡 `<spine>` 的序號。
@@ -78,15 +79,23 @@ export function sectionIndexOf(cfi: Cfi): number | undefined {
  * 哪一種。
  */
 export function cfiForRange(range: Range, sectionIndex: number): Cfi {
-  const start = localPath(range.startContainer, range.startOffset);
-  const end = localPath(range.endContainer, range.endOffset);
+  const start = localPath(...normaliseBoundary(range.startContainer, range.startOffset, "start"));
+  const end = localPath(...normaliseBoundary(range.endContainer, range.endOffset, "end"));
 
   if (range.collapsed) {
     return { kind: "point", path: [spineSegment(sectionIndex), start] };
   }
 
   // 共用前綴抽出來，剩下的兩截各自接在後面——規格的 `parent,start,end` 形狀。
-  const shared = sharedStepCount(start.steps, end.steps);
+  //
+  // **前綴必須是真前綴**：起訖走同一條路徑時（選取剛好落在同一個文字節點裡，
+  // 或 `selectNodeContents` 給的兩個邊界指向同一個節點），全部抽走會讓起訖兩段
+  // 變成空字串，序列化出來是 `epubcfi(/6/2!/4/4/1,,)`——一個連自己都 parse 不
+  // 回來的字串。留一步在外面，那一步就是兩段各自的內容。
+  const shared = Math.min(
+    sharedStepCount(start.steps, end.steps),
+    Math.max(0, Math.min(start.steps.length, end.steps.length) - 1),
+  );
 
   return {
     kind: "range",
@@ -234,7 +243,7 @@ function childAt(parent: Node, index: number): ChildTarget | undefined {
       continue;
     }
 
-    if (isText(child) && chunkStart === undefined) chunkStart = child;
+    if (isTextLike(child) && chunkStart === undefined) chunkStart = child;
   }
 
   return chunkStart !== undefined && elements === after
@@ -246,7 +255,7 @@ function childAt(parent: Node, index: number): ChildTarget | undefined {
  * 一塊相鄰文字裡的第 N 個字元落在哪一個節點的第幾個位置。
  *
  * 位移是**整塊**的位移，所以要跨著節點數過去。超出整塊長度時停在塊尾而不是回
- * `undefined`：書改了一版讓那一段變短是常見的事，停在最接近的位置比跳回章節
+ * `undefined`：書改了一版讓那一段變短是常見的事，停在最接近的位置比跳回這一節的
  * 開頭好。
  */
 function offsetWithin(chunkStart: Node, offset: CfiOffset): DomPosition {
@@ -258,7 +267,7 @@ function offsetWithin(chunkStart: Node, offset: CfiOffset): DomPosition {
     if (remaining <= length) return { node, offset: remaining };
 
     const next = node.nextSibling;
-    if (next === null || !isText(next)) return { node, offset: length };
+    if (next === null || !isTextLike(next)) return { node, offset: length };
 
     remaining -= length;
     node = next;
@@ -275,9 +284,68 @@ function indexInParent(parent: Node, node: Node): number {
   return index;
 }
 
+/**
+ * 把落在**元素**上的邊界換算成落在文字上的邊界。
+ *
+ * `Range` 的邊界可以指向「某個元素的第 n 個子節點之前」，而 CFI 定址的是節點與
+ * 節點裡的字元，沒有「子節點之間的縫」這種寫法。最常見的來源是
+ * `selectNodeContents(p)`——它給的兩個邊界都落在 `<p>` 上，起點是子節點 0、終點
+ * 是子節點數。
+ *
+ * 換算的方向依邊界是起還是訖而不同，而這正是不能只寫一份的理由：
+ *
+ * - **起點**往內走到第一個文字節點的第 0 個字元
+ * - **終點**往回走到前一個子節點裡最後一個文字節點的結尾
+ *
+ * 兩邊都往同一個方向走的話，選取整個段落會得到一個起訖相同的 CFI——看起來像
+ * 讀者只選了一個點。
+ *
+ * 元素裡一個文字節點都沒有時（純圖片的段落）原樣回傳，由 `localPath` 用節點本身
+ * 定址。
+ */
+function normaliseBoundary(
+  container: Node,
+  offset: number,
+  side: "start" | "end",
+): [Node, number] {
+  if (isTextLike(container) || !isElement(container)) return [container, offset];
+
+  const children = [...container.childNodes];
+  if (children.length === 0) return [container, offset];
+
+  if (side === "start") {
+    const from = children[Math.min(offset, children.length - 1)];
+    const text = from === undefined ? undefined : firstTextIn(from);
+    return text === undefined ? [container, offset] : [text, 0];
+  }
+
+  const from = children[Math.max(0, offset - 1)];
+  const text = from === undefined ? undefined : lastTextIn(from);
+  return text === undefined ? [container, offset] : [text, text.nodeValue?.length ?? 0];
+}
+
+function firstTextIn(node: Node): Node | undefined {
+  if (isTextLike(node)) return node;
+  for (const child of node.childNodes) {
+    const found = firstTextIn(child);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+function lastTextIn(node: Node): Node | undefined {
+  if (isTextLike(node)) return node;
+  const children = [...node.childNodes];
+  for (let index = children.length - 1; index >= 0; index -= 1) {
+    const found = lastTextIn(children[index]!);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
 /** 這個節點在它父節點底下的那一段路徑（不含父節點以上）。 */
 function localPath(container: Node, offset: number): CfiSegment {
-  if (isText(container)) {
+  if (isTextLike(container)) {
     const { chunkStart, charactersBefore } = chunkOf(container);
     return {
       steps: stepsTo(chunkStart),
@@ -308,7 +376,7 @@ function chunkOf(node: Node): Chunk {
 
   for (;;) {
     const previous = chunkStart.previousSibling;
-    if (previous === null || !isText(previous)) break;
+    if (previous === null || !isTextLike(previous)) break;
     chunkStart = previous;
     charactersBefore += previous.nodeValue?.length ?? 0;
   }
@@ -327,7 +395,7 @@ function stepsTo(node: Node): readonly CfiStep[] {
 
   while (current !== null) {
     const parent: Node | null = current.parentNode;
-    if (parent === null || parent.nodeType === NODE_TYPE_DOCUMENT) break;
+    if (parent === null || isDocument(parent)) break;
 
     steps.unshift({ index: stepIndexOf(parent, current), assertion: assertionFor(current) });
     current = parent;
@@ -389,26 +457,3 @@ function sharedStepCount(
   return shared;
 }
 
-const NODE_TYPE_ELEMENT = 1;
-const NODE_TYPE_TEXT = 3;
-const NODE_TYPE_CDATA = 4;
-const NODE_TYPE_PROCESSING_INSTRUCTION = 7;
-const NODE_TYPE_COMMENT = 8;
-const NODE_TYPE_DOCUMENT = 9;
-
-function isElement(node: Node): node is Element {
-  return node.nodeType === NODE_TYPE_ELEMENT;
-}
-
-/** CDATA 在定址上與文字節點同一類（規格 2.2）。 */
-function isText(node: Node): boolean {
-  return node.nodeType === NODE_TYPE_TEXT || node.nodeType === NODE_TYPE_CDATA;
-}
-
-/** 註解與處理指令完全不算，連位置都不佔。 */
-function isIgnored(node: Node): boolean {
-  return (
-    node.nodeType === NODE_TYPE_COMMENT ||
-    node.nodeType === NODE_TYPE_PROCESSING_INSTRUCTION
-  );
-}

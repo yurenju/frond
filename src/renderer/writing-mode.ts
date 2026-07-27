@@ -25,12 +25,7 @@
 import type { WritingMode } from "./geometry.ts";
 
 export type WritingModeReading =
-  | {
-      readonly kind: "read";
-      readonly writingMode: WritingMode;
-      /** 從哪一個元素讀到的。診斷用——「這本書把宣告寫在 body 上」是有用的事實。 */
-      readonly declaredOn: "documentElement" | "body";
-    }
+  | { readonly kind: "read"; readonly writingMode: WritingMode }
   /**
    * 讀不到。**不是「所以是橫排」**——見下。
    */
@@ -46,8 +41,13 @@ export type WritingModeReading =
  * 錯答案——所以把空字串當成 `horizontal-tb` 的實作，症狀會是「直排書偶爾整本排
  * 成橫排」，而根因在一次讀取失敗，兩者離得很遠。
  *
- * 回一個 `unreadable` 讓呼叫端必須決定怎麼辦（`section-view.ts` 的做法是先讓
- * iframe 顯示出來再讀一次），而不是靜默地走進錯的分支。
+ * **frond 的設計裡這個前提不出現**：它不預載隱藏的 iframe，讀書寫方向時那一份
+ * 文件已經在畫面上了。所以 `unreadable` 是一條防禦而不是一條會走到的路徑——
+ * `section-view.ts` 收到它就丟 `WritingModeUnreadableError`，讓它變成一個看得見
+ * 的失敗。
+ *
+ * 分成兩格而不是回一個 `horizontal-tb` 了事，是因為那條路將來會被打開：預載下一
+ * 節（隱藏的 iframe）是一個很自然的最佳化，而做那件事的人不會知道自己踩到了什麼。
  */
 export function readWritingMode(document: Document): WritingModeReading {
   const view = document.defaultView;
@@ -60,20 +60,14 @@ export function readWritingMode(document: Document): WritingModeReading {
 
   if (rootMode === "" && bodyMode === "") return { kind: "unreadable" };
 
-  // `<body>` 先看。宣告在 body 上的書，`<html>` 會維持 `horizontal-tb` 這個
-  // 初始值——那是一個看起來很正常的答案，所以順序反過來就永遠讀不到 body。
-  if (isVertical(bodyMode)) {
-    return { kind: "read", writingMode: "vertical-rl", declaredOn: "body" };
-  }
-  if (isVertical(rootMode)) {
-    return { kind: "read", writingMode: "vertical-rl", declaredOn: "documentElement" };
+  // **兩個都要看。** 宣告在 `<body>` 上的書（InDesign 的形狀），`<html>` 會維持
+  // `horizontal-tb` 這個初始值——那是一個看起來很正常的答案，所以只讀
+  // `documentElement` 的實作不會報錯，只會把整本直排書排成橫排。
+  if (isVertical(bodyMode) || isVertical(rootMode)) {
+    return { kind: "read", writingMode: "vertical-rl" };
   }
 
-  return {
-    kind: "read",
-    writingMode: "horizontal-tb",
-    declaredOn: bodyMode !== "" ? "body" : "documentElement",
-  };
+  return { kind: "read", writingMode: "horizontal-tb" };
 }
 
 /**

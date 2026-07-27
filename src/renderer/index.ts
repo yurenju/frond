@@ -45,7 +45,7 @@ export type { ReaderSettings, Theme } from "./settings.ts";
 
 export type { ColumnChoice, WritingMode } from "./geometry.ts";
 
-export { INTERVENTIONS, KNOWN_GAPS } from "./interventions.ts";
+export { INTERVENTIONS } from "./interventions.ts";
 export type { Intervention, InterventionReason } from "./interventions.ts";
 
 export { SectionParseError } from "./document-source.ts";

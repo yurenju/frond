@@ -16,12 +16,10 @@
  * 寫死 script／style 是為了讓「拿掉 script 之前與之後數到同一個數字」成立。
  */
 
+import { isElement, isTextLike } from "./node-type.ts";
+
 /** 走訪時整棵跳過的元素。標籤名小寫比對——XHTML 的標籤名本來就是小寫。 */
 const SKIPPED_ELEMENTS = new Set(["script", "style", "template", "head"]);
-
-const NODE_TYPE_ELEMENT = 1;
-const NODE_TYPE_TEXT = 3;
-const NODE_TYPE_CDATA = 4;
 
 /**
  * 這份文件裡的文字節點，依文件順序。
@@ -40,14 +38,14 @@ export function textNodesIn(document: Document): readonly Text[] {
 
 function collect(element: Node, into: Text[]): void {
   for (const child of element.childNodes) {
-    if (child.nodeType === NODE_TYPE_TEXT || child.nodeType === NODE_TYPE_CDATA) {
+    if (isTextLike(child)) {
       // **整段都是空白的節點跳過。** XHTML 的縮排在每一個區塊元素之間都留下一個
       // 這種節點，而它們在版面上不佔位置——量不到矩形。
       //
       // 那件事的後果比「多數幾個字元」嚴重得多：`section-view.ts` 用二分搜尋找
       // 「這一頁最前面那個字元」，而二分搜尋的前提是節點的位置隨文件順序遞增。
       // 一個量不到矩形的節點會回報位置 0，前提就破了，搜尋會落在任意一處——症狀
-      // 是翻頁之後回報的位置偶爾跳到章節開頭。
+      // 是翻頁之後回報的位置偶爾跳到這一節的開頭。
       //
       // 對進度而言這也是對的：區塊之間的縮排不是讀者讀過的內容。
       if ((child.nodeValue ?? "").trim() === "") continue;
@@ -55,8 +53,8 @@ function collect(element: Node, into: Text[]): void {
       into.push(child as Text);
       continue;
     }
-    if (child.nodeType !== NODE_TYPE_ELEMENT) continue;
-    if (SKIPPED_ELEMENTS.has((child as Element).localName.toLowerCase())) continue;
+    if (!isElement(child)) continue;
+    if (SKIPPED_ELEMENTS.has(child.localName.toLowerCase())) continue;
 
     collect(child, into);
   }

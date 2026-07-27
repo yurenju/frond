@@ -37,48 +37,19 @@ let indexed: Promise<number> | undefined;
 
 const harness: FrondHarness = {
   async mount(fixture, options: MountOptions): Promise<Snapshot> {
-    renderer?.destroy();
-    recorded = [];
+    return attach(await loadBook(fixture), options);
+  },
 
-    const container = document.getElementById(VIEWPORT_ID);
-    if (container === null) throw new Error("外殼頁面沒有容器元素");
-
-    if (options.viewport !== undefined) {
-      container.style.width = `${options.viewport.width}px`;
-      container.style.height = `${options.viewport.height}px`;
-    }
-
-    const book = await loadBook(fixture);
-
-    let resolveIndexed = (_characters: number): void => {};
-    indexed = new Promise<number>((resolve) => {
-      resolveIndexed = resolve;
-    });
-
-    // 從 `options.on` 掛而不是 attach 之後再 `on()`：第一節的 load 與 relocate
-    // 是在 attach 裡面送的，事後掛就收不到了。
-    const record =
-      (name: string) =>
-      (payload: unknown): void => {
-        recorded.push({ name, payload: JSON.parse(JSON.stringify(payload)) });
-      };
-
-    renderer = await Renderer.attach(book, container, {
-      settings: toSettings(options.settings),
-      on: {
-        relocate: record("relocate"),
-        load: record("load"),
-        linkactivate: record("linkactivate"),
-        error: record("error"),
-        selection: record("selection"),
-        indexed: (event) => {
-          record("indexed")(event);
-          resolveIndexed(event.characters);
-        },
-      },
-    });
-
-    return snapshot();
+  async mountInline(sections, options: MountOptions): Promise<Snapshot> {
+    return attach(
+      MemoryBook.of({
+        sections: sections.map((content, index) => ({
+          path: `inline-${index + 1}.xhtml`,
+          content,
+        })),
+      }),
+      options,
+    );
   },
 
   async next(): Promise<Snapshot> {
@@ -226,6 +197,50 @@ const harness: FrondHarness = {
 };
 
 Object.defineProperty(window, "frond", { value: harness, configurable: true });
+
+/** 掛一本書。`mount` 與 `mountInline` 共用——差別只在書從哪裡來。 */
+async function attach(book: RenderableBook, options: MountOptions): Promise<Snapshot> {
+  renderer?.destroy();
+  recorded = [];
+
+  const container = document.getElementById(VIEWPORT_ID);
+  if (container === null) throw new Error("外殼頁面沒有容器元素");
+
+  if (options.viewport !== undefined) {
+    container.style.width = `${options.viewport.width}px`;
+    container.style.height = `${options.viewport.height}px`;
+  }
+
+  let resolveIndexed = (_characters: number): void => {};
+  indexed = new Promise<number>((resolve) => {
+    resolveIndexed = resolve;
+  });
+
+  const record =
+    (name: string) =>
+    (payload: unknown): void => {
+      recorded.push({ name, payload: JSON.parse(JSON.stringify(payload)) });
+    };
+
+  // 從 `options.on` 掛而不是 attach 之後再 `on()`：第一節的 load 與 relocate
+  // 是在 attach 裡面送的，事後掛就收不到了。
+  renderer = await Renderer.attach(book, container, {
+    settings: toSettings(options.settings),
+    on: {
+      relocate: record("relocate"),
+      load: record("load"),
+      linkactivate: record("linkactivate"),
+      error: record("error"),
+      selection: record("selection"),
+      indexed: (event) => {
+        record("indexed")(event);
+        resolveIndexed(event.characters);
+      },
+    },
+  });
+
+  return snapshot();
+}
 
 function active(): Renderer {
   if (renderer === undefined) throw new Error("還沒掛任何一本書");

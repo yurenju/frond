@@ -138,26 +138,35 @@ const COLUMN_BREAK_VALUE = new Map([
  * 擋住」，沒有讀者設定就沒有東西被擋住，也就沒有介入的理由。
  */
 export function demoteImportant(
-  css: string,
+  source: string,
   properties: ReadonlySet<string>,
+  scope: CssScope = "stylesheet",
 ): string {
-  return mapStylesheet(css, (declaration) =>
+  return walk(source, scope, (declaration) =>
     declaration.important && properties.has(declaration.property)
       ? `${declaration.property}: ${declaration.value}`
       : undefined,
   );
 }
 
-/** `demoteImportant` 的 style 屬性版本。 */
-export function demoteImportantInDeclarations(
-  text: string,
-  properties: ReadonlySet<string>,
+/**
+ * 改寫套用在哪一種文字上。
+ *
+ * 同一個改寫要能套在樣式表與 `style="…"` 屬性上，而那兩者的**文法不同**：樣式表
+ * 裡 `p { … }` 的 `p` 是選擇器，style 屬性裡整段都是宣告。差別只在走訪器，所以
+ * 用一個參數表達，而不是把每個改寫寫成兩份——兩份一定會漂開，而漂開的那一天，
+ * 讀者的字級會在「書寫在樣式表裡」時生效、「書寫在 style 屬性裡」時失效。
+ */
+export type CssScope = "stylesheet" | "declarations";
+
+function walk(
+  source: string,
+  scope: CssScope,
+  map: (declaration: Declaration) => string | undefined,
 ): string {
-  return mapDeclarationList(text, (declaration) =>
-    declaration.important && properties.has(declaration.property)
-      ? `${declaration.property}: ${declaration.value}`
-      : undefined,
-  );
+  return scope === "stylesheet"
+    ? mapStylesheet(source, map)
+    : mapDeclarationList(source, map);
 }
 
 /**
@@ -198,20 +207,11 @@ const PX_PER_PT = 4 / 3;
  *
  * 與 `demoteImportant` 一樣，**只在讀者設了字級時才做**。
  */
-export function relativiseFontSizes(css: string): string {
-  return mapStylesheet(css, (declaration) => {
-    if (declaration.property !== "font-size") return undefined;
-
-    const rem = toRem(declaration.value);
-    if (rem === undefined) return undefined;
-
-    return `font-size: ${rem}${declaration.important ? " !important" : ""}`;
-  });
-}
-
-/** `relativiseFontSizes` 的 style 屬性版本。 */
-export function relativiseFontSizesInDeclarations(text: string): string {
-  return mapDeclarationList(text, (declaration) => {
+export function relativiseFontSizes(
+  source: string,
+  scope: CssScope = "stylesheet",
+): string {
+  return walk(source, scope, (declaration) => {
     if (declaration.property !== "font-size") return undefined;
 
     const rem = toRem(declaration.value);
@@ -250,12 +250,6 @@ function toRem(value: string): string | undefined {
  * `resolve` 回傳 `undefined` 時原樣留著：那多半是 `data:` 或指向書外的絕對
  * 位址，兩者都不需要換。
  */
-export function rewriteUrls(
-  css: string,
-  resolve: (reference: string) => string | undefined,
-): string {
-  return replaceUrls(css, resolve);
-}
 
 /**
  * 走訪一段 CSS，把每一條宣告交給 `map`。
@@ -433,12 +427,19 @@ function topLevelColon(source: string): number {
 }
 
 /**
- * 把每一個 `url(…)` 的內容交給 `resolve`。
+ * 把值裡的 `url(…)` 換成解析器給的位址。
+ *
+ * 書的樣式表用相對路徑引用圖片與字型，而 frond 把內容以 `blob:` 供給
+ * （ADR-0006）——`blob:` 沒有目錄結構，相對路徑一律解析失敗。這不是介入書的
+ * 宣告，是把同一個引用換一種寫法表達。
+ *
+ * `resolve` 回傳 `undefined` 時原樣留著：那多半是 `data:` 或指向書外的絕對
+ * 位址，兩者都不需要換。
  *
  * 走訪與 `scan` 分開，因為它要看的是值裡面的括號而不是宣告的邊界——`@import`
  * 的 `url()` 根本不在任何一條宣告裡。
  */
-function replaceUrls(
+export function rewriteUrls(
   source: string,
   resolve: (reference: string) => string | undefined,
 ): string {

@@ -21,11 +21,9 @@ import { resolveHref } from "../epub/resource-path.ts";
 import type { RenderableBook } from "./book.ts";
 import {
   demoteImportant,
-  demoteImportantInDeclarations,
   normalisePageBreaks,
   normalisePrefixedWritingMode,
   relativiseFontSizes,
-  relativiseFontSizesInDeclarations,
   rewriteUrls,
 } from "./css.ts";
 import { LAYOUT_STYLE_ID, READER_STYLE_ID } from "./layout.ts";
@@ -165,15 +163,20 @@ export function buildSectionDocument(
   resources: ResourceUrls,
 ): SectionDocument {
   const source = new TextDecoder().decode(book.bytes(path));
-  const document = parseXhtml(source, path);
+  const build: SectionBuild = {
+    document: parseXhtml(source, path),
+    path,
+    settings,
+    resources,
+  };
 
-  stripScriptedContent(document);
-  inlineStylesheets(document, path, settings, resources);
-  rewriteInlineStyles(document, path, settings, resources);
-  rewriteResourceReferences(document, path, resources);
-  appendFrondStyles(document, settings);
+  stripScriptedContent(build.document);
+  inlineStylesheets(build);
+  rewriteInlineStyles(build);
+  rewriteResourceReferences(build);
+  appendFrondStyles(build);
 
-  const serialised = new XMLSerializer().serializeToString(document);
+  const serialised = new XMLSerializer().serializeToString(build.document);
   const url = URL.createObjectURL(
     new Blob([serialised], { type: "application/xhtml+xml" }),
   );
@@ -182,6 +185,20 @@ export function buildSectionDocument(
     url,
     release: () => URL.revokeObjectURL(url),
   };
+}
+
+/**
+ * 組一節文件的每一步共用的東西。
+ *
+ * 這四樣一路一起傳，所以它們是一個型別而不是四個參數——多一步改寫時要動的是這個
+ * 介面，而不是每一支函式的簽章。
+ */
+interface SectionBuild {
+  readonly document: Document;
+  /** 這一節在壓縮檔內的路徑。書裡每一個相對引用都相對於它解析。 */
+  readonly path: string;
+  readonly settings: ReaderSettings;
+  readonly resources: ResourceUrls;
 }
 
 function parseXhtml(source: string, path: string): Document {
@@ -201,18 +218,38 @@ function parseXhtml(source: string, path: string): Document {
 }
 
 /**
- * 拿掉書內的腳本。
+ * 拿掉書內所有跑得起來的東西。
  *
  * ADR-0006：frond **不支援** EPUB 的 scripted content，而且那是安全決策不是功能
  * 取捨。iframe 為了讓 parent 收得到事件必須帶 `allow-scripts`（WebKit bug
  * 218086，#7 已重現），於是 sandbox 擋不住書內的腳本——擋得住的只有這一步。
  *
- * `on*` 事件屬性一起拿掉：只拿掉 `<script>` 的話，`<body onload="…">` 這條路仍然
- * 是開的。
+ * 三件事一起拿，少任何一件這道防線就是漏的：
+ *
+ * 1. **`<script>`**，任何命名空間。用 `getElementsByTagNameNS("*", …)` 而不是
+ *    `getElementsByTagName`：SVG 裡的 `<script>` 在另一個命名空間，而 SVG 是
+ *    EPUB 內容文件裡完全合法的一部分。
+ * 2. **`on*` 事件屬性**。只拿掉 `<script>` 的話，`<body onload="…">` 這條路還開著。
+ * 3. **巢狀的瀏覽環境**（`<iframe>` / `<object>` / `<embed>` / `<frame>`）。
+ *
+ * 第三項最容易漏，而它的後果最嚴重：**巢狀的瀏覽環境會繼承 parent 的 sandbox
+ * 旗標**，也就是連同 `allow-scripts` 一起繼承；而 frond 把內容以 `blob:` 供給，
+ * 那個來源就是消費端 app 自己的來源。所以一份 `<iframe src="ch2.xhtml">` 或
+ * `<object data="x.svg">` 裡的腳本會**以 app 的來源執行**——第 1、2 項在那份
+ * 巢狀文件上一次都沒有套用過，因為它們只清理最外層那一份。
+ *
+ * 拿掉而不是改寫成一個安全的來源：EPUB 3 允許 `<iframe>`，但 frond 不支援
+ * scripted content 這件事是 ADR-0006 定的「不會做」而不是「還沒做」，而一個載不
+ * 出內容的 iframe 與沒有 iframe 對讀者是同一件事。
  */
 function stripScriptedContent(document: Document): void {
-  for (const script of [...document.getElementsByTagName("script")]) {
-    script.remove();
+  for (const element of [
+    ...document.getElementsByTagNameNS("*", "script"),
+    ...EMBEDDED_CONTEXTS.flatMap((name) => [
+      ...document.getElementsByTagNameNS("*", name),
+    ]),
+  ]) {
+    element.remove();
   }
 
   for (const element of document.getElementsByTagName("*")) {
@@ -224,13 +261,16 @@ function stripScriptedContent(document: Document): void {
   }
 }
 
+/**
+ * 會開出一個巢狀瀏覽環境的元素。
+ *
+ * `<object>` 也在裡面，儘管它常常只是拿來放圖片的：它的 `data` 指向 XHTML 或
+ * SVG 時同樣會開出瀏覽環境，而「這一份 `<object>` 裝的是什麼」要載進來才知道。
+ */
+const EMBEDDED_CONTEXTS = ["iframe", "object", "embed", "frame"];
+
 /** `<link rel="stylesheet">` 換成同一個位置上的 `<style>`。 */
-function inlineStylesheets(
-  document: Document,
-  path: string,
-  settings: ReaderSettings,
-  resources: ResourceUrls,
-): void {
+function inlineStylesheets({ document, path, settings, resources }: SectionBuild): void {
   for (const link of [...document.getElementsByTagName("link")]) {
     const rel = link.getAttribute("rel")?.toLowerCase() ?? "";
     if (!rel.split(/\s+/).includes("stylesheet")) continue;
@@ -267,12 +307,12 @@ function inlineStylesheets(
 }
 
 /** `<style>` 的內容與 `style="…"` 屬性走同一套改寫。 */
-function rewriteInlineStyles(
-  document: Document,
-  path: string,
-  settings: ReaderSettings,
-  resources: ResourceUrls,
-): void {
+function rewriteInlineStyles({
+  document,
+  path,
+  settings,
+  resources,
+}: SectionBuild): void {
   for (const style of [...document.getElementsByTagName("style")]) {
     style.textContent = transformBookStylesheet(
       style.textContent ?? "",
@@ -291,10 +331,10 @@ function rewriteInlineStyles(
     if (overridden.size > 0) {
       // **這一格是讀者能不能贏的關鍵。** 層疊規則裡沒有任何位置贏得了寫在
       // style 屬性裡的 !important——外部樣式表寫再多 !important 都沒有用。
-      rewritten = demoteImportantInDeclarations(rewritten, overridden);
+      rewritten = demoteImportant(rewritten, overridden, "declarations");
     }
     if (settings.fontSize !== undefined) {
-      rewritten = relativiseFontSizesInDeclarations(rewritten);
+      rewritten = relativiseFontSizes(rewritten, "declarations");
     }
     rewritten = rewriteUrls(rewritten, (reference) =>
       resources.urlFor(reference, path),
@@ -305,11 +345,7 @@ function rewriteInlineStyles(
 }
 
 /** `src` / `href` / `poster` / `xlink:href` 換成 `blob:` 位址。 */
-function rewriteResourceReferences(
-  document: Document,
-  path: string,
-  resources: ResourceUrls,
-): void {
+function rewriteResourceReferences({ document, path, resources }: SectionBuild): void {
   for (const element of document.getElementsByTagName("*")) {
     const name = element.localName.toLowerCase();
 
@@ -383,7 +419,7 @@ function rewriteSrcset(
  * 出來（`section-view.ts`）。先把元素放好，之後只要換 `textContent`——換內容不會
  * 重新解析文件，也就不會把讀者的捲動位置洗掉。
  */
-function appendFrondStyles(document: Document, settings: ReaderSettings): void {
+function appendFrondStyles({ document, settings }: SectionBuild): void {
   const head = document.head ?? document.documentElement;
 
   const reader = document.createElementNS(XHTML_NAMESPACE, "style");

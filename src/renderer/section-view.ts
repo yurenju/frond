@@ -25,6 +25,7 @@ import {
   type WritingMode,
 } from "./geometry.ts";
 import { LAYOUT_STYLE_ID, layoutStylesheet } from "./layout.ts";
+import { isElement, isTextLike } from "./node-type.ts";
 import type { ReaderSettings } from "./settings.ts";
 import type { SectionDocument } from "./document-source.ts";
 import { textNodesIn } from "./text-index.ts";
@@ -54,8 +55,6 @@ export class WritingModeUnreadableError extends Error {
 export class SectionView {
   readonly document: Document;
   readonly writingMode: WritingMode;
-  /** 書把書寫方向宣告在哪個元素上。診斷用。 */
-  readonly declaredOn: "documentElement" | "body";
 
   private readonly frame: HTMLIFrameElement;
   private readonly source: SectionDocument;
@@ -71,7 +70,6 @@ export class SectionView {
     host: HTMLElement,
     document: Document,
     writingMode: WritingMode,
-    declaredOn: "documentElement" | "body",
     settings: ReaderSettings,
     metrics: PageMetrics,
   ) {
@@ -80,7 +78,6 @@ export class SectionView {
     this.host = host;
     this.document = document;
     this.writingMode = writingMode;
-    this.declaredOn = declaredOn;
     this.settings = settings;
     this.metrics = metrics;
     this.textNodes = textNodesIn(document);
@@ -138,7 +135,6 @@ export class SectionView {
       host,
       document,
       reading.writingMode,
-      reading.declaredOn,
       settings,
       metricsFor(frame, settings, reading.writingMode),
     );
@@ -252,6 +248,33 @@ export class SectionView {
   }
 
   /**
+   * 把一個位置變成這份文件裡的一個 `Range`。
+   *
+   * 放在這裡而不是讓呼叫端自己 `createRange()`：`Range` 必須由**這一份**文件建
+   * 出來，拿外層文件的 `createRange()` 去指 iframe 裡的節點會丟
+   * `WrongDocumentError`。把那個約束收在擁有文件的這一邊，呼叫端就不會有第二個
+   * 地方需要記得它。
+   */
+  rangeAt(position: { readonly node: Node; readonly offset: number }): Range {
+    const range = this.document.createRange();
+    range.setStart(position.node, position.offset);
+    range.collapse(true);
+    return range;
+  }
+
+  /** 涵蓋整個元素的 `Range`——跳到某個錨點時要的那一個。 */
+  rangeOfNode(node: Node): Range {
+    const range = this.document.createRange();
+    range.selectNode(node);
+    return range;
+  }
+
+  /** 這份文件裡 id 是這個的元素。 */
+  elementById(id: string): Element | null {
+    return this.document.getElementById(id);
+  }
+
+  /**
    * 一段範圍在容器座標系裡的矩形——消費端要自己畫 highlight 時要的幾何
    * （user story 49、51）。
    *
@@ -357,10 +380,7 @@ export class SectionView {
       const target = event.target as Node | null;
       if (target === null) return;
 
-      const element =
-        target.nodeType === NODE_TYPE_ELEMENT
-          ? (target as Element)
-          : target.parentElement;
+      const element = isElement(target) ? target : target.parentElement;
       const anchor = element?.closest("a[href]") ?? null;
       if (anchor === null) return;
 
@@ -471,8 +491,14 @@ function metricsFor(
  */
 const COLUMN_GAP = 40;
 
-/** 有內容但沒有文字的元素。判斷「這一頁是不是空的」時要算它們。 */
-const REPLACED_ELEMENTS = "img, svg, video, canvas, object, iframe";
+/**
+ * 有內容但沒有文字的元素。判斷「這一頁是不是空的」時要算它們。
+ *
+ * 不含 `<iframe>` / `<object>` / `<embed>`：那三個在文件還是文字的時候就已經
+ * 整個拿掉了（`document-source.ts` 的 `stripScriptedContent`），寫在這裡只會讓
+ * 讀的人以為它們會出現。
+ */
+const REPLACED_ELEMENTS = "img, svg, video, canvas";
 
 /**
  * 一段範圍的第一個**有面積**的矩形。
@@ -536,17 +562,6 @@ function lastVisibleRect(range: Range): DOMRect | undefined {
   return element?.getBoundingClientRect();
 }
 
-/**
- * 節點型別的常數寫死而不是走 `Node.TEXT_NODE`。
- *
- * 理由與上面那條 `instanceof` 相同：這支模組跑在外層頁面的 realm，而處理的節點
- * 來自 iframe。常數的**值**在兩個 realm 一樣，所以拿外層的 `Node.TEXT_NODE` 去比
- * 其實會對——但那是靠巧合成立的，而同一份直覺套到 `instanceof` 上就是錯的。寫死
- * 讓兩者不必分辨。
- */
-const NODE_TYPE_ELEMENT = 1;
-const NODE_TYPE_TEXT = 3;
-
 /** 把一個長度為零的 range 撐成一個字元寬。撐不開時回 `undefined`。 */
 function uncollapse(range: Range): Range | undefined {
   if (!range.collapsed) return undefined;
@@ -554,7 +569,7 @@ function uncollapse(range: Range): Range | undefined {
   const container = range.startContainer;
   const expanded = range.cloneRange();
 
-  if (container.nodeType === NODE_TYPE_TEXT) {
+  if (isTextLike(container)) {
     const length = container.nodeValue?.length ?? 0;
     if (range.startOffset < length) {
       expanded.setEnd(container, range.startOffset + 1);

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
+import { mapStylesheet } from "../../../src/renderer/css.ts";
+import { pageMetrics } from "../../../src/renderer/geometry.ts";
+import { layoutStylesheet } from "../../../src/renderer/layout.ts";
 import { INTERVENTIONS } from "../../../src/renderer/interventions.ts";
+import { readerStylesheet, withSettings, DEFAULT_SETTINGS } from "../../../src/renderer/settings.ts";
 
 /**
  * ADR-0003 那份**封閉清單**的守門人。
@@ -70,6 +74,57 @@ describe("介入的封閉清單", () => {
       if (intervention.reason === "reader-blocked") {
         expect(intervention.onlyWhenReaderOverrides, intervention.id).toBe(true);
       }
+    }
+  });
+
+  test("frond 實際注入的每一個 CSS 屬性，清單上都點得到名字", () => {
+    // **這一條才是這份清單真正的牙齒。** 上面那條集合相等只能證明「清單沒有被
+    // 偷改」，證明不了「程式碼沒有偷偷多寫一條宣告」——它比的是清單與清單的複本。
+    //
+    // 這裡改成拿**實際產出的樣式表**去對清單：`layoutStylesheet` 與
+    // `readerStylesheet` 都是純函式，回傳的就是最後注入文件的那份文字。任何一條
+    // 新增的宣告，只要屬性名沒有出現在某一項介入的 `what` 裡，就會紅。
+    //
+    // 走 `mapStylesheet`（`css.ts` 的宣告定位器）而不是正規表示式：那支已經處理
+    // 過註解、字串與選擇器裡的冒號，而這裡要問的正是同一個問題。
+    const declared = new Set<string>();
+    const collect = (css: string): void => {
+      mapStylesheet(css, (declaration) => {
+        declared.add(declaration.property);
+        return undefined;
+      });
+    };
+
+    for (const writingMode of ["horizontal-tb", "vertical-rl"] as const) {
+      collect(
+        layoutStylesheet(
+          pageMetrics({
+            writingMode,
+            viewport: { width: 800, height: 600 },
+            columns: writingMode === "vertical-rl" ? 1 : 2,
+            gap: 40,
+          }),
+          writingMode,
+        ),
+      );
+    }
+
+    collect(
+      readerStylesheet(
+        withSettings(DEFAULT_SETTINGS, {
+          fontFamily: '"Noto Serif CJK JP"',
+          fontSize: 24,
+          lineHeight: 2,
+          theme: { foreground: "#eee", background: "#111" },
+        }),
+      ),
+    );
+
+    expect(declared.size).toBeGreaterThan(10);
+
+    const registered = INTERVENTIONS.map((intervention) => intervention.what).join("\n");
+    for (const property of declared) {
+      expect(registered, `${property} 沒有登記在任何一項介入裡`).toContain(property);
     }
   });
 

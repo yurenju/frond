@@ -297,14 +297,7 @@ export class Renderer {
     const anchor = view.positionAtPageStart(view.page);
     view.relayout(this.currentSettings);
 
-    if (anchor !== undefined) {
-      const range = this.view?.document.createRange();
-      if (range !== undefined) {
-        range.setStart(anchor.node, anchor.offset);
-        range.collapse(true);
-        view.goToPage(view.pageOf(range));
-      }
-    }
+    if (anchor !== undefined) view.goToPage(view.pageOf(view.rangeAt(anchor)));
 
     this.emitRelocate();
   }
@@ -416,14 +409,10 @@ export class Renderer {
         return;
 
       case "fragment": {
-        const target = view.document.getElementById(anchor.id);
-        if (target === null) {
-          view.goToPage(0);
-          return;
-        }
-        const range = view.document.createRange();
-        range.selectNode(target);
-        view.goToPage(view.pageOf(range));
+        const target = view.elementById(anchor.id);
+        // 指不到的錨點停在這一節的開頭。TOC 指向不存在的 id 是實際的書會有的
+        // 形狀，而讓它變成錯誤會把點目錄這件事整個打斷。
+        view.goToPage(target === null ? 0 : view.pageOf(view.rangeOfNode(target)));
         return;
       }
 
@@ -437,14 +426,7 @@ export class Renderer {
 
       case "characters": {
         const position = positionAtCharacter(textNodesIn(view.document), anchor.characters);
-        if (position === undefined) {
-          view.goToPage(0);
-          return;
-        }
-        const range = view.document.createRange();
-        range.setStart(position.node, position.offset);
-        range.collapse(true);
-        view.goToPage(view.pageOf(range));
+        view.goToPage(position === undefined ? 0 : view.pageOf(view.rangeAt(position)));
         return;
       }
     }
@@ -500,11 +482,7 @@ export class Renderer {
       return { kind: "point", path: [spineSegment(this.sectionIndex)] };
     }
 
-    const range = view.document.createRange();
-    range.setStart(position.node, position.offset);
-    range.collapse(true);
-
-    return cfiForRange(range, this.sectionIndex);
+    return cfiForRange(view.rangeAt(position), this.sectionIndex);
   }
 
   private describeLocation(): RenderLocation {
@@ -545,7 +523,16 @@ export class Renderer {
 
     // 同一個位置不重複送。翻到書末再按一次「下一頁」時什麼都沒變，而重複的
     // relocate 會讓消費端誤以為位置動了（例如把進度同步到雲端）。
-    const signature = `${location.sectionIndex}:${location.page}:${location.fraction ?? ""}`;
+    //
+    // **簽章要含 CFI。** 少了它，一次讓頁碼不變但位置真的變了的重排（換 viewport
+    // 之後同一頁裝了別的內容）會被當成沒變而吃掉——而那正是消費端最需要收到的
+    // 一次事件：存進度存的是 CFI，不是頁碼。
+    const signature = [
+      location.sectionIndex,
+      location.page,
+      location.fraction ?? "",
+      location.cfi,
+    ].join(":");
     if (signature === this.lastEmitted) return;
     this.lastEmitted = signature;
 
