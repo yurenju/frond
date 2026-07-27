@@ -19,3 +19,8 @@ site/frond/
 # 展示用的合成書。`npm run demo:book` 隨時產得出來（決定性），內容與理由在
 # src/test-fixtures/demo-book.ts——產物不必進 repo。
 tests/books/demo-zh-tw.epub
+
+# 每個人各自的 Claude Code 本機設定與 worktree 工作目錄。前者是個人偏好、後者是
+# 暫時的 checkout——兩者都不該被別人的 clone 繼承。
+.claude/settings.local.json
+.claude/worktrees/
