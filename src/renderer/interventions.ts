@@ -155,12 +155,26 @@ export const INTERVENTIONS: readonly Intervention[] = [
 /**
  * 已知的缺口，登記在這裡而不是留白。
  *
- * `font` 這個縮寫屬性可以一條寫死字級（`font: 12px/1.4 serif`），而
- * `relativiseFontSizes` 不換算它——縮寫的值要拆開才知道哪一段是字級，拆錯會把
- * 整條宣告寫壞，而寫壞比不換算更糟。旗標仍然拿得掉（`demote-important` 的範圍
- * 含 `font`），所以帶 `!important` 的那一種擋不住讀者；擋得住的是**不帶
- * `!important` 的縮寫絕對字級**。樣本裡沒有量到這個形狀，有量到再處理。
+ * 每一項都是「知道它在、也知道為什麼現在不做」，不是待辦清單。共同的判準是
+ * **樣本裡沒有量到這個形狀**——那 33 本書上一次都沒出現的東西，先做等於照著規格
+ * 而不是照著書實際的樣子寫（CONTEXT.md 的「範本書」）。
+ *
+ * 1. **`font` 縮寫裡的絕對字級不換算成 `rem`。** 縮寫的值要拆開才知道哪一段是
+ *    字級（`font: 12px/1.4 serif`），拆錯會把整條宣告寫壞，而寫壞比不換算更糟。
+ *    `!important` 仍然拿得掉（`demote-important` 的範圍含 `font`），所以擋得住
+ *    讀者的只剩「不帶 `!important` 的縮寫絕對字級」。
+ *
+ * 2. **`@import "a.css"` 的字串寫法不解析。** 只認 `@import url(a.css)`。字串
+ *    寫法在 EPUB 裡少見，而多一條解析路徑就多一種把樣式表改寫壞的方式。
+ *
+ * 3. **`@import` 進來的樣式表是非同步載入的。** 它會變成一個 `blob:` 的
+ *    `@import`，而 frond 在 iframe 的 load 事件之後立刻量內容總長算頁數——樣式
+ *    若還沒到位，量到的頁數是錯的。`<link>` 那一條已經靠內嵌解掉了
+ *    （`document-source.ts`），`@import` 沒有：要解需要把它也遞迴內嵌進來，而
+ *    那要處理循環與順序，代價與它出現的頻率不成比例。
  */
 export const KNOWN_GAPS: readonly string[] = [
-  "font 縮寫裡的絕對字級不換算成 rem（見上方註解）",
+  "font 縮寫裡的絕對字級不換算成 rem",
+  "@import 的字串寫法（@import \"a.css\"）不解析，只認 @import url(…)",
+  "@import 進來的樣式表非同步載入，可能讓第一次量到的頁數偏低",
 ];
