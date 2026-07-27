@@ -80,11 +80,20 @@ foliate-js 的 `paginator.js` 不注入任何 `font-feature-settings`，所以�
 
 需要。直排是 frond 的硬需求，標點位置錯誤是讀者一眼看得到的缺陷，而 DOM 斷言與幾何不變量都抓不到——全形標點的字面寬相同，斷行與斷頁完全不受影響。
 
-尚未決定的是**注入的層級**：是 Renderer 一律注入，還是只在 WebKit 注入。一律注入比較簡單且已驗證無害，但那是 frond 主動覆寫書的宣告，需要對照 ADR-0003 的介入門檻——這一條應該歸類為「內容讀不到」還是根本不算介入，值得寫進封閉清單時想清楚。
+**注入的層級已經決定了（#32）：Renderer 一律注入，三家不分支，而且不帶 `!important`。**
+
+一律注入的理由是分支的代價比較高——「現在是哪一家」的判斷會在瀏覽器修好之後變成沒有人記得要拿掉的東西，而實測強制之後 Chromium 與 Firefox 的結果**逐位元組不變**，所以分支買不到任何東西。
+
+歸類的問題（「內容讀不到」還是根本不算介入）也一併決定了：**兩者都不是，它是第三類**——`syntax-translation`，與「Firefox 不認前綴的 `writing-mode`」同一格。`writing-mode: vertical-rl` 本身就蘊含了「標點要換成直排字符」這件事，兩家瀏覽器自動照做，WebKit 沒有；注入等於把書已經表達過的意圖講給沒有照做的那一家聽，不是新增書沒有要求的效果。
+
+不帶 `!important` 是這個歸類的直接後果：書自己宣告 `font-feature-settings` 時仍然是書贏。四種介入理由的分法見 `src/renderer/interventions.ts`。
 
 **哪個測試會抓到**
 
-`tests/browser/smoke/vertical-writing.spec.ts` 的「標點取到直排字符」。目前該測試自行注入 `"vert" 1`，因此驗證的是「字型有直排字符且畫得出來」這個環境性質。等 Renderer 存在之後，需要另一條測試驗證 Renderer 本身有做這件事。
+兩條，分別守兩件不同的事：
+
+- `tests/browser/smoke/vertical-writing.spec.ts` 的「標點取到直排字符」守的是**環境**——那套字型有直排字符且畫得出來。它自己注入 `"vert" 1`，所以與 Renderer 無關。
+- `tests/browser/renderer/rendering.spec.ts` 的「直排時注入直排標點的字符設定」守的是 **Renderer 本身有做這件事**，並且橫排時不做。
 
 **環境**
 
@@ -319,7 +328,20 @@ Chromium 的左側空出約一個行框寬（115.2px），第 2 頁從「が差�
 
 **哪個測試會抓到**
 
-目前沒有——frond 還沒有 `Renderer`。承接：#32 拆票時的「跨瀏覽器自我差分」與「直排單欄幾何、整數像素、分數 DPI 邊界」兩刀，這條規則要寫進去。（`agent 視覺判讀`已經不是這裡的承接對象——它改成開 PR 前的作者側檢查，見 ADR-0001 的修訂。）
+規則已經寫進測試套件了（#32），而且是**分成兩邊**寫的：
+
+- `tests/browser/renderer/cross-browser.spec.ts` 只比與分頁無關的量（書寫方向、每節第一頁的 CFI、字元數與 fraction、算出來的欄寬）。它有一條刻意永遠通過的測試把各家的頁數記進 annotation——**記錄但不互比**，讓那個數字看得見而不是只寫在這份文件裡。
+- `tests/browser/renderer/invariants.spec.ts` 守本條點名的那四個自我一致性不變量，每一家各自成立。
+
+（`agent 視覺判讀`不是這裡的承接對象——它改成開 PR 前的作者側檢查，見 ADR-0001 的修訂。）
+
+**frond 自己的分欄設定下，這條分歧沒有重現（#32）**
+
+同一本 `vertical-japanese`、同一個 800×600 viewport、同樣把讀者字級設成 64px，改由 frond 渲染：**三家都排成 3 頁**（`docs/evidence/32/` 的 `*-vertical-64px.png`）。
+
+這**不推翻**上面那組量測，也不放寬 ADR-0004 的規則，理由是本檔開頭〈這個數字是誰排的〉那一條：上面那組是在 **foliate 的分欄設定**下量到的（`column-width: 466px`、`width: 744px`、`padding` 28px，全部 `!important` 寫在 `documentElement` 上），而 frond 的設定不一樣——欄寬取整數、邊界在 iframe 外面、`column-gap` 40px。同一個 fixture 換一組設定就換一組斷點，所以兩組數字本來就不該相等。
+
+真正的結論是：**「三家頁數會不會分岔」是設定的函數，不是可以一次驗完的性質。** 今天沒有分岔不代表換一本書、換一個 viewport 或讀者調一次字級之後也不會。硬把「三家頁數應該相同」寫成斷言，等於賭一個沒有理由成立的巧合。
 
 **環境**
 
@@ -358,12 +380,12 @@ frond 以 foliate-js 為參考實作，取用它的**瀏覽器 quirk 知識**，
 
 | # | 瀏覽器 | 症狀（foliate 的說法） | foliate 的繞法 | 探針結果 | frond 是否需要 | 哪個測試會抓到 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | WebKit | iframe 的 `sandbox` 少了 `allow-scripts` 就收不到事件（[bug 218086](https://bugs.webkit.org/show_bug.cgi?id=218086)）。`paginator.js` L242–244 | 永遠帶 `allow-scripts` | **已重現，WebKit 限定** | 需要——ADR-0006 已據此決定開 `allow-scripts` 並不支援 scripted content，這次是那個決定的實證 | 尚無。承接 #9 的「`Renderer`：渲染進容器、橫排分頁、翻頁」 |
-| 2 | Firefox | iframe `display: none` 時讀不到 computed style。L260–264 | 讀之前把 iframe 切成 `display: block`，讀完切回 `none` | **已重現，Firefox 限定** | 需要——`Renderer` 要在版面定案前讀書寫方向與背景色，而那時 iframe 常常是隱藏的 | 尚無。承接同上 |
-| 3 | Firefox | `body` 上的 `ResizeObserver` 不會觸發（[bugzilla 1832939](https://bugzilla.mozilla.org/show_bug.cgi?id=1832939)）。L275–278、L1115–1116 | 改掛 `doc.fonts.ready.then(() => expand())` | **未重現**（Firefox 151 的回呼有觸發） | 未定——但「字型載入後重算」本來就該做，與 `ResizeObserver` 可不可靠無關 | 尚無。承接同上 |
-| 4 | Chromium | `setStyles()` 之後要隔一個 frame 才讀得到新的背景色。L1111–1113 | 讀之前包一層 `requestAnimationFrame` | **未重現** | 未定 | 尚無。承接 #9 的「`Renderer`：讀者設定與 cascade 對抗 `!important`」 |
-| 5 | Firefox | `getBoundingClientRect()` 漏掉零寬非零高的 rect，使可見範圍在欄邊界多含一個空白。L79–92 | 自己用 `getClientRects()` 的聯集算 bounding rect | **前提未出現**——三家一次都沒產生零寬非零高的 rect，探針等於沒踩到 | **未知**，不可當成「Firefox 沒這個 bug」 | 尚無。承接 #9 的「`Renderer`：CFI ↔ 位置、fraction、resize 回位」 |
-| 6 | WebKit | 頁首的分欄斷點造成位移，「只有 WebKit 支援、且只在橫排」。L369–372 | `expand()` 把 `contentStart` 加進內容總長 | **前提未出現**——三家的 `contentStart` 都等於 foliate 自己設的左內距 28px，沒有分歧 | **未知** | 尚無。承接 #9 的「`Renderer`：渲染進容器、橫排分頁、翻頁」 |
+| 1 | WebKit | iframe 的 `sandbox` 少了 `allow-scripts` 就收不到事件（[bug 218086](https://bugs.webkit.org/show_bug.cgi?id=218086)）。`paginator.js` L242–244 | 永遠帶 `allow-scripts` | **已重現，WebKit 限定** | 需要——ADR-0006 已據此決定開 `allow-scripts` 並不支援 scripted content，這次是那個決定的實證 | `tests/browser/renderer/rendering.spec.ts`（iframe 載得起來、內容進得去） |
+| 2 | Firefox | iframe `display: none` 時讀不到 computed style。L260–264 | 讀之前把 iframe 切成 `display: block`，讀完切回 `none` | **已重現，Firefox 限定** | **不需要，但要防禦**——frond 不預載隱藏的 iframe，讀書寫方向時那一份文件已經在畫面上，所以前提不出現 | 尚無（前提在 frond 的設計裡不出現）。防禦在 `src/renderer/writing-mode.ts`：讀到空字串時回 `unreadable` 而不是當成橫排，由 `section-view.ts` 丟 `WritingModeUnreadableError` |
+| 3 | Firefox | `body` 上的 `ResizeObserver` 不會觸發（[bugzilla 1832939](https://bugzilla.mozilla.org/show_bug.cgi?id=1832939)）。L275–278、L1115–1116 | 改掛 `doc.fonts.ready.then(() => expand())` | **未重現**（Firefox 151 的回呼有觸發） | **不適用**——frond 觀察的是外層文件裡的**容器元素**，不是 iframe 的 `body`。`doc.fonts.ready` 照樣有等，理由是「分頁是字型的函數」，與 `ResizeObserver` 可不可靠無關 | 尚無直接測試（前提不出現）。等字型那一步在 `section-view.ts` 的 `mount` |
+| 4 | Chromium | `setStyles()` 之後要隔一個 frame 才讀得到新的背景色。L1111–1113 | 讀之前包一層 `requestAnimationFrame` | **未重現** | **不適用**——frond 換讀者設定時整節重建（改寫發生在文件還是文字的時候），不在既有文件上改樣式再讀回來 | `tests/browser/renderer/reader-settings.spec.ts` 的主題那一組會間接踩到：它在 `applySettings` 之後立刻讀 computed 的顏色 |
+| 5 | Firefox | `getBoundingClientRect()` 漏掉零寬非零高的 rect，使可見範圍在欄邊界多含一個空白。L79–92 | 自己用 `getClientRects()` 的聯集算 bounding rect | **前提未出現**——三家一次都沒產生零寬非零高的 rect，探針等於沒踩到 | **未知**，不可當成「Firefox 沒這個 bug」。frond 一律走 `getClientRects()` 並濾掉沒有面積的，從不叫 `getBoundingClientRect()` 量位置，所以這一格繞過去了 | 尚無針對這個症狀的測試（前提未出現）。走的那條路徑由 `invariants.spec.ts` 的位置不變量覆蓋 |
+| 6 | WebKit | 頁首的分欄斷點造成位移，「只有 WebKit 支援、且只在橫排」。L369–372 | `expand()` 把 `contentStart` 加進內容總長 | **前提未出現**——三家的 `contentStart` 都等於 foliate 自己設的左內距 28px，沒有分歧 | **不適用**——frond 的分欄容器沒有內距（版面的邊界在 iframe 外面），所以根本沒有 `contentStart` 這個量 | 不適用 |
 
 ### 表二：只從 foliate 原始碼讀來的六條（待驗證線索）
 
@@ -371,12 +393,12 @@ frond 以 foliate-js 為參考實作，取用它的**瀏覽器 quirk 知識**，
 
 | # | 瀏覽器 | 症狀（foliate 的說法） | foliate 的繞法 | frond 是否需要 | 哪個測試會抓到 |
 | --- | --- | --- | --- | --- | --- |
-| 7 | 未指名 | collapsed range「有時候（還是每次？）」不回傳 client rect。L39–53 | `uncollapse()`：把 collapsed range 換成非 collapsed 的 range 或元素 | 很可能需要——CFI 的定位大量產生 collapsed range | 承接 #9 的「`Renderer`：CFI ↔ 位置、fraction、resize 回位」 |
-| 8 | WebKit | 字符被行框裁切。L330–331 | 無條件寫 `-webkit-line-box-contain: block glyphs replaced` | 需要**先查清楚代價**，見下方〈這條繞法本身有代價〉 | 承接 #9 的「`Renderer`：直排單欄幾何、整數像素、分數 DPI 邊界」 |
+| 7 | 未指名 | collapsed range「有時候（還是每次？）」不回傳 client rect。L39–53 | `uncollapse()`：把 collapsed range 換成非 collapsed 的 range 或元素 | **需要，已做**——但踩到的是另一個症狀：矩形有回傳，只是回傳了**上一欄結尾**的那一個（見本檔〈長度為零的 range 在欄邊界上〉）。兩者剛好共用同一個繞法 | `tests/browser/renderer/invariants.spec.ts` 的「CFI → 跳過去 → CFI 是 identity，每一頁都是」 |
+| 8 | WebKit | 字符被行框裁切。L330–331 | 無條件寫 `-webkit-line-box-contain: block glyphs replaced` | **frond 沒有採用這條繞法**（#32）。理由見下方〈這條繞法本身有代價〉：它讓 WebKit 的行框比另外兩家寬 12.5%，是 foliate 自己製造出來的跨瀏覽器分歧，而它要修的症狀本專案一次都沒有量到 | 尚無——**這一格仍然是開著的**：要採用它之前得先量「不加它的時候 WebKit 到底裁掉了什麼」 |
 | 9 | WebKit | `focusin` 之後立刻捲到 anchor 會失敗。L617–619 | 包一層 `requestAnimationFrame` | v1 未定——鍵盤焦點導覽不在 #1 的 user story 內 | 尚無 |
-| 10 | 三家 | `page-break-*` 在分欄版面下無效。L659–663 | 改寫書的 CSS：`page-break-*` → `-webkit-column-break-*`、`break-*: page` → `break-*: column` | 需要——書用 `page-break-before: always` 分節是常態；但這是**改寫書的宣告**，要對照 ADR-0003 的介入門檻 | 承接 #9 的「`Renderer`：跨 Section 接續 + typed events + 頁數」 |
+| 10 | 三家 | `page-break-*` 在分欄版面下無效。L659–663 | 改寫書的 CSS：`page-break-*` → `-webkit-column-break-*`、`break-*: page` → `break-*: column` | 需要，已做。對照過 ADR-0003 的門檻之後歸在 `syntax-translation`——補一條等價宣告、不動原本那條，書的意圖沒有被改變（`src/renderer/interventions.ts` 的 `column-break`） | `tests/node/renderer/css.test.ts` 的〈page-break-*〉那一組。**症狀本身仍未驗證**：本專案沒有量過「不補的話書要求換頁的地方會不會真的接著排下去」 |
 | 11 | Firefox | `visualViewport.scale`「有時候」回報 1。L857–863 | 包 `requestAnimationFrame`，並只在 `scale === 1` 時才 snap | 不需要——捏合縮放與 snap 屬於手勢，ADR-0002 明列在消費端 | 不適用 |
-| 12 | 未指名 | range 起點緊接在前一欄的連字號之後時，那一欄會多出一個零寬 rect。L926–929 | 取第一個寬高皆非零的 rect | 未定——CJK 不斷字，橫排的西文書會踩到 | 承接 #9 的「`Renderer`：CFI ↔ 位置、fraction、resize 回位」 |
+| 12 | 未指名 | range 起點緊接在前一欄的連字號之後時，那一欄會多出一個零寬 rect。L926–929 | 取第一個寬高皆非零的 rect | 未定——CJK 不斷字，橫排的西文書會踩到。frond 一律取第一個有面積的 rect（`section-view.ts` 的 `firstVisibleRect`），所以就算踩到也已經繞過去了 | 尚無針對這個症狀的測試——合成 fixture 全是 CJK，前提不出現 |
 
 ### 已重現的兩條，量到的東西
 
@@ -412,7 +434,7 @@ foliate 對 WebKit 字符裁切的繞法是無條件寫進 `documentElement` 的
 
 44.8px 正是 `line-height: 1.4 × 32px` 算出來的值——**拿掉之後 WebKit 就和另外兩家一致了**。也就是說這條繞法讓 WebKit 的行框比另外兩家寬 5.59px（12.5%），而行框寬度會改變斷行、斷行會改變斷頁。在這本 fixture 上還沒有改變頁數（該節單欄放得下，內容總長三家都是 466.09px），但這是 **foliate 自己製造出來的跨瀏覽器分歧**，frond 若照抄會一起繼承。
 
-處置：這條進封閉清單之前要先量「不加它的時候 WebKit 到底裁掉了什麼」。承接 #9 的「`Renderer`：直排單欄幾何、整數像素、分數 DPI 邊界」。
+處置：這條進封閉清單之前要先量「不加它的時候 WebKit 到底裁掉了什麼」。`tests/browser/renderer/rendering.spec.ts` 的分頁幾何那一組。
 
 ### `paginator.js` 裡相鄰、但不算瀏覽器補丁的幾處
 
@@ -504,3 +526,114 @@ foliate 的 `paginator.js` L655–658 做的正是這件事。本檔上一節原
 `Dockerfile` 的映像（`mcr.microsoft.com/playwright:v1.61.1-noble`）。Chromium 149.0.7827.0、Firefox 151.0、WebKit 26.5——量測時重新確認過版本，與本檔其他條目相同。三家都是 Linux 建置。**真 Safari 走 CoreText，iOS 未驗證**（ADR-0004 明列不做）；前綴支援是 CSS 解析層的事，與文字塑形無關，但沒有量過就是沒有量過。
 
 **沒有任何渲染器參與**（見〈這個數字是誰排的〉）：量測是 `page.setContent` 餵一份手寫的 HTML／CSS，frond 目前也還沒有任何渲染程式碼。所以這一條講的是瀏覽器本身的行為，換渲染器仍然成立——與本檔那兩條直排量測不同，它們是在 foliate 的分欄設定下量到的。
+
+---
+
+## 分欄的欄沿行內軸溢出——直排的欄寬是高度（#32）
+
+**這一條三家一致，登記在這裡是因為它是分頁的地基。** 弄錯不會有任何東西報錯：`column-width` 套在錯的方向上仍然是一個合法的宣告，畫面照樣畫得出來，只是每一頁裝的內容不對——症狀是「一屏疊出好幾頁」。
+
+**量到的**
+
+400×300 的容器（長寬刻意不相等）、`column-fill: auto`、`column-gap: 0`，欄寬取行內軸上的容器尺寸：
+
+| 書寫方向 | 行內軸 | `column-width` 量的是 | 溢出在哪一軸 | 捲動座標 |
+| --- | --- | --- | --- | --- |
+| `horizontal-tb` | 水平 | 寬度 | **x**（`scrollWidth > clientWidth`，`scrollHeight == clientHeight`） | 由 0 起算，往正數 |
+| `vertical-rl` | 垂直（字由上而下） | **高度** | **y**（`scrollHeight > clientHeight`，`scrollWidth == clientWidth`） | 由 0 起算，往正數 |
+
+換一個 viewport 形狀（高度 300 → 600、寬度不動）之後，直排的總長跟著換成 600 的倍數——**欄寬是與容器高度連動的公式，不是常數**。
+
+spine 踩過的「直排欄寬必須剛好等於一個 viewer 高」就是第二列，但那句話只給了結論；換一個 viewport 形狀之後該改哪一個數字，要靠這張表才答得出來。
+
+**捲動座標為什麼也要量**
+
+分頁沿行內軸推進，而這兩種書寫方向的行內軸都是正向的（橫排由左而右、直排由上而下），所以捲動座標從 0 起算。但**負值慣例確實存在**：`direction: rtl` 的行內軸由右而左，CSSOM View 規定那種情況的 `scrollLeft` 由負值表示。frond v1 的兩種書寫方向都不落在那一格，量它是為了讓「不必處理負值」變成一條有東西守著的結論，而不是一個沒有人驗過的假設。
+
+**frond 是否需要處理**
+
+不是「處理」，是**建立在它上面**。`src/renderer/geometry.ts` 每一條公式都以這張表為前提。
+
+**哪個測試會抓到**
+
+`tests/browser/renderer/multicol-geometry.spec.ts`。**沒有任何 frond 程式碼參與**（見〈這個數字是誰排的〉）：`page.setContent` 餵一份手寫的 HTML／CSS，量到的是瀏覽器本身的行為，換渲染器仍然成立。
+
+**環境**
+
+`Dockerfile` 的映像（`mcr.microsoft.com/playwright:v1.61.1-noble`）。Chromium 149.0.7827.0、Firefox 151.0、WebKit 26.5。
+
+---
+
+## 長度為零的 range 在欄邊界上，游標被畫到上一欄的結尾（#32）
+
+**症狀**
+
+一個 collapsed 的 `Range` 落在換頁點上（也就是那個位置正好是下一欄的第一個字元）時，`getClientRects()` 回傳的矩形落在**上一欄的結尾**，而不是下一欄的開頭。
+
+這是文字游標的 affinity——同一個位置在換行處有兩個合理的畫法，而瀏覽器選了前一個。它本身不是 bug，是一個沒有規定的選擇。
+
+**為什麼它會咬到 frond**
+
+frond 每一次回報位置都會碰到這一格：`RenderLocation.cfi` 指的是「這一頁最前面那個字元」，而那個位置**恆定是換頁點**。用游標的矩形去問「這個位置在第幾頁」，答案會是上一頁。
+
+症狀因此是「用 CFI 跳回剛才那一頁，落到了上一頁」，而且只有部分頁面會這樣（取決於斷頁剛好落在哪裡），看起來像隨機的。
+
+實測是在 `vertical-japanese`、讀者字級 64px、800×600 下踩到的：第三節第 2 頁的起點 `epubcfi(/6/6!/4/8/1:13)` 跳回去之後落在第 1 頁。
+
+**繞法**
+
+量長度為零的 range 之前，先把它**往後撐開一個字元**再量。撐開之後量到的是那個字元自己的框，沒有 affinity 的餘地。
+
+foliate 的 `paginator.js` 有一個 `uncollapse()`（本檔表二 #7），但它解的是另一個症狀（「collapsed range 有時候不回傳 client rect」）。**這一條不是那一條**：這裡的 range 有回傳矩形，只是回傳了另一個位置的矩形。兩者剛好共用同一個繞法。
+
+**哪一家**
+
+**Chromium 已重現。** Firefox 與 WebKit 在同一組參數下沒有踩到——但那是**前提未出現**（三家的斷頁位置不同，那個 CFI 在另外兩家不落在換頁點上），不等於它們沒有這個行為。要判定另外兩家需要各自造一個落在它們斷頁點上的位置。
+
+**frond 是否需要處理**
+
+需要，已處理。`src/renderer/section-view.ts` 的 `measurable()`：長度為零的 range 一律先撐開一個字元再量，三家共用同一條路徑，不分支。
+
+**哪個測試會抓到**
+
+`tests/browser/renderer/invariants.spec.ts` 的「CFI → 跳過去 → CFI 是 identity，每一頁都是」。它逐頁驗證，所以只要有任何一頁的起點落在會觸發 affinity 的位置就會紅——這正是它當初抓到這條的方式。
+
+**環境**
+
+`Dockerfile` 的映像（`mcr.microsoft.com/playwright:v1.61.1-noble`）。Chromium 149.0.7827.0。
+
+---
+
+## 直排下 `<p>` 的下邊距落在分頁軸上，會造出一頁空白（#32）
+
+**症狀**
+
+書寫 `p { margin: 0 0 1em }`（實際的書的常態，合成 fixture 也照抄了這個形狀）時，那個 `margin-bottom` 是**實體**邊界。在 `writing-mode: vertical-rl` 下，實體的「下」落在**行內軸**上——而行內軸正是分頁軸（見本檔上面那條）。
+
+於是最後一段的下邊距會把捲動總長推進下一欄，而那一欄裡一個字都沒有。讀者翻到那一頁看到全白。
+
+**這不是瀏覽器的 bug**，是實體邊界與書寫方向的關係，三家一致。登記在這裡是因為它的後果落在 frond 的分頁上，而從 CSS 規格推不出「所以頁數會多一」這個結論——要有一個真的分頁器才看得到。
+
+**它咬到的不只是畫面**
+
+那一頁報得出頁碼，卻報不出屬於自己的 CFI（最靠近的文字位置在上一頁）。於是「CFI → 跳過去 → CFI」在最後一頁對不上——一個看起來與空白頁完全無關的症狀。
+
+**繞法**
+
+頁數不能只看捲動總長，要取它與**內容實際延伸到的那一頁**的小者。「內容」要同時算文字與被取代元素（圖片、影片），只算文字的話純圖片的節會被判成零頁。
+
+不去動書的 `margin`：那是書的宣告，而且它在版面上是對的——多出來的是 frond 把它算成一頁這件事。
+
+**frond 是否需要處理**
+
+需要，已處理。`src/renderer/section-view.ts` 的 `pageCount`。
+
+空白頁是封閉缺陷清單裡的一項（`docs/agents/pull-requests.md`），所以這一格不是可以留著的小瑕疵。
+
+**哪個測試會抓到**
+
+`tests/browser/renderer/invariants.spec.ts` 的「一節的頁數與實際翻得到的頁數相符」與「CFI → 跳過去 → CFI 是 identity」。
+
+**環境**
+
+`Dockerfile` 的映像（`mcr.microsoft.com/playwright:v1.61.1-noble`）。三家皆重現。
