@@ -11,13 +11,35 @@
 ```
 npm run test:node -- tests/node/test-fixtures/vehicles.test.ts
 npm run test:node -- -t "EPUB 2 的載體"
-npm run test:browser -- --project=firefox
+npm run test:container -- --project=firefox
 ```
 
-現有的入口：`typecheck`、`test:node`（Vitest／Node）、`test:browser`
-（Playwright／三家瀏覽器）、`test:container`（在容器裡跑瀏覽器那半邊）、
-`fixtures`（重新產生合成 fixture）。需要新的跑法時**加一支 script**，別在文件或
-提交訊息裡留一行裸指令。
+現有的入口：`typecheck`、`test:node`（Vitest／Node）、`test:container`（容器內，
+兩個 runner 都跑）、`test:browser`（Playwright／三家瀏覽器，**只在容器內跑得
+動**，見下）、`fixtures`（重新產生合成 fixture）。需要新的跑法時**加一支
+script**，別在文件或提交訊息裡留一行裸指令。
+
+### 瀏覽器測試走 `test:container`，不是 `test:browser`
+
+三家瀏覽器只存在於測試映像裡（`Dockerfile` 設了
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`，本機的 `node_modules` 不會有它們）。所以
+在 host 上直接跑 `npm run test:browser` 會得到：
+
+```
+browserType.launch: Executable doesn't exist at ~/.cache/ms-playwright/...
+```
+
+**那不是「這台機器不能跑瀏覽器測試」，是跑錯入口了。** 這個誤判的代價是整批
+瀏覽器測試被當成跑不了而略過，而略過不會有任何東西變紅。正確的入口是
+`npm run test:container`，它會建好映像、在裡面先跑 Vitest 再跑 Playwright。
+
+`test:browser` 留著是因為它是容器內實際執行的那一支。要在 host 上跑它，得自己
+備妥瀏覽器，而那條路會偏離 CI 的字型與版本——不建議（見
+`docs/test-environment.md`）。
+
+引擎連不到時腳本會**先診斷再退出**，並把修法印出來（rootless docker 常見的那一
+格是 client 還指著 rootful 的 socket，修法是 `docker context use rootless`）。
+照它印的做，不要自己去猜 socket 在哪。
 
 ## Agent skills
 
