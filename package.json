@@ -1,18 +1,43 @@
 {
   "name": "frond",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "A TypeScript EPUB rendering library — vertical and horizontal writing, verified across Chromium, Firefox and WebKit",
   "license": "MIT",
-  "private": true,
   "type": "module",
-  "exports": {
-    "./epub": "./src/epub/index.ts",
-    "./renderer": "./src/renderer/index.ts",
-    "./test-fixtures": "./src/test-fixtures/index.ts"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yurenju/frond.git"
   },
+  "homepage": "https://yurenju.github.io/frond/",
+  "keywords": [
+    "epub",
+    "epub3",
+    "reader",
+    "vertical-writing",
+    "cjk",
+    "typescript"
+  ],
+  "sideEffects": false,
+  "exports": {
+    "./epub": {
+      "types": "./dist/epub/index.d.ts",
+      "default": "./dist/epub/index.js"
+    },
+    "./renderer": {
+      "types": "./dist/renderer/index.d.ts",
+      "default": "./dist/renderer/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && node scripts/finish-build.ts",
+    "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
     "fixtures": "node scripts/generate-fixtures.ts",
+    "demo:book": "node scripts/build-demo-book.ts",
+    "site": "./scripts/build-site.sh",
     "test:node": "vitest run",
     "test:browser": "playwright test",
     "test:container": "./scripts/test-in-container.sh",

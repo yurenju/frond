@@ -10,6 +10,17 @@ import {
  * foliate-js 的 `tests/epubcfi-tests.js`（280 行，上游唯一的測試）當**驗收表**
  * 跑過一遍。
  *
+ * ## 授權
+ *
+ * 這個檔案裡的 CFI 字串與比較案例逐字取自上游，所以它帶著上游的著作權聲明：
+ *
+ *     Copyright (c) 2022 John Factotum
+ *     MIT License — https://github.com/johnfactotum/foliate-js
+ *
+ * MIT 要求的完整條文收在 repo 根目錄的 `THIRD-PARTY-NOTICES.md`。**這是整個
+ * repo 裡唯一有這個義務的檔案**：`src/` 一行上游程式碼都沒有（ADR-0001），出貨
+ * 的 npm 包也不含 `tests/`。
+ *
  * **這是讀它的案例，不是讀它的程式碼**（ADR-0001：frond 是重新實作，不是 port）。
  * 那份檔案的價值在於它是 CFI 規格的一份**解讀紀錄**——哪些字串該解成什麼、哪個
  * 位置排在哪個位置前面。frond 的 oracle 仍然是規格本身；這份表的作用是「有沒有

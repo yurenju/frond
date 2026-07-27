@@ -53,12 +53,24 @@ describe("EPUB 3", () => {
 });
 
 describe("公開的進入點", () => {
-  test("frond/epub 這個 exports 進入點指得到東西", async () => {
+  test("frond/epub 這個 exports 進入點開得起書", async () => {
     // 其餘測試走相對路徑（那是這個 repo 內部的寫法），但消費端拿到的是
     // package.json 的 exports 那條路——沒有人走過的話，路徑打錯了不會有東西紅。
+    //
+    // **那條路指向 `dist/`，不是 `src/`**，所以這條測試要 `npm run build` 跑過
+    // 才有東西可以載（`npm install` 的 `prepare` 會跑，容器裡由 Dockerfile 跑）。
+    // 這正是它的價值所在：它是唯一會執行到出貨產物的測試，證明 emit 出來的
+    // JavaScript 真的跑得動——副檔名改寫錯了、`exports` 的路徑打錯了，都紅在
+    // 這裡。
+    //
+    // 斷言是「開得起一本書」而不是「與相對路徑 import 到的是同一個物件」：後者
+    // 在 exports 指向 src 的時代恰好成立，但那是巧合而不是要守的事實。指向
+    // `dist/` 之後兩者本來就是不同的模組實例，而消費端在乎的從來是它能不能用。
     const entry = await import("frond/epub");
+    const book = await entry.EpubBook.open(await readFixture("vertical-japanese.epub"));
 
-    expect(entry.EpubBook).toBe(EpubBook);
+    expect(book.metadata.title).toBe("frond fixture — vertical-japanese");
+    expect(book.readingOrder.length).toBeGreaterThan(0);
   });
 });
 

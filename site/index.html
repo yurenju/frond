@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>frond — EPUB rendering, vertical and horizontal</title>
+    <meta
+      name="description"
+      content="frond 是一個 TypeScript 的 EPUB 渲染函式庫。把你自己的 EPUB 拖進來看它排成什麼樣子。"
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%8C%BF%3C/text%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="masthead">
+      <h1>frond</h1>
+      <p class="tagline">
+        TypeScript 的 EPUB 渲染函式庫。直排與橫排並重，在 Chromium、Firefox
+        與 WebKit 三家上實證驗證。
+      </p>
+      <nav class="masthead-links">
+        <a href="https://github.com/yurenju/frond">GitHub</a>
+        <a href="https://github.com/yurenju/frond#readme">說明文件</a>
+      </nav>
+    </header>
+
+    <main>
+      <!-- 開書之前 ------------------------------------------------------- -->
+      <section id="intro">
+        <div id="dropzone" class="dropzone">
+          <p class="dropzone-headline">把 EPUB 拖進這裡</p>
+          <p class="dropzone-sub">或者</p>
+          <label class="file-button">
+            選一個檔案
+            <input
+              id="file-input"
+              type="file"
+              accept=".epub,application/epub+zip"
+            />
+          </label>
+          <p id="open-error" class="error" hidden></p>
+        </div>
+
+        <div class="intro-columns">
+          <section>
+            <h2>你會看到什麼</h2>
+            <ul>
+              <li>
+                <strong>讀</strong>——書排出來的樣子。直排或橫排由書自己決定，
+                翻頁、跳章、字級、行高、邊界、單欄雙欄、主題都可以改。
+              </li>
+              <li>
+                <strong>檢查</strong>——frond 從這本書讀到的事實。EPUB
+                版本、頁面推進方向、目錄讀自哪一份導覽文件、封面用哪種寫法宣告、
+                manifest 裡有哪幾項其實不在包裡。
+              </li>
+            </ul>
+            <p class="note">
+              這一頁是<strong>純瀏覽器 client 實作</strong>：整個流程跑在這個分頁裡，沒有伺服器
+              參與。<code>EpubBook.open()</code> 收的是位元組，frond
+              本身沒有任何下載或上傳的程式碼路徑。
+            </p>
+          </section>
+
+          <section>
+            <h2>用起來長這樣</h2>
+            <pre><code>&lt;div id="viewer" style="height: 100dvh"&gt;&lt;/div&gt;
+
+&lt;script type="module"&gt;
+  import { EpubBook } from "./frond/epub/index.js";
+  import { Renderer } from "./frond/renderer/index.js";
+
+  const book = await EpubBook.open(await file.arrayBuffer());
+  const renderer = await Renderer.attach(
+    book,
+    document.getElementById("viewer"),
+    { on: { relocate: (at) =&gt; console.log(at.page, at.pageCount) } },
+  );
+&lt;/script&gt;</code></pre>
+            <p class="note">
+              沒有打包器、沒有執行期相依。這一頁本身就是這段程式碼跑起來的樣子
+              ——<a href="https://github.com/yurenju/frond/blob/main/site/app.js"
+                >app.js</a
+              >
+              是它的完整版。
+            </p>
+          </section>
+        </div>
+      </section>
+
+      <!-- 開書之後 ------------------------------------------------------- -->
+      <section id="workspace" hidden>
+        <div class="workspace-bar">
+          <div class="tabs" role="tablist">
+            <button id="tab-read" class="tab" role="tab" aria-selected="true">
+              讀
+            </button>
+            <button id="tab-inspect" class="tab" role="tab" aria-selected="false">
+              檢查
+            </button>
+          </div>
+          <p id="book-title" class="book-title"></p>
+          <label class="file-button small">
+            換一本
+            <input
+              id="file-input-again"
+              type="file"
+              accept=".epub,application/epub+zip"
+            />
+          </label>
+        </div>
+
+        <!-- 讀 -->
+        <div id="panel-read" class="panel">
+          <div class="toolbar">
+            <div class="toolbar-group">
+              <button id="previous" title="上一頁">‹</button>
+              <button id="next" title="下一頁">›</button>
+              <select id="toc" aria-label="目錄"></select>
+            </div>
+            <div class="toolbar-group">
+              <label>字級 <input id="font-size" type="range" min="12" max="40" step="1" /></label>
+              <label>行高 <input id="line-height" type="range" min="1.2" max="2.6" step="0.1" /></label>
+              <label>邊界 <input id="margin" type="range" min="0" max="96" step="4" /></label>
+              <label>
+                欄
+                <select id="columns">
+                  <option value="auto">自動</option>
+                  <option value="1">單欄</option>
+                  <option value="2">雙欄</option>
+                </select>
+              </label>
+              <label>
+                主題
+                <select id="theme">
+                  <option value="book">照書</option>
+                  <option value="light">明亮</option>
+                  <option value="sepia">紙</option>
+                  <option value="dark">夜間</option>
+                </select>
+              </label>
+              <button id="reset-settings" title="把讀者設定全部清掉，回到書自己的宣告">
+                清掉設定
+              </button>
+            </div>
+          </div>
+
+          <div id="viewer" class="viewer"></div>
+
+          <div class="statusbar">
+            <span id="status-section"></span>
+            <span id="status-page"></span>
+            <span id="status-writing-mode"></span>
+            <span id="status-fraction"></span>
+            <code id="status-cfi"></code>
+          </div>
+          <p id="render-error" class="error" hidden></p>
+        </div>
+
+        <!-- 檢查 -->
+        <div id="panel-inspect" class="panel" hidden>
+          <div id="inspect"></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="colophon">
+      <p>
+        MIT · <a href="https://github.com/yurenju/frond">yurenju/frond</a> ·
+        這一頁與 frond 一樣沒有執行期相依，也沒有打包步驟。
+      </p>
+    </footer>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
