@@ -110,7 +110,7 @@ export class EpubBook {
    * 開一本書。失敗時丟 `EpubOpenError`，`reason` 說明是哪一種壞法。
    */
   static async open(source: EpubSource): Promise<EpubBook> {
-    const container = openContainer(await toBytes(source));
+    const container = await openContainer(await toBytes(source));
     const packageDocument = parsePackageDocument(
       container.text(container.packageDocumentPath),
       container.packageDocumentPath,

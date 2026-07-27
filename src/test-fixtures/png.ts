@@ -1,4 +1,5 @@
-import { concat, crc32 } from "./zip.ts";
+import { crc32 } from "../crc32.ts";
+import { concat } from "./zip.ts";
 
 /**
  * 決定性的 PNG writer。只夠寫出 8-bit 灰階、無交錯的圖。

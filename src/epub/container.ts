@@ -1,7 +1,7 @@
-import { unzipSync } from "fflate";
 import { EpubOpenError } from "./errors.ts";
 import { CONTAINER_ROOT, resolveHref } from "./resource-path.ts";
 import { parseXml } from "./xml.ts";
+import { readZip } from "./zip.ts";
 
 /**
  * OCF 容器——一本 EPUB 的外殼：一個 ZIP，加上 `META-INF/container.xml` 指出封裝
@@ -9,11 +9,15 @@ import { parseXml } from "./xml.ts";
  *
  * 這一層之所以自成一個模組，是因為它是**唯一知道「書是一個壓縮檔」的地方**。
  * 它之上的每一層都只看得到「路徑 → 位元組」這張表，於是解壓的實作（現在是
- * fflate 全解到記憶體）可以換成串流或 range request，而不必動到任何解析的
+ * `zip.ts` 全解到記憶體）可以換成串流或 range request，而不必動到任何解析的
  * 程式碼。
  *
- * 零 DOM 依賴（ADR-0005）：fflate 是純 JS，`URL` 是 WHATWG 的標準物件，兩者在
- * Node 與瀏覽器都在。
+ * `openContainer` 是非同步的，因為解壓是——`DecompressionStream` 沒有同步版本
+ * （`zip.ts`）。**只有開的那一刻是非同步的**：位元組在這裡就全部解好收進表裡，
+ * 所以 `bytes()` 與 `text()` 仍然是同步的，它們之上四個解析模組一行都不必改。
+ *
+ * 零 DOM 依賴（ADR-0005）：`DecompressionStream` 與 `URL` 都是 WHATWG 的標準
+ * 物件，Node 與三家瀏覽器都在。
  */
 
 const CONTAINER_PATH = "META-INF/container.xml";
@@ -26,13 +30,13 @@ export interface EpubContainer {
   text(path: string): string;
 }
 
-export function openContainer(archive: Uint8Array): EpubContainer {
-  const entries = unzip(archive);
+export async function openContainer(archive: Uint8Array): Promise<EpubContainer> {
+  const entries = await readZip(archive);
   const decoder = new TextDecoder();
 
-  const has = (path: string): boolean => entries[path] !== undefined;
+  const has = (path: string): boolean => entries.has(path);
   const bytes = (path: string): Uint8Array => {
-    const found = entries[path];
+    const found = entries.get(path);
     if (found === undefined) {
       throw new EpubOpenError(
         "missing-resource",
@@ -68,18 +72,6 @@ export function openContainer(archive: Uint8Array): EpubContainer {
     bytes,
     text,
   };
-}
-
-function unzip(archive: Uint8Array): Record<string, Uint8Array> {
-  try {
-    return unzipSync(archive);
-  } catch (cause) {
-    throw new EpubOpenError(
-      "not-a-zip",
-      "這些位元組不是 ZIP，EPUB 的容器格式是 ZIP",
-      { cause },
-    );
-  }
 }
 
 /**
