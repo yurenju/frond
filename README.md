@@ -12,20 +12,22 @@ in and read it, or switch to the inspect panel and see exactly what frond reads
 out of your book. It runs entirely in the page — frond has no download or upload
 code path at all.
 
-## Status: 0.x, and the API will change
-
-frond is not on npm, and that is deliberate. Publishing implies a promise about
-semver and API stability that a library this young cannot keep. Install it as a
-git dependency pinned to a tag; npm comes later, once the API has held still
-(see [ADR-0008](docs/adr/0008-distribution-and-license.md)).
+## Install
 
 ```bash
-npm install github:yurenju/frond#v0.1.0
+npm install @yurenju/frond
 ```
 
-The package builds itself on install, using its own pinned TypeScript — you do
-not need TypeScript in your project. What you get is plain ES modules plus
-`.d.ts` files.
+What you get is plain ES modules plus `.d.ts` files — no build step on your
+side, and no TypeScript needed in your project.
+
+## Status: 0.x, and the API will change
+
+`0.x` means what semver says it means: nothing is promised. frond's API still
+moves, and a minor bump can break you — pin an exact version and read the
+[changelog](CHANGELOG.md) before you move. See
+[ADR-0008](docs/adr/0008-distribution-and-license.md) for why it ships on npm
+anyway.
 
 ## Zero runtime dependencies
 
@@ -66,8 +68,8 @@ frond is split in two, and you can use either half on its own.
 
 | Entry point | Needs DOM | What it gives you |
 | --- | --- | --- |
-| `frond/epub` | no | `EpubBook.open(bytes)` → metadata, reading order, TOC, cover, manifest resources, raw bytes by path. Plus CFI parsing, serialising and comparison. |
-| `frond/renderer` | yes | `Renderer.attach(book, element)` → paging, section navigation, reader settings, writing mode, CFI ↔ position, typed events. |
+| `@yurenju/frond/epub` | no | `EpubBook.open(bytes)` → metadata, reading order, TOC, cover, manifest resources, raw bytes by path. Plus CFI parsing, serialising and comparison. |
+| `@yurenju/frond/renderer` | yes | `Renderer.attach(book, element)` → paging, section navigation, reader settings, writing mode, CFI ↔ position, typed events. |
 
 `EpubBook` has no DOM dependency at all, so it runs in Node — parsing tests do
 not need a browser. The inspect panel on the demo site is built out of that half

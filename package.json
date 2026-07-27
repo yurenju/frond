@@ -1,14 +1,18 @@
 {
-  "name": "frond",
+  "name": "@yurenju/frond",
   "version": "0.1.1",
   "description": "A TypeScript EPUB rendering library — vertical and horizontal writing, verified across Chromium, Firefox and WebKit",
   "license": "MIT",
+  "author": "Yuren Ju <yurenju@gmail.com>",
   "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/yurenju/frond.git"
   },
   "homepage": "https://yurenju.github.io/frond/",
+  "bugs": {
+    "url": "https://github.com/yurenju/frond/issues"
+  },
   "keywords": [
     "epub",
     "epub3",
@@ -29,8 +33,18 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "src",
+    "!src/test-fixtures",
+    "CHANGELOG.md",
+    "THIRD-PARTY-NOTICES.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json && node scripts/finish-build.ts",
     "prepare": "npm run build",

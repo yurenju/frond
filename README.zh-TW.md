@@ -11,18 +11,21 @@ Firefox 與 WebKit 上實證驗證過。
 拖一個檔案進去就能讀，或者切到檢查分頁，看 frond 從你的書裡讀到了什麼。整個流程
 跑在那個分頁裡——frond 沒有任何下載或上傳的程式碼路徑。
 
-## 現況：0.x，而且 API 會動
-
-frond **不在 npm 上，而那是刻意的**。發上去等於隱含承諾 semver 與 API 穩定，而
-這個年紀的函式庫給不起那個承諾。用 git dependency 釘在 tag 上安裝；等 API 半年
-沒有大動再發 npm（[ADR-0008](docs/adr/0008-distribution-and-license.md)）。
+## 安裝
 
 ```bash
-npm install github:yurenju/frond#v0.1.0
+npm install @yurenju/frond
 ```
 
-這個套件會在安裝時用它自己釘死的 TypeScript 建置自己——**你的專案不需要有
-TypeScript**。你拿到的是純 ES module 加上 `.d.ts`。
+你拿到的是純 ES module 加上 `.d.ts`——你這邊不需要建置步驟，也不需要有
+TypeScript。
+
+## 現況：0.x，而且 API 會動
+
+`0.x` 就是 semver 定義的那個意思：**什麼都不保證**。frond 的 API 還在動，一個
+minor 就可能弄壞你——釘死版本，升之前先看
+[changelog](CHANGELOG.md)。至於這樣還發 npm 的理由，見
+[ADR-0008](docs/adr/0008-distribution-and-license.md)。
 
 ## 零執行期相依
 
@@ -61,8 +64,8 @@ frond 切成兩層，任一半都可以單獨使用。
 
 | 進入點 | 要 DOM 嗎 | 給你什麼 |
 | --- | --- | --- |
-| `frond/epub` | 不要 | `EpubBook.open(bytes)` → metadata、readingOrder、TOC、封面、manifest 的資源、依路徑取位元組。另有 CFI 的解析、序列化與比較。 |
-| `frond/renderer` | 要 | `Renderer.attach(book, element)` → 翻頁、跳節、讀者設定、書寫方向、CFI 與位置互轉、有型別的事件。 |
+| `@yurenju/frond/epub` | 不要 | `EpubBook.open(bytes)` → metadata、readingOrder、TOC、封面、manifest 的資源、依路徑取位元組。另有 CFI 的解析、序列化與比較。 |
+| `@yurenju/frond/renderer` | 要 | `Renderer.attach(book, element)` → 翻頁、跳節、讀者設定、書寫方向、CFI 與位置互轉、有型別的事件。 |
 
 `EpubBook` 零 DOM 依賴，所以它在 Node 裡跑得動——解析層的測試不必開瀏覽器。
 展示站的檢查分頁整個就是只用這一半做出來的：

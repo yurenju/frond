@@ -1,20 +1,22 @@
 name: release
 
-# 打一個版本 tag。手動觸發，因為「要不要發一版」是一個決定，不是一個事件。
+# 升版、打 tag、發到 npm。手動觸發，因為「要不要發一版」是一個決定，不是一個事件。
 #
-# ## tag 是消費端真的會拿到的東西
+# ## 這條流程最後那一步收不回來
 #
-# frond 不發 npm（ADR-0008），消費端用 git dependency 釘 tag：
+# frond 發在 npm 上，套件名 `@yurenju/frond`（ADR-0008）：
 #
-#     npm install github:yurenju/frond#v0.1.0
+#     npm install @yurenju/frond
 #
-# npm 為 git dependency 安裝 devDependencies 然後跑 `prepare`，也就是在**他們的
-# 機器上**跑 `npm run build`。所以 tag 打在一個建不起來的 commit 上，症狀不是
-# 「我們的 CI 紅了」，而是「每一個安裝 frond 的人都裝不起來」，而且錯誤訊息出現
-# 在他們的終端機裡。
+# **npm 上的版本收不回來。** unpublish 只有 72 小時的窗口，而且撤掉會弄壞已經裝了
+# 的人。git tag 打錯可以刪掉重打，一個發出去的版本不行——所以下面所有驗證都排在
+# `npm publish` 之前，而 `publish` 是整條流程的最後一步。
 #
-# 這是下面那幾個驗證步驟存在的理由——它們不是為了證明程式碼是對的（那是
-# `test.yml` 在 main 上每次推送都做的事），是為了證明**安裝這條路走得通**。
+# 那幾個驗證步驟不是為了證明程式碼是對的（那是 `test.yml` 在 main 上每次推送都做
+# 的事），是為了證明**消費端拿到的那包東西是好的**。
+#
+# `npm install github:yurenju/frond#<tag>` 這條路也還走得通（`prepare` 會在他們的
+# 機器上跑 `npm run build`），只是不再是建議的安裝方式。
 on:
   workflow_dispatch:
     inputs:
@@ -30,19 +32,27 @@ on:
           - minor
           # 0.1.0 → 1.0.0。**這一格不只是一個數字。**
           #
-          # 1.0 在 ADR-0008 裡等於「API 穩定了、可以發 npm 了」這個承諾。要跨過
-          # 去之前先去改那份 ADR，不要先打 tag——tag 刪得掉，但已經照著它安裝的
-          # 人不會知道你刪了。
+          # 0.x 在 semver 裡等於「什麼都不保證」，而 1.0 收回那句話。要跨過去之前
+          # 先去改 ADR-0008，不要先打 tag——tag 刪得掉，發出去的 npm 版本不行。
           - major
+      dry_run:
+        description: "只驗不發（不升版、不打 tag、不 publish）"
+        type: boolean
+        required: false
+        default: false
 
 # 同時跑兩次會各自算出同一個版本號，然後第二個推不上去（tag 已存在）。排隊而不是
-# 取消：被取消的那一個可能已經 push 了 commit 但還沒 push tag。
+# 取消：被取消的那一個可能已經 push 了 commit、打了 tag，甚至已經 publish。
 concurrency:
   group: release
   cancel-in-progress: false
 
 permissions:
   contents: write
+  # npm 的 trusted publishing：publish 時用這個 OIDC token 向 registry 證明「我是
+  # 這個 repo 的這條 workflow」，所以不必存一顆 NPM_TOKEN。它同時是 provenance
+  # （package.json 的 publishConfig.provenance）的來源。
+  id-token: write
 
 jobs:
   release:
@@ -70,6 +80,18 @@ jobs:
         with:
           node-version: 24
           cache: npm
+          # 這一行寫出 `.npmrc` 並把 registry 指向 npmjs。trusted publishing 不需
+          # 要 NODE_AUTH_TOKEN，但 publish 仍然要知道往哪個 registry 送。
+          registry-url: "https://registry.npmjs.org"
+
+      # trusted publishing（OIDC）要 npm >= 11.5.1 與 Node >= 22.14.0。上面釘的
+      # node24 兩者都滿足，但內建的 npm 版本會隨映像漂移——版本一旦退回去，症狀是
+      # publish 要一顆不存在的 token，而錯誤訊息只會說沒登入。顯式裝一版，順便把
+      # 實際版本印在 log 裡。
+      - name: 確保 npm 夠新（trusted publishing 需要 >= 11.5.1）
+        run: |
+          npm install -g npm@latest
+          npm --version
 
       # `--ignore-scripts` 擋掉 `prepare`。下面會顯式跑一次 build，那一次的失敗
       # 訊息指得準；混在 `npm ci` 裡的話，紅燈長得像相依裝不起來。
@@ -111,8 +133,8 @@ jobs:
           npm install --ignore-scripts "$tarball"
 
           cat > check.js <<'JS'
-          import { EpubBook } from "frond/epub";
-          import { Renderer, MemoryBook } from "frond/renderer";
+          import { EpubBook } from "@yurenju/frond/epub";
+          import { Renderer, MemoryBook } from "@yurenju/frond/renderer";
 
           for (const [name, value] of Object.entries({ EpubBook, Renderer, MemoryBook })) {
             if (typeof value !== "function") throw new Error(`${name} 沒有從進入點出來`);
@@ -125,8 +147,8 @@ jobs:
           # 型別都變成 any——那正是最難發現的一種壞法（TypeScript 7.0.2 的
           # rewriteRelativeImportExtensions 不改寫 .d.ts，見 tsconfig.build.json）。
           cat > check.ts <<'TS'
-          import { EpubBook, type BookMetadata } from "frond/epub";
-          import { Renderer, type RenderLocation } from "frond/renderer";
+          import { EpubBook, type BookMetadata } from "@yurenju/frond/epub";
+          import { Renderer, type RenderLocation } from "@yurenju/frond/renderer";
 
           export async function demo(bytes: ArrayBuffer, host: HTMLElement) {
             const book = await EpubBook.open(bytes);
@@ -162,9 +184,56 @@ jobs:
           "$GITHUB_WORKSPACE/node_modules/.bin/tsc" -p tsconfig.json
           echo "型別進入點：OK"
 
+          # map 檔的 sources 指到的原始碼要真的在包裡。
+          #
+          # `.d.ts.map` 是「跳到定義會落在 frond 的原始碼上」這件事的依據
+          # （tsconfig.build.json），而它指的是 `../../src/*.ts`——`files` 沒把
+          # `src/` 帶進 tarball 的話那些路徑全是空的。**這種壞法沒有任何東西會
+          # 紅**：import 跑得動、型別是對的，只有跳定義會掉進虛空。
+          node --input-type=module <<'JS'
+          import { readFileSync, existsSync } from "node:fs";
+          import { readdirSync } from "node:fs";
+          import { join, dirname, resolve } from "node:path";
+
+          const root = "node_modules/@yurenju/frond";
+          const maps = [];
+          for (const dir of [join(root, "dist/epub"), join(root, "dist/renderer")]) {
+            for (const name of readdirSync(dir)) {
+              if (name.endsWith(".map")) maps.push(join(dir, name));
+            }
+          }
+          if (maps.length === 0) throw new Error("一個 .map 都沒有，檢查漏掉了");
+
+          const missing = [];
+          for (const map of maps) {
+            const { sources } = JSON.parse(readFileSync(map, "utf8"));
+            for (const source of sources) {
+              const path = resolve(dirname(map), source);
+              if (!existsSync(path)) missing.push(`${map} → ${source}`);
+            }
+          }
+          if (missing.length > 0) {
+            throw new Error(`map 指到不存在的原始碼：\n  ${missing.join("\n  ")}`);
+          }
+          console.log(`map 的 sources：OK（${maps.length} 個 map）`);
+          JS
+
       # --- 打版 -------------------------------------------------------------
+      #
+      # 到這裡為止一個副作用都還沒發生，所以 dry run 在這裡收手。
+
+      - name: dry run 到此為止
+        if: inputs.dry_run
+        run: |
+          {
+            echo "## dry run：驗過了，沒有發"
+            echo
+            echo "build、兩個進入點（執行期與型別）、map 的 sources 都通過。"
+            echo "沒有升版、沒有打 tag、沒有 publish。"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: 設定提交身分
+        if: ${{ !inputs.dry_run }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -175,10 +244,14 @@ jobs:
       # 依據。
       - id: version
         name: 升版並打 tag
+        if: ${{ !inputs.dry_run }}
         run: |
           set -euo pipefail
+          # `npm version` 回的是 tag 的樣子（`v0.1.2`）。npm 的座標不帶那個 v，
+          # 所以兩種都存下來：tag 給 git 看，`spec` 給執行摘要裡的安裝指令用。
           version="$(npm version "${{ inputs.bump }}" -m "release: %s")"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "spec=$(npm pkg get name | tr -d '\"')@${version#v}" >> "$GITHUB_OUTPUT"
           echo "升到 $version"
 
       # `--follow-tags` 只推帶訊息的 tag，也就是上一步剛打的那一個。commit 與 tag
@@ -193,16 +266,56 @@ jobs:
       #      的 commit 只動 package.json 與 package-lock.json，站的內容沒變，而
       #      程式碼本身在打 tag 之前已經驗過。
       - name: 推上去
+        if: ${{ !inputs.dry_run }}
         run: git push --follow-tags origin main
 
+      # --- 發布 -------------------------------------------------------------
+
+      # publish 排在 push 後面，而不是前面。
+      #
+      # 兩者都可能失敗，但失敗的代價不對稱：推上去了卻沒 publish，補跑一次
+      # `npm publish` 就好；publish 了卻沒推上去，npm 上就有一個對不到任何 commit
+      # 的版本，而那個版本收不回來。所以把可回復的那一步放前面。
+      #
+      # 沒有 NODE_AUTH_TOKEN：認證走 trusted publishing（OIDC），憑的是 job 開的
+      # `id-token: write` 與 npmjs 那邊設定的 trusted publisher。
+      #
+      # ## 第一版不能由這條 workflow 發
+      #
+      # trusted publisher 的設定頁掛在套件底下，而 npm **不接受**對一個還不存在於
+      # registry 的套件預先設定（npm/cli#8544；PyPI 可以，npm 不行）。所以順序是
+      # 反過來的：
+      #
+      #   1. 在本機用一顆 token 手動 `npm publish` 一次，把 `@yurenju/frond` 這個
+      #      套件在 registry 上生出來
+      #   2. 到 npmjs 的套件設定裡加 trusted publisher：這個 repo + `release.yml`
+      #   3. 把那顆 token 刪掉
+      #
+      # 之後每一版都由這一步發，不再需要任何 token。
+      #
+      # ## provenance 不必顯式要求
+      #
+      # 走 trusted publishing 時 npm 會自動產生 provenance attestation，不需要
+      # `--provenance` 也不需要 `publishConfig.provenance`。**而且不該設**：上面第
+      # 1 步那次手動發布是在本機跑的，沒有 OIDC 可用，顯式要求 provenance 會讓它
+      # 直接失敗。
+      #
+      # `--access public` 則相反，寫在 package.json 的 publishConfig 裡：scoped 套
+      # 件預設是 private，漏掉的話 registry 回一個看起來像付費方案問題的錯誤。
+      - name: 發到 npm
+        if: ${{ !inputs.dry_run }}
+        run: npm publish
+
       - name: 寫進執行摘要
+        if: ${{ !inputs.dry_run }}
         run: |
           {
             echo "## ${{ steps.version.outputs.version }} 發出去了"
             echo
             echo '```bash'
-            echo "npm install github:${{ github.repository }}#${{ steps.version.outputs.version }}"
+            echo "npm install ${{ steps.version.outputs.spec }}"
             echo '```'
             echo
-            echo "消費端的安裝路徑（build 加兩個進入點、執行期與型別）在打 tag 之前驗過。"
+            echo "消費端拿到的那包東西（build、兩個進入點的執行期與型別、map 的"
+            echo "sources）在 publish 之前驗過。"
           } >> "$GITHUB_STEP_SUMMARY"
