@@ -7,6 +7,7 @@
   "type": "module",
   "exports": {
     "./epub": "./src/epub/index.ts",
+    "./renderer": "./src/renderer/index.ts",
     "./test-fixtures": "./src/test-fixtures/index.ts"
   },
   "scripts": {
