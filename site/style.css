@@ -312,10 +312,74 @@ pre {
  * frond 要的只有一件事：一個有大小的元素。它會把自己的 iframe 絕對定位進來，
  * 所以容器如果是 `position: static`，frond 會暫時改成 `relative` 並在
  * `destroy()` 時還原。高度必須由這一層給——內容在 iframe 裡，撐不起父層。
+ *
+ * ## 為什麼書框不直接填滿剩下的空間
+ *
+ * 填滿的版本在寬螢幕上會排出一個 1400×600 的「頁」——那個比例不存在於任何一本
+ * 實體書上，而讀者對「這是一本書」的判斷有一半來自比例。所以這裡改成先把空間
+ * 量出來，再從裡面切一個書的比例出來，剩下的留白。
+ *
+ * 兩種比例，對應書的兩種看法：
+ *
+ *   - **單頁** 0.7（1:1.43）——A5 是 0.707、常見平裝本 6×9in 是 0.667，落在中間。
+ *   - **攤開** 1.4——就是兩個單頁並排，實體書打開來的樣子。
+ *
+ * ## 比例怎麼量
+ *
+ * `.viewer-frame` 宣告成 size container，`#viewer` 於是能用 `cqw`/`cqh` 讀到它
+ * 的內距框，兩個方向各取 min 就得到「塞得進去的最大的那個書的比例」。用容器而
+ * 不是 `dvh` 算，是因為上面還有頁首、工作列、工具列，狀態列還會在窄螢幕上折行
+ * ——那幾層的高度沒有一個常數答案。
+ *
+ * 換成 `aspect-ratio` 加 `max-width` 是不行的：其中一邊被 max-* 夾住的時候，
+ * 另一邊不會跟著回推，比例就破了。所以這裡兩個方向都自己算。
  */
-.viewer {
+.viewer-frame {
   flex: 1;
-  min-height: 24rem;
+  /* 視窗很矮時仍留一個底線；書框會小到讀不了，但至少還在。 */
+  min-height: 18rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(0.5rem, 1.5vw, 1.25rem);
+  container-type: size;
+}
+
+.viewer {
+  --page-ratio: 0.7;
+  flex: none;
+  width: min(100cqw, calc(100cqh * var(--page-ratio)));
+  height: min(100cqh, calc(100cqw / var(--page-ratio)));
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  /* 書還沒排出來的那一瞬間、以及邊界設得很大時，露出來的是這一層。 */
+  background: var(--panel);
+  box-shadow: 0 2px 14px rgb(0 0 0 / 0.14);
+  /* iframe 是絕對定位的方角，圓角要靠這一層裁。 */
+  overflow: hidden;
+}
+
+/*
+ * 攤開。
+ *
+ * 判準只有一條，而且它同時是「哪一種比較大」的答案：**容器比攤開還寬的時候用
+ * 攤開**。
+ *
+ * 容器寬於 1.4 時，攤開被高度卡住——它填滿高度，寬度是高度 × 1.4。同一塊空間裡
+ * 的單頁也是被高度卡住的，寬度只有高度 × 0.7，剛好一半。所以在寬容器裡攤開一定
+ * 比單頁大，沒有例外，也就不需要再補一條「太矮就改單頁」的門檻。反過來，容器比
+ * 1.4 瘦（豎著拿的平板、手機）時攤開會被寬度卡住，只用掉一半多一點的高度，那時
+ * 單頁才是大的那一個。
+ *
+ * 這條線與欄數是分開的兩件事：`columns: "auto"` 看的是行內軸有沒有 700px
+ * （`src/renderer/geometry.ts` 的 `TWO_COLUMN_MIN_INLINE_SIZE`），換算過來是書框
+ * 高 500px。矮於這個值的攤開是「攤開的形狀、一欄的內容」——那是行長的判斷，讀者
+ * 要雙欄的話工具列上就有。
+ */
+@container (min-aspect-ratio: 7 / 5) {
+  .viewer {
+    --page-ratio: 1.4;
+  }
 }
 
 .statusbar {
@@ -373,6 +437,100 @@ pre {
   margin-top: 1rem;
   border: 1px solid var(--line);
   border-radius: 4px;
+}
+
+/* --- 開書之後，頁面自己讓位 ---------------------------------------------- */
+
+/*
+ * 書框的大小由**高度**決定（見 `.viewer-frame`），所以頁首與頁尾每多佔一點
+ * 高度，書就整個小一圈——手機上那是「書變窄」而不是「上下多一條白」，因為窄
+ * 螢幕上寬度早就用滿了，只剩高度在收。開書之後這些東西就不再是主角了。
+ *
+ * 用 `:has()` 而不是在 app.js 掛一個 class：這條規則只跟版面有關，讓它整條留在
+ * 樣式表裡，app.js 就不必知道它存在。條件寫成「工作區沒被藏起來」，跟
+ * `openBook()` 切的是同一個開關。
+ */
+/*
+ * 讀書的時候整個頁面就是一個視窗大小的殼，不捲動。
+ *
+ * `min-height` 與 `height` 在這裡不是同一件事：`min-height` 之下 body 的高度仍
+ * 由內容決定（至少一個視窗高），於是往下每一層 flex 的高度都是「先量內容再拉
+ * 開」——而 `.viewer-frame` 有 size containment，內容量出來是 0。結果是 `100cqh`
+ * 解析成 0，書框整個塌掉。給一個確定的高度，這條鏈才有定值可分。
+ *
+ * 開書之前照舊：那一頁是文件，內容比視窗長的時候要捲得動。
+ */
+body:has(#workspace:not([hidden])) {
+  height: 100dvh;
+  /* `hidden` 會在視窗矮到書框撞上自己的 min-height 時，把狀態列直接裁掉且捲不
+     回來。`auto` 只有在真的塞不下時才長出捲軸，其餘時間看起來一樣。 */
+  overflow: auto;
+}
+
+body:has(#workspace:not([hidden])) .masthead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem 1rem;
+  padding: 0.5rem 1rem;
+}
+
+body:has(#workspace:not([hidden])) .masthead h1 {
+  font-size: 1.15rem;
+}
+
+body:has(#workspace:not([hidden])) .masthead-links {
+  margin-top: 0;
+  font-size: 0.85rem;
+}
+
+/* 標語與頁尾在讀書的時候沒有讀者要的資訊，而它們合起來要走三到四行的高度。 */
+body:has(#workspace:not([hidden])) .tagline,
+body:has(#workspace:not([hidden])) .colophon {
+  display: none;
+}
+
+/*
+ * 窄螢幕上再收一次。
+ *
+ * 手機上工具列會折成四五行——量到的是 390×844 上 178px，接近整個視窗的四分之一，
+ * 而那些高度全是從書上扣的。這裡只動間距、字級與滑桿寬度，**不藏任何一個控制項**：
+ * 這一頁的用途就是把 frond 的旋鈕全攤出來給人轉，橫向捲動或收進選單都會讓其中
+ * 幾個變成沒人找得到。收完之後書在 390 寬的螢幕上正好用滿寬度。
+ */
+@media (max-width: 48rem) {
+  body:has(#workspace:not([hidden])) .masthead {
+    padding: 0.35rem 0.9rem;
+  }
+
+  body:has(#workspace:not([hidden])) .masthead h1 {
+    font-size: 1rem;
+  }
+
+  .workspace-bar {
+    gap: 0.6rem;
+    padding: 0.4rem 0.75rem;
+  }
+
+  .toolbar {
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8rem;
+  }
+
+  .toolbar-group {
+    gap: 0.5rem;
+  }
+
+  .toolbar input[type="range"] {
+    width: 5rem;
+  }
+
+  .statusbar {
+    gap: 0.35rem 0.9rem;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.78rem;
+  }
 }
 
 /* --- 頁尾 ---------------------------------------------------------------- */

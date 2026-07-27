@@ -148,7 +148,11 @@
             </div>
           </div>
 
-          <div id="viewer" class="viewer"></div>
+          <!-- 書框外面這一層是量測用的：它吃掉工具列與狀態列以外的所有空間，
+               而 #viewer 從它的大小回推出一頁（或一個攤開）的比例。見 style.css。 -->
+          <div class="viewer-frame">
+            <div id="viewer" class="viewer"></div>
+          </div>
 
           <div class="statusbar">
             <span id="status-section"></span>
