@@ -29,9 +29,14 @@ nested-toc.epub                     nav.xhtml 的巢狀 TOC，<ol> 套在 <li> �
 nested-toc-epub2.epub               NCX 的巢狀 TOC，navPoint 套 navPoint，兩層
 manifest-href-parent-prefix.epub    manifest href 帶 ../ 走到封裝根、目標存在——好書，擋誤報
 writing-mode-prefixed-only.epub     直排只宣告 -epub- 與 -webkit- 前綴，Firefox 收不到
+obfuscated-font-idpf.epub           字型用 IDPF 演算法混淆，META-INF/encryption.xml 宣告
 ```
 
-體積小可 commit、零授權問題，且**測試紅燈直接指向唯一一個病因**——實際的書失敗得先花時間查是哪個特性造成的。橫排那六項全部來自 spine 已踩過的坑（見 ADR-0002），`healthy-epub2` 起三項來自 ADR-0010 那次掃描（#22），最後七項照同一批樣本量到的結構合成（#23、#24）。
+體積小可 commit、零授權問題，且**測試紅燈直接指向唯一一個病因**——實際的書失敗得先花時間查是哪個特性造成的。橫排那六項全部來自 spine 已踩過的坑（見 ADR-0002），`healthy-epub2` 起三項來自 ADR-0010 那次掃描（#22），接下來七項照同一批樣本量到的結構合成（#23、#24）。
+
+**最後那一份是唯一沒有樣本支撐的**：`obfuscated-font-idpf` 演的是 IDPF 演算法混淆過的字型（#30）。那 33 本樣本裡 `META-INF/encryption.xml` 一本都沒有、內嵌字型也是零本，所以它的形狀照的是規格而不是量到的書。這一格仍然要有 fixture，理由是**解錯不會丟錯**：拿錯的金鑰或蓋錯範圍解出來的位元組照樣是位元組，症狀要到讀者的畫面上才會以「整頁豆腐字」的形式出現，而那時候沒有人查得到根因在解碼。合成 fixture 在這裡買到的正是「錯了會有東西紅」。
+
+那份「字型」不是真的 OTF——這份檔案演的是解碼那一步，真的字型會多帶授權與字面外觀兩個軸，而兩者都與解碼無關。
 
 **不是每一份都演病症。** 表上有幾份是完全合規的書：`vertical-japanese` 與 `healthy-epub2` 是對照組，`nested-toc` 那一對演的是一種**形狀**（TOC 有層次）而不是缺陷。
 

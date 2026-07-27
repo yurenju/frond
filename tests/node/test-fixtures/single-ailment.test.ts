@@ -48,6 +48,9 @@ const REQUIRED_BY_ADR_0007 = [
   // 書實際的形狀裡兩個沒有東西會亮紅燈的缺口（#24）。
   "writing-mode-prefixed-only",
   "cover-meta-name",
+  // 唯一一份沒有樣本支撐、照規格合成的（#30）。理由見 ADR-0007：混淆解錯不會
+  // 丟錯，症狀只在讀者的畫面上。
+  "obfuscated-font-idpf",
 ];
 
 const books = new Map<string, EpubArchive>(
@@ -139,11 +142,21 @@ const PROBES: readonly Probe[] = [
       book.readingOrder.some((section) => !/<p[\s>]/.test(book.text(section.archivePath))),
   },
   {
+    symptom: "宣告了混淆過的資源",
+    expectedIn: ["obfuscated-font-idpf"],
+    matches: (book) => book.entryPaths.includes("META-INF/encryption.xml"),
+  },
+  {
     symptom: "帶了骨架以外的資源",
     // `manifest-href-parent-prefix` 也在這裡：它的單點差異需要一份真的存在於
     // 封裝根的檔案來承載——「目標確實存在」正是那份 fixture 的重點，拿掉檔案
-    // 它就變成一本壞書了。
-    expectedIn: ["empty-and-image-only-sections", "manifest-href-parent-prefix"],
+    // 它就變成一本壞書了。混淆字型那一份同理：病症長在一份資源上，那份資源
+    // 必須真的在包裡。
+    expectedIn: [
+      "empty-and-image-only-sections",
+      "manifest-href-parent-prefix",
+      "obfuscated-font-idpf",
+    ],
     // 「不是 XHTML 也不是 CSS」不夠精確：NCX 與封面圖也落在那一格，於是這個探針
     // 會被 EPUB 2 與封面的 fixture 一起命中，而它們帶的不是內文資源。要問的是
     // 「除了骨架自己的東西之外，還有沒有多帶內容」。

@@ -1,3 +1,4 @@
+import { sha1, SHA1_LENGTH } from "../sha1.ts";
 import { zip, type ZipEntry } from "./zip.ts";
 
 /**
@@ -33,6 +34,15 @@ const CONTENT_DIRECTORY = "EPUB";
 
 const PACKAGE_DOCUMENT_PATH = "package.opf";
 const STYLESHEET_PATH = "style.css";
+
+/** OCF 宣告混淆與加密的地方。 */
+const ENCRYPTION_PATH = "META-INF/encryption.xml";
+
+/** EPUB 規格自己定的字型混淆演算法。Adobe 那套是另一個 URI，這裡不產。 */
+const IDPF_ALGORITHM = "http://www.idpf.org/2008/embedding";
+
+/** IDPF 只蓋檔案開頭這麼多位元組。 */
+const IDPF_OBFUSCATED_LENGTH = 1040;
 
 /**
  * 固定的最後修改時間。EPUB 3 要求 `dcterms:modified`，而取「現在」會讓同一份
@@ -131,6 +141,15 @@ export interface ResourceSpec {
   readonly path: string;
   readonly mediaType: string;
   readonly contents: Uint8Array;
+  /**
+   * 這一項要不要混淆過再寫進壓縮檔。給了值就會一併寫出
+   * `META-INF/encryption.xml` 宣告它。
+   *
+   * 只有 `"idpf"` 一種：Adobe 那套是不同的金鑰推導與長度，而 frond 對它的處置
+   * 是明確錯誤（`src/epub/font-obfuscation.ts`）。要為那條路做 fixture 的話，
+   * 產生器得先長出製造 Adobe 混淆的能力，那是另一張票的事。
+   */
+  readonly obfuscation?: "idpf";
 }
 
 export interface CoverSpec extends ResourceSpec {
@@ -181,11 +200,25 @@ export function buildEpub(spec: EpubSpec): Uint8Array {
     ...(spec.resources ?? []),
   ];
 
+  const obfuscated = resources.filter((resource) => resource.obfuscation !== undefined);
+
   const entries: ZipEntry[] = [
     // mimetype 必須是第一個項目、且未壓縮（zip.ts 一律 stored，所以後半自動
     // 成立）。閱讀器靠固定位移嗅出這是不是 EPUB。
     { path: "mimetype", contents: encode(MIMETYPE) },
     { path: "META-INF/container.xml", contents: encode(containerXml()) },
+    // 沒有混淆過的項目就不寫這個檔案——多寫一個空的 encryption.xml 會讓「這本
+    // 書有沒有混淆」這個探針對每一份 fixture 都成立。
+    ...(obfuscated.length === 0
+      ? []
+      : [
+          {
+            path: ENCRYPTION_PATH,
+            contents: encode(
+              encryptionXml(obfuscated.map((resource) => contentPath(resource.path))),
+            ),
+          },
+        ]),
     {
       path: contentPath(PACKAGE_DOCUMENT_PATH),
       contents: encode(packageDocument(spec, epubVersion, navigationPath)),
@@ -205,7 +238,10 @@ export function buildEpub(spec: EpubSpec): Uint8Array {
     })),
     ...resources.map((resource) => ({
       path: contentPath(resource.path),
-      contents: resource.contents,
+      contents:
+        resource.obfuscation === undefined
+          ? resource.contents
+          : obfuscate(resource.contents, spec.identifier),
     })),
   ];
 
@@ -258,6 +294,57 @@ function contentPath(path: string): string {
     segments.pop();
   }
   return segments.join("/");
+}
+
+/**
+ * 用 IDPF 的演算法把一份資源混淆掉。
+ *
+ * **這是 `src/epub/font-obfuscation.ts` 的反向操作，而且刻意獨立寫一次。** 兩邊
+ * 共用同一份實作的話，對演算法的任何誤解都會在混淆與還原兩側同時成立，「解出來
+ * 等於原檔」照樣全綠，然後實際的書在讀者手上是滿頁豆腐字——`epub-archive.ts`
+ * 用外部函式庫讀自己的產出，是同一條紀律。
+ *
+ * 共用的只有 `sha1()`：它是一個原語而不是這個演算法的一部分，而且它自己對
+ * `node:crypto` 逐筆比對過（`tests/node/sha1.test.ts`），共用不會藏起錯誤。
+ */
+function obfuscate(contents: Uint8Array, identifier: string): Uint8Array {
+  const key = sha1(encode(stripWhitespace(identifier)));
+  const obfuscated = Uint8Array.from(contents);
+  const end = Math.min(obfuscated.length, IDPF_OBFUSCATED_LENGTH);
+  for (let index = 0; index < end; index += 1) {
+    obfuscated[index] = obfuscated[index]! ^ key[index % SHA1_LENGTH]!;
+  }
+  return obfuscated;
+}
+
+/** 規格點名要去掉的那四個空白碼位：space、tab、CR、LF。 */
+const IDPF_KEY_WHITESPACE = [0x20, 0x09, 0x0d, 0x0a];
+
+function stripWhitespace(identifier: string): string {
+  return [...identifier]
+    .filter((character) => !IDPF_KEY_WHITESPACE.includes(character.codePointAt(0)!))
+    .join("");
+}
+
+function encryptionXml(paths: readonly string[]): string {
+  // 帶 `enc:` 前綴是實際的書寫法（xmlenc 的命名空間）。前綴由讀取端剝掉，所以
+  // 這裡寫前綴同時也在測「不照字面比對前綴」那條路。
+  const declarations = paths
+    .map(
+      (path) => `  <enc:EncryptedData>
+    <enc:EncryptionMethod Algorithm="${IDPF_ALGORITHM}"/>
+    <enc:CipherData>
+      <enc:CipherReference URI="${path}"/>
+    </enc:CipherData>
+  </enc:EncryptedData>`,
+    )
+    .join("\n");
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container" xmlns:enc="http://www.w3.org/2001/04/xmlenc#">
+${declarations}
+</encryption>
+`;
 }
 
 function containerXml(): string {

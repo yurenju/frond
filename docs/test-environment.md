@@ -28,6 +28,24 @@ Node 測試不依賴字型或瀏覽器，照理可以直接跑在開發者的作
 
 Node 先跑的理由是它蓋的東西被瀏覽器那半邊依賴——例如合成 fixture 的結構。fixture 壞掉時先看到「這不是一本合規的書」，比先看到三家瀏覽器一起紅要好查得多。
 
+### 本機不會有瀏覽器執行檔，那是設計
+
+三家瀏覽器只存在於映像裡。基底映像已經帶著它們，`Dockerfile` 因此設了 `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`，本機 `npm ci` 裝出來的 `node_modules` 不含任何瀏覽器。
+
+於是在 host 上直接跑 `npm run test:browser` 會得到：
+
+```
+browserType.launch: Executable doesn't exist at ~/.cache/ms-playwright/chromium_headless_shell-.../chrome-headless-shell
+```
+
+**這個訊息讀起來像「這台機器沒辦法跑瀏覽器測試」，那是錯的**——它只是說「你不在容器裡」。與上面 daemon 那一格同理，往「環境缺東西」的方向查會走遠，而這一格的代價更高：daemon 連不上會擋住你，這一格不會——它只是讓整批瀏覽器測試被略過，而**略過不會有任何東西變紅**。
+
+入口是 `./scripts/test-in-container.sh`（`npm run test:container`）。要縮小範圍就把參數傳給它，例如 `npm run test:container -- --project=webkit`。
+
+要的是**截圖**而不是紅綠燈時，入口是 `npm run evidence`——同一個映像，但只跑指定的那一支 spec，並把 `docs/evidence/` 掛成可寫好讓 PNG 活著出來（測試那一支以 `--rm` 執行且不掛任何可寫的目錄，容器裡產出的檔案跟著容器消失）。做法與一次性 spec 的擺放位置見 `agents/pull-requests.md`。
+
+兩支腳本共用 `scripts/container.sh`：挑引擎、確認連得到 daemon、建置映像。那三件事只能有一個答案，各寫一份的話兩邊對 rootless socket 的診斷會漂開，而漂開的那天會是「同一台機器上一支能跑一支不能」。
+
 ## 需要先裝什麼
 
 容器引擎擇一，**建議 rootless podman**：

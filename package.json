@@ -14,7 +14,8 @@
     "fixtures": "node scripts/generate-fixtures.ts",
     "test:node": "vitest run",
     "test:browser": "playwright test",
-    "test:container": "./scripts/test-in-container.sh"
+    "test:container": "./scripts/test-in-container.sh",
+    "evidence": "./scripts/capture-evidence.sh"
   },
   "dependencies": {
     "fast-xml-parser": "5.10.1",
