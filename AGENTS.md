@@ -67,8 +67,8 @@ frond 排的是直排中日文，所以有些地方的 CJK **不是可以翻譯�
 需要縮小範圍時用 npm 的 `--` 傳參，而不是換一支指令：
 
 ```
-npm run test:node -- tests/node/test-fixtures/vehicles.test.ts
-npm run test:node -- -t "EPUB 2 vehicle"
+npm run test:node -- tests/node/test-fixtures/epub-version.test.ts
+npm run test:node -- -t "the EPUB 2 version"
 npm run test:container -- --project=firefox
 ```
 
