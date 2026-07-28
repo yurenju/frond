@@ -1,6 +1,6 @@
 {
   "name": "@yurenju/frond-react",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Unstyled React components for frond — compose your own EPUB reader, style it entirely with CSS",
   "license": "MIT",
   "author": "Yuren Ju <yurenju@gmail.com>",
@@ -48,7 +48,7 @@
     "build": "rm -rf dist && tsc -p tsconfig.build.json && node ../../scripts/finish-build.ts ."
   },
   "peerDependencies": {
-    "@yurenju/frond": "^0.3.0",
+    "@yurenju/frond": "^0.4.0",
     "react": "^18.3.0 || ^19.0.0"
   },
   "devDependencies": {
