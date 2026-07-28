@@ -1,37 +1,47 @@
 /**
- * 分頁的算術。**這一支不碰 DOM**——輸入是量到的尺寸，輸出是欄的設定與頁的位置。
+ * The arithmetic of pagination. **This module does not touch the DOM** — its inputs are
+ * measured sizes and its outputs are the column configuration and page positions.
  *
- * 提成純函式不是為了好看，是為了讓「一屏疊出好幾頁」這類缺陷有東西守得住。那種
- * 缺陷的成因全部在算術裡（欄寬套在錯的軸上、分數像素累積、頁數的取整方向），而
- * 算術在瀏覽器裡是最貴、最難重現的東西——留在 `section-view.ts` 裡的話，一條
- * 邊界條件要開三家瀏覽器才問得出答案。
+ * Lifting it into pure functions is not cosmetic; it is what gives defects like
+ * "several pages stacked in one screen" something to hold them. Every cause of that
+ * defect lies in the arithmetic (a column width applied to the wrong axis, fractional
+ * pixels accumulating, the rounding direction of a page count), and arithmetic is the
+ * most expensive and least reproducible thing to chase inside a browser — left in
+ * `section-view.ts`, answering one boundary condition would mean opening three
+ * browsers.
  *
- * ## 欄沿行內軸溢出，`column-width` 量的是行內尺寸
+ * ## Columns overflow along the inline axis, and `column-width` measures the inline size
  *
- * 這是整支的地基，而且是三家實測的（`tests/browser/renderer/multicol-geometry.spec.ts`）：
+ * This is the foundation of the whole module, and it is measured in all three
+ * (`tests/browser/renderer/multicol-geometry.spec.ts`):
  *
- * | 書寫方向 | 行內軸 | `column-width` 量的是 | 頁往哪一軸推進 |
+ * | Writing mode | Inline axis | `column-width` measures | Which axis pages advance along |
  * | --- | --- | --- | --- |
- * | `horizontal-tb` | 水平 | 寬度 | x |
- * | `vertical-rl` | 垂直（字由上而下） | **高度** | **y** |
+ * | `horizontal-tb` | horizontal | width | x |
+ * | `vertical-rl` | vertical (characters run top to bottom) | **height** | **y** |
  *
- * spine 踩過的「直排欄寬必須剛好等於一個 viewer 高」就是第二列，但那句話只給了
- * 結論——換一個 viewport 形狀之後該改哪個數字，要靠這張表才答得出來。
+ * The rule spine walked into — "a vertical column width has to equal exactly one viewer
+ * height" — is the second row, but that sentence gives only the conclusion; answering
+ * which number to change after the viewport changes shape takes this table.
  *
- * ## 整數像素的紀律下在容器上，不是下在欄寬上
+ * ## The whole-pixel discipline is applied to the container, not to the column width
  *
- * spine 的補丁是對 `column-width` 取整（`Math.floor`），而真正該取整的是**容器
- * 的行內尺寸**。理由是 `column-width` 在規格裡只是一個建議值：欄數定下來之後，
- * 實際用的欄寬一律由容器尺寸回推。所以欄寬取了整而容器仍是分數的話，頁距
- * （`stride`）照樣是分數，翻幾十頁之後累積的誤差就變成一屏裡疊著兩個半頁。
+ * spine's patch rounds `column-width` down (`Math.floor`), whereas what actually needs
+ * rounding is the **container's inline size**. The reason is that `column-width` is
+ * only a suggestion in the spec: once the column count is settled, the width actually
+ * used is always derived back from the container size. So with the column width rounded
+ * and the container still fractional, the page stride (`stride`) is still fractional,
+ * and after a few dozen page turns the accumulated error becomes two half-pages stacked
+ * in one screen.
  *
- * 這裡兩個都取整——容器取整是治本的那一個，欄寬取整讓單欄時的兩個數字對得起來。
+ * Both are rounded here — rounding the container is the one that treats the cause, and
+ * rounding the column width keeps the two numbers consistent in the single-column case.
  */
 
-/** 書的書寫方向。frond v1 的直排一律 `vertical-rl`（CONTEXT.md）。 */
+/** The book's writing mode. frond v1's vertical mode is always `vertical-rl` (CONTEXT.md). */
 export type WritingMode = "horizontal-tb" | "vertical-rl";
 
-/** 頁沿哪一條軸推進。 */
+/** Which axis pages advance along. */
 export type PageAxis = "x" | "y";
 
 export interface Viewport {
@@ -39,27 +49,32 @@ export interface Viewport {
   readonly height: number;
 }
 
-/** 讀者要幾欄。`"auto"` 只在橫排有意義（ADR-0003）。 */
+/** How many columns the reader wants. `"auto"` is only meaningful horizontally (ADR-0003). */
 export type ColumnChoice = 1 | 2 | "auto";
 
 /**
- * 版面四周的邊界。
+ * The margin around the layout.
  *
- * 純量是四邊等距。物件版**依書寫方向分軸**，而不是分上下左右：
+ * A scalar means all four sides equally. The object form **splits by axis according to
+ * the writing mode**, not into top/right/bottom/left:
  *
- * | | 行內軸（`inline`） | 區塊軸（`block`） |
+ * | | Inline axis (`inline`) | Block axis (`block`) |
  * | --- | --- | --- |
- * | `horizontal-tb` | 左右 | 上下 |
- * | `vertical-rl` | **上下** | **左右** |
+ * | `horizontal-tb` | left and right | top and bottom |
+ * | `vertical-rl` | **top and bottom** | **left and right** |
  *
- * 分軸而不是分實體邊，是因為讀者調的其實是**行長**。橫排書調左右、直排書調上下，
- * 看起來是兩件事，實際上都是「把行縮短一點」——都落在行內軸上。用實體邊表達的話，
- * 同一個偏好在換一本直排書之後要換一個欄位填，而那個轉換每個消費端都要自己做一次
- * （spine 現在就是這樣：`vertical ? '${m}px 16px' : '16px ${m}px'`）。
+ * Splitting by axis rather than by physical side is right because what the reader is
+ * really adjusting is the **line length**. Adjusting left and right in a horizontal book
+ * and top and bottom in a vertical one looks like two different things, but both are
+ * "make the lines a bit shorter" — both fall on the inline axis. Expressed as physical
+ * sides, the same preference would have to be written into a different field on
+ * switching to a vertical book, and every consumer would have to do that conversion
+ * itself (which is what spine does today:
+ * `vertical ? '${m}px 16px' : '16px ${m}px'`).
  */
 export type Margin = number | { readonly block: number; readonly inline: number };
 
-/** 四個實體邊的內縮量，px。 */
+/** The inset on each of the four physical sides, in px. */
 export interface Insets {
   readonly top: number;
   readonly right: number;
@@ -68,10 +83,12 @@ export interface Insets {
 }
 
 /**
- * 邊界落到四個實體邊。
+ * Landing the margin on the four physical sides.
  *
- * 直排時行內軸是垂直的（字由上而下），所以 `inline` 給的是上下——與橫排相反。
- * 這一格算錯的症狀不是報錯，是「直排書調邊界時行長沒變、換頁的縫變寬了」。
+ * In vertical mode the inline axis is vertical (characters run top to bottom), so
+ * `inline` supplies top and bottom — the opposite of horizontal. Getting this case
+ * wrong does not raise an error; the symptom is "adjusting the margin on a vertical book
+ * does not change the line length, it widens the gutter between pages".
  */
 export function marginInsets(margin: Margin, writingMode: WritingMode): Insets {
   if (typeof margin === "number") {
@@ -86,25 +103,26 @@ export function marginInsets(margin: Margin, writingMode: WritingMode): Insets {
 
 export interface ColumnRequest {
   readonly writingMode: WritingMode;
-  /** 可用的版面大小，已扣掉讀者設定的邊界。 */
+  /** The available layout size, with the reader's margin already subtracted. */
   readonly viewport: Viewport;
   readonly columns: 1 | 2;
-  /** 欄距。它同時是相鄰兩頁之間那條看不見的縫。 */
+  /** The column gap. It is also the invisible gutter between two adjacent pages. */
   readonly gap: number;
 }
 
 /**
- * 一份文件的分欄設定與頁的幾何。
+ * A document's column configuration and page geometry.
  *
- * `stride` 是這裡唯一需要記住的量：**相鄰兩頁在分頁軸上的距離**。它不等於
- * `inlineSize`——欄與欄之間隔著一個 `columnGap`，而那條縫落在兩頁之間，讀者
- * 看不到它。翻頁就是把捲動位置移動一個 `stride`。
+ * `stride` is the one quantity worth remembering here: **the distance between adjacent
+ * pages along the pagination axis**. It is not equal to `inlineSize` — a `columnGap`
+ * separates one column from the next, and that gutter falls between two pages where the
+ * reader never sees it. Turning a page is moving the scroll position by one `stride`.
  */
 export interface PageMetrics {
   readonly axis: PageAxis;
-  /** 容器在行內軸上的尺寸，也就是一頁看得到的長度。整數。 */
+  /** The container's size along the inline axis, which is the visible length of one page. A whole number. */
   readonly inlineSize: number;
-  /** 容器在區塊軸上的尺寸。整數。 */
+  /** The container's size along the block axis. A whole number. */
   readonly blockSize: number;
   readonly columnWidth: number;
   readonly columnGap: number;
@@ -113,21 +131,25 @@ export interface PageMetrics {
 }
 
 /**
- * 分數像素的容忍量。
+ * The tolerance for fractional pixels.
  *
- * 用在頁數的取整上：內容總長是量出來的，在分數 DPI 下最後一頁常常多出零點幾
- * 個像素，直接 `ceil` 會憑空多算一頁——而那一頁是空的。
+ * Used when rounding the page count: the total content length is measured, and at
+ * fractional DPI the last page frequently exceeds it by a fraction of a pixel, so a bare
+ * `ceil` conjures an extra page out of nothing — and that page is empty.
  *
- * spine 的 `SCROLL_EPSILON = 4` 修的是同一類病，但它下在**翻頁的邊界判斷**上
- * （`scrollTop` 湊不滿於是跨不過 section 邊界）。frond 不需要那一個：頁的位置
- * 由 `stride` 的整數倍算出來，「翻到底了沒有」問的是頁碼而不是捲動座標，所以
- * 那條邊界根本不經過浮點數比較（`section-view.ts`）。
+ * spine's `SCROLL_EPSILON = 4` treats the same class of ailment, but it applies to the
+ * **page-turn boundary test** (`scrollTop` falls short and so never crosses a section
+ * boundary). frond does not need that one: page positions are computed as whole
+ * multiples of `stride`, and "have we reached the end" asks the page number rather than
+ * the scroll coordinate, so that boundary never goes through a floating-point comparison
+ * at all (`section-view.ts`).
  */
 const SUBPIXEL_TOLERANCE = 1;
 
 /**
- * 雙欄的門檻。窄於這個寬度時 `"auto"` 給單欄——兩欄各剩不到 20 個西文字，
- * 行太短反而難讀。
+ * The threshold for two columns. Narrower than this, `"auto"` gives one column — two
+ * columns would leave under 20 Latin characters each, and lines that short are harder to
+ * read, not easier.
  */
 const TWO_COLUMN_MIN_INLINE_SIZE = 700;
 
@@ -135,7 +157,7 @@ export function pageAxisFor(writingMode: WritingMode): PageAxis {
   return writingMode === "vertical-rl" ? "y" : "x";
 }
 
-/** 行內軸上的可用長度：橫排是寬度，直排是高度。 */
+/** The available length along the inline axis: width when horizontal, height when vertical. */
 export function inlineExtentOf(
   writingMode: WritingMode,
   viewport: Viewport,
@@ -143,7 +165,7 @@ export function inlineExtentOf(
   return writingMode === "vertical-rl" ? viewport.height : viewport.width;
 }
 
-/** 區塊軸上的可用長度——與 `inlineExtentOf` 互補的那一條。 */
+/** The available length along the block axis — the complement of `inlineExtentOf`. */
 export function blockExtentOf(
   writingMode: WritingMode,
   viewport: Viewport,
@@ -152,11 +174,13 @@ export function blockExtentOf(
 }
 
 /**
- * 讀者要的欄數落到實際的欄數。
+ * Landing the reader's requested column count on an actual column count.
  *
- * **直排一律單欄**，不管讀者要什麼——ADR-0003 明列這是刻意的簡化假設，直排多欄
- * 會讓分頁幾何的複雜度明顯上升。讀者在直排書上把欄數設成 2 不是錯誤，是一個此刻
- * 不適用的偏好；照樣渲染成單欄，不丟錯。
+ * **Vertical is always single-column**, whatever the reader asked for — ADR-0003
+ * explicitly lists this as a deliberate simplifying assumption, since multi-column
+ * vertical raises the complexity of the pagination geometry markedly. A reader setting
+ * columns to 2 on a vertical book is not an error, it is a preference that does not
+ * apply right now; it still renders single-column, without throwing.
  */
 export function resolveColumns(
   writingMode: WritingMode,
@@ -176,7 +200,8 @@ export function pageMetrics(request: ColumnRequest): PageMetrics {
   const inlineSize = Math.max(1, Math.floor(inlineExtentOf(writingMode, viewport)));
   const blockSize = Math.max(1, Math.floor(blockExtentOf(writingMode, viewport)));
 
-  // 欄寬由容器回推，不是反過來——見檔頭〈整數像素的紀律下在容器上〉。
+  // The column width is derived back from the container, not the other way round — see
+  // the file header, "the whole-pixel discipline is applied to the container".
   const columnWidth = Math.max(
     1,
     Math.floor((inlineSize - gap * (columns - 1)) / columns),
@@ -189,16 +214,18 @@ export function pageMetrics(request: ColumnRequest): PageMetrics {
     columnWidth,
     columnGap: gap,
     columnCount: columns,
-    // 下一頁的第一欄起點落在 `inlineSize + gap`：一頁裝滿之後還隔著一個欄距。
-    // 單欄與雙欄都是這個值——雙欄時頁內那一條縫也是 gap，剛好湊回同一個式子。
+    // The next page's first column starts at `inlineSize + gap`: after a page is filled
+    // there is still a column gap. The value is the same for one column and for two —
+    // with two, the gutter inside the page is also gap, which brings it back to the same
+    // expression.
     stride: inlineSize + gap,
   };
 }
 
 /**
- * 內容總長換算成頁數。
+ * Converting the total content length into a page count.
  *
- * @param scrollExtent 文件在分頁軸上的總長（`scrollWidth` 或 `scrollHeight`）
+ * @param scrollExtent the document's total length along the pagination axis (`scrollWidth` or `scrollHeight`)
  */
 export function pageCountFor(metrics: PageMetrics, scrollExtent: number): number {
   return Math.max(
@@ -207,31 +234,35 @@ export function pageCountFor(metrics: PageMetrics, scrollExtent: number): number
   );
 }
 
-/** 第 `page` 頁（從 0 起算）在分頁軸上的捲動位置。 */
+/** The scroll position of page `page` (counting from 0) along the pagination axis. */
 export function pageOffsetFor(metrics: PageMetrics, page: number): number {
   return page * metrics.stride;
 }
 
 /**
- * **捲動位置**落在第幾頁。
+ * Which page a **scroll position** falls on.
  *
- * 取最近的整數：捲動位置永遠是 `stride` 的整數倍（frond 自己設的），只是分數 DPI
- * 下瀏覽器會把它調整零點幾個像素。無條件捨去會讓「剛翻到第 3 頁」變成回報第 2 頁。
+ * Rounds to the nearest whole number: scroll positions are always whole multiples of
+ * `stride` (frond sets them itself), it is just that at fractional DPI the browser
+ * adjusts them by a fraction of a pixel. Truncating would report page 2 for "just turned
+ * to page 3".
  */
 export function pageAt(metrics: PageMetrics, offset: number): number {
   return Math.max(0, Math.round(offset / metrics.stride));
 }
 
 /**
- * **內容裡的某個位置**落在第幾頁。
+ * Which page **a position inside the content** falls on.
  *
- * 與 `pageAt` 的差別是取整的方向，而那個差別不是細節：內容的位置落在一頁**裡面
- * 的任何地方**，不是 `stride` 的整數倍。取最近的整數會讓一頁的後半段被算成下一頁
- * ——症狀是「用 CFI 跳回剛才那一頁，落到了下一頁」，而且只有位置剛好偏後的時候才
- * 發生，所以看起來像隨機的。
+ * The difference from `pageAt` is the rounding direction, and that difference is not a
+ * detail: a content position falls **anywhere within** a page, not on a whole multiple of
+ * `stride`. Rounding to nearest would count the back half of a page as the next page —
+ * the symptom being "jumping back to that page with a CFI lands on the following page",
+ * and only when the position happens to sit late in the page, so it looks random.
  *
- * 容差往正向補一個像素，讓剛好落在頁首、卻被量成差零點幾個像素的字元算進這一頁
- * 而不是上一頁。
+ * The tolerance is added in the positive direction so that a character sitting exactly at
+ * the head of a page, but measured a fraction of a pixel short, counts on this page rather
+ * than the previous one.
  */
 export function pageContaining(metrics: PageMetrics, offset: number): number {
   return Math.max(

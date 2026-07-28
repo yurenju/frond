@@ -246,8 +246,8 @@ describe("錯誤訊息說得出哪一行", () => {
     } catch (error) {
       message = (error as EpubOpenError).message;
     }
-    expect(message).toContain("test.xml 不是良構的 XML");
-    expect(message).toContain("第 3 行");
+    expect(message).toContain("test.xml is not well-formed XML");
+    expect(message).toContain("line 3");
   });
 
   test("丟的是呼叫端指定的那一種開書錯誤", () => {

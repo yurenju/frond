@@ -1,20 +1,24 @@
 /**
- * 把一節的位元組變成一份 iframe 載得起來的文件。
+ * Turning a section's bytes into a document an iframe can load.
  *
- * 內容以同源的 `blob:` 供給（ADR-0006），而這件事有一個立即的後果：**`blob:` 沒有
- * 目錄結構**。書裡每一個相對引用（圖片、樣式表、字型）在 `blob:` 底下都解析不到，
- * 所以引用要在文件還是文字的時候換成解析後的位址。這不是介入書的宣告——指向的還是
- * 同一份資源，換的只是寫法。
+ * Content is served as same-origin `blob:` (ADR-0006), and that has one immediate
+ * consequence: **`blob:` has no directory structure**. Every relative reference in the
+ * book (images, stylesheets, fonts) fails to resolve under `blob:`, so references have to
+ * be swapped for resolved addresses while the document is still text. This is not
+ * intervening in the book's declarations — the target is still the same resource, only the
+ * notation changes.
  *
- * ## 為什麼樣式表是內嵌而不是換成 blob: 的 `<link>`
+ * ## Why stylesheets are inlined rather than turned into a blob: `<link>`
  *
- * `<link>` 是**非同步**載入的。換成 blob: 之後它照樣非同步，於是 iframe 的 load
- * 事件可能早於樣式套用——而 frond 在 load 之後立刻量內容總長來算頁數。量到的會是
- * 沒有套樣式的版面，頁數因此是錯的，而且只在載入比較慢的時候錯。內嵌成 `<style>`
- * 讓樣式與文件同時到位，這個時序就不存在了。
+ * A `<link>` loads **asynchronously**. Rewritten to blob: it is still asynchronous, so the
+ * iframe's load event may precede the styles being applied — and frond measures the total
+ * content length to compute the page count immediately after load. What gets measured is an
+ * unstyled layout, so the page count is wrong, and only when loading happens to be slow.
+ * Inlining into a `<style>` makes styles and document arrive together, and that timing
+ * simply does not exist.
  *
- * 順序原樣保留（`<link>` 在哪一個位置，`<style>` 就插在哪一個位置），因為層疊看
- * 順序。
+ * The order is preserved verbatim (the `<style>` is spliced in wherever the `<link>` was),
+ * because the cascade goes by order.
  */
 
 import { resolveHref } from "../epub/resource-path.ts";
@@ -33,41 +37,43 @@ import { overriddenProperties, readerStylesheet, type ReaderSettings } from "./s
 const XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
 const XLINK_NAMESPACE = "http://www.w3.org/1999/xlink";
 
-/** 內容文件解不開時丟這個，而不是回一份半對的文件。 */
+/** Thrown when a content document will not parse, rather than returning a half-right document. */
 export class SectionParseError extends Error {
   readonly path: string;
 
   constructor(path: string, detail: string) {
-    super(`${path} 不是良構的 XHTML：${detail}`);
+    super(`${path} is not well-formed XHTML: ${detail}`);
     this.name = "SectionParseError";
     this.path = path;
   }
 }
 
 export interface SectionDocument {
-  /** 餵給 iframe 的 `blob:` 位址。 */
+  /** The `blob:` address fed to the iframe. */
   readonly url: string;
-  /** 這一份文件用完之後要收回的位址。資源的位址由 `ResourceUrls` 管，不在這裡。 */
+  /** Revokes the address once this document is done with. Resource addresses are managed by `ResourceUrls`, not here. */
   release(): void;
 }
 
 /**
- * 書內資源的 `blob:` 位址，一本書共用一份。
+ * The `blob:` addresses of resources inside a book, shared across the whole book.
  *
- * 跨節共用是必要的而不是最佳化：同一張圖在相鄰兩節裡出現時，各建各的位址會讓
- * 瀏覽器重新解碼一次，而更糟的是舊的那個在換節時被收回——如果消費端還握著它
- * （例如拿去做書櫃縮圖），那個位址會突然失效。
+ * Sharing across sections is necessary rather than an optimisation: when the same image
+ * appears in two adjacent sections, separate addresses would make the browser decode it
+ * again, and worse, the old one is revoked on the section change — and if the consumer is
+ * still holding it (using it for a bookshelf thumbnail, say), that address would suddenly
+ * become invalid.
  */
 export class ResourceUrls {
   private readonly book: RenderableBook;
   private readonly settings: ReaderSettings;
   private readonly urls = new Map<string, string>();
   /**
-   * 正在解析中的樣式表，用來擋住循環。
+   * The stylesheets currently being resolved, used to block cycles.
    *
-   * `@import` 的循環**不走這裡**——那一條由 `expandImports` 自己的 `visiting` 擋，
-   * 因為它遞迴的是文字而不是位址。這一格擋的是另一條路：一份樣式表用 `url()`
-   * 指向另一份樣式表。
+   * `@import` cycles **do not come through here** — those are blocked by `expandImports`'s
+   * own `visiting`, because it recurses over text rather than addresses. What this blocks
+   * is a different route: one stylesheet pointing at another with `url()`.
    */
   private readonly resolving = new Set<string>();
 
@@ -77,10 +83,11 @@ export class ResourceUrls {
   }
 
   /**
-   * 一個相對引用解析後的位址。
+   * The address a relative reference resolves to.
    *
-   * 回 `undefined` 表示不必換：`data:` 與指向書外的絕對位址本來就用得動，而
-   * 指不到東西的引用留著原樣比換成一個空位址好查。
+   * Returning `undefined` means no swap is needed: `data:` URIs and absolute addresses
+   * pointing outside the book work as they are, and a reference that points at nothing is
+   * easier to investigate left verbatim than rewritten to an empty address.
    */
   urlFor(reference: string, fromPath: string): string | undefined {
     const resolved = resolveHref(reference, fromPath);
@@ -98,8 +105,9 @@ export class ResourceUrls {
     try {
       bytes = this.book.bytes(path);
     } catch {
-      // 書宣告了但壓縮檔裡沒有。整本書仍然讀得完（`resources.ts` 的權衡），
-      // 缺的那一項留著原樣的引用，畫面上是一張破圖。
+      // Declared by the book but absent from the archive. The whole book still reads
+      // through to the end (`resources.ts`'s trade-off); the missing item keeps its
+      // reference verbatim, and on screen it is a broken image.
       return undefined;
     }
 
@@ -117,8 +125,9 @@ export class ResourceUrls {
       this.resolving.delete(path);
       blob = new Blob([css], { type: mediaType });
     } else {
-      // `Uint8Array` 直接進 Blob。`bytes.slice()` 是必要的：`Uint8Array` 可能是
-      // 一個大 buffer 上的視窗，而 Blob 會收下整個 buffer。
+      // The `Uint8Array` goes straight into a Blob. The `bytes.slice()` is necessary: a
+      // `Uint8Array` may be a window onto a large buffer, and a Blob would take the whole
+      // buffer.
       blob = new Blob([bytes.slice()], { type: mediaType });
     }
 
@@ -128,13 +137,14 @@ export class ResourceUrls {
   }
 
   /**
-   * 一份資源的原始位元組。
+   * A resource's raw bytes.
    *
-   * 樣式表要內嵌（見檔頭）而不是換成位址，所以這一條路是必要的。走這裡而不是讓
-   * 呼叫端自己拿 `book`，是為了讓「取一份資源」在這一層只有一個入口——缺檔的
-   * 處置因此只有一種寫法。
+   * Stylesheets have to be inlined (see the file header) rather than swapped for an
+   * address, so this route is necessary. It goes through here rather than letting callers
+   * reach `book` themselves, so that "take a resource" has exactly one entry point at this
+   * layer — and therefore only one way of handling a missing file.
    *
-   * @throws 路徑不存在或解不開時，原樣把 `RenderableBook` 丟的錯往上送
+   * @throws passes on whatever `RenderableBook` throws when the path does not exist or will not decode
    */
   bytesOf(path: string): Uint8Array {
     return this.book.bytes(path);
@@ -146,12 +156,13 @@ export class ResourceUrls {
         return resource.mediaType;
       }
     }
-    // manifest 沒有宣告的檔案。書不合規，但那不是拒絕渲染的理由——照副檔名猜，
-    // 猜錯的代價是瀏覽器不認得那一項，與完全不給它是一樣的。
+    // A file the manifest never declared. The book is non-conforming, but that is no reason
+    // to refuse to render — guess from the extension; the cost of guessing wrong is the
+    // browser not recognising that item, which is the same as giving it no type at all.
     return guessMediaType(path);
   }
 
-  /** 全部收回。`Renderer.destroy()` 呼叫它。 */
+  /** Revokes them all. `Renderer.destroy()` calls it. */
   release(): void {
     for (const url of this.urls.values()) URL.revokeObjectURL(url);
     this.urls.clear();
@@ -159,9 +170,9 @@ export class ResourceUrls {
 }
 
 /**
- * 組出一節的文件。
+ * Assembles one section's document.
  *
- * @throws SectionParseError 內容文件不是良構的 XHTML
+ * @throws SectionParseError the content document is not well-formed XHTML
  */
 export function buildSectionDocument(
   book: RenderableBook,
@@ -195,14 +206,15 @@ export function buildSectionDocument(
 }
 
 /**
- * 組一節文件的每一步共用的東西。
+ * What every step of assembling a section's document shares.
  *
- * 這四樣一路一起傳，所以它們是一個型別而不是四個參數——多一步改寫時要動的是這個
- * 介面，而不是每一支函式的簽章。
+ * These four travel together throughout, so they are one type rather than four parameters —
+ * adding another rewrite means changing this interface rather than every function's
+ * signature.
  */
 interface SectionBuild {
   readonly document: Document;
-  /** 這一節在壓縮檔內的路徑。書裡每一個相對引用都相對於它解析。 */
+  /** This section's path inside the archive. Every relative reference in the book resolves against it. */
   readonly path: string;
   readonly settings: ReaderSettings;
   readonly resources: ResourceUrls;
@@ -211,43 +223,46 @@ interface SectionBuild {
 function parseXhtml(source: string, path: string): Document {
   const parsed = new DOMParser().parseFromString(source, "application/xhtml+xml");
 
-  // 三家都是回一份帶 parsererror 的文件而不是丟例外（`fixture-parsing.spec.ts`
-  // 已經在三家各證明過一次）。
+  // All three return a document containing a parsererror rather than throwing
+  // (`fixture-parsing.spec.ts` has demonstrated this once in each of the three).
   const failure = parsed.querySelector("parsererror");
   if (failure !== null) {
-    throw new SectionParseError(path, failure.textContent?.trim() ?? "解析失敗");
+    throw new SectionParseError(path, failure.textContent?.trim() ?? "parse failed");
   }
   if (parsed.documentElement === null) {
-    throw new SectionParseError(path, "沒有根元素");
+    throw new SectionParseError(path, "no root element");
   }
 
   return parsed;
 }
 
 /**
- * 拿掉書內所有跑得起來的東西。
+ * Removes everything inside the book that could run.
  *
- * ADR-0006：frond **不支援** EPUB 的 scripted content，而且那是安全決策不是功能
- * 取捨。iframe 為了讓 parent 收得到事件必須帶 `allow-scripts`（WebKit bug
- * 218086，#7 已重現），於是 sandbox 擋不住書內的腳本——擋得住的只有這一步。
+ * ADR-0006: frond **does not support** EPUB scripted content, and that is a security
+ * decision rather than a feature trade-off. The iframe has to carry `allow-scripts` for the
+ * parent to receive events (WebKit bug 218086, reproduced in #7), so the sandbox cannot
+ * stop scripts inside the book — this step is the only thing that can.
  *
- * 三件事一起拿，少任何一件這道防線就是漏的：
+ * Three things are removed together, and missing any one leaves the defence with a hole:
  *
- * 1. **`<script>`**，任何命名空間。用 `getElementsByTagNameNS("*", …)` 而不是
- *    `getElementsByTagName`：SVG 裡的 `<script>` 在另一個命名空間，而 SVG 是
- *    EPUB 內容文件裡完全合法的一部分。
- * 2. **`on*` 事件屬性**。只拿掉 `<script>` 的話，`<body onload="…">` 這條路還開著。
- * 3. **巢狀的瀏覽環境**（`<iframe>` / `<object>` / `<embed>` / `<frame>`）。
+ * 1. **`<script>`**, in any namespace. Using `getElementsByTagNameNS("*", …)` rather than
+ *    `getElementsByTagName`: a `<script>` inside SVG is in a different namespace, and SVG
+ *    is an entirely legal part of an EPUB content document.
+ * 2. **`on*` event attributes**. Removing only `<script>` leaves `<body onload="…">` open.
+ * 3. **Nested browsing contexts** (`<iframe>` / `<object>` / `<embed>` / `<frame>`).
  *
- * 第三項最容易漏，而它的後果最嚴重：**巢狀的瀏覽環境會繼承 parent 的 sandbox
- * 旗標**，也就是連同 `allow-scripts` 一起繼承；而 frond 把內容以 `blob:` 供給，
- * 那個來源就是消費端 app 自己的來源。所以一份 `<iframe src="ch2.xhtml">` 或
- * `<object data="x.svg">` 裡的腳本會**以 app 的來源執行**——第 1、2 項在那份
- * 巢狀文件上一次都沒有套用過，因為它們只清理最外層那一份。
+ * The third is the easiest to miss and has the worst consequence: **a nested browsing
+ * context inherits the parent's sandbox flags**, `allow-scripts` included; and frond serves
+ * content as `blob:`, whose origin is the consuming app's own origin. So a script inside an
+ * `<iframe src="ch2.xhtml">` or an `<object data="x.svg">` would **run with the app's
+ * origin** — items 1 and 2 having never once been applied to that nested document, since
+ * they only clean the outermost one.
  *
- * 拿掉而不是改寫成一個安全的來源：EPUB 3 允許 `<iframe>`，但 frond 不支援
- * scripted content 這件事是 ADR-0006 定的「不會做」而不是「還沒做」，而一個載不
- * 出內容的 iframe 與沒有 iframe 對讀者是同一件事。
+ * They are removed rather than rewritten to a safe origin: EPUB 3 permits `<iframe>`, but
+ * frond not supporting scripted content is a "will not do" set by ADR-0006 rather than a
+ * "not yet", and to the reader an iframe whose content will not load is the same as no
+ * iframe.
  */
 function stripScriptedContent(document: Document): void {
   for (const element of [
@@ -269,14 +284,15 @@ function stripScriptedContent(document: Document): void {
 }
 
 /**
- * 會開出一個巢狀瀏覽環境的元素。
+ * The elements that open a nested browsing context.
  *
- * `<object>` 也在裡面，儘管它常常只是拿來放圖片的：它的 `data` 指向 XHTML 或
- * SVG 時同樣會開出瀏覽環境，而「這一份 `<object>` 裝的是什麼」要載進來才知道。
+ * `<object>` is included even though it is often only used to hold an image: when its
+ * `data` points at XHTML or SVG it opens a browsing context just the same, and knowing what
+ * a given `<object>` holds requires loading it.
  */
 const EMBEDDED_CONTEXTS = ["iframe", "object", "embed", "frame"];
 
-/** `<link rel="stylesheet">` 換成同一個位置上的 `<style>`。 */
+/** `<link rel="stylesheet">` is replaced by a `<style>` at the same position. */
 function inlineStylesheets({ document, path, settings, resources }: SectionBuild): void {
   for (const link of [...document.getElementsByTagName("link")]) {
     const rel = link.getAttribute("rel")?.toLowerCase() ?? "";
@@ -292,9 +308,10 @@ function inlineStylesheets({ document, path, settings, resources }: SectionBuild
     try {
       bytes = resources.bytesOf(target.path);
     } catch {
-      // 樣式表缺檔。書仍然讀得完，只是沒有樣式——把 `<link>` 留著，讓那份文件
-      // 看起來仍然是它原本的樣子（`resources.ts` 的權衡：缺檔只在 readingOrder
-      // 上才致命）。
+      // The stylesheet's file is missing. The book still reads through to the end, just
+      // unstyled — the `<link>` is left in place so the document still looks like what it
+      // originally was (`resources.ts`'s trade-off: a missing file is only fatal on the
+      // readingOrder).
       continue;
     }
 
@@ -313,7 +330,7 @@ function inlineStylesheets({ document, path, settings, resources }: SectionBuild
   }
 }
 
-/** `<style>` 的內容與 `style="…"` 屬性走同一套改寫。 */
+/** `<style>` content and `style="…"` attributes go through the same rewrites. */
 function rewriteInlineStyles({
   document,
   path,
@@ -336,8 +353,9 @@ function rewriteInlineStyles({
 
     let rewritten = inline;
     if (overridden.size > 0) {
-      // **這一格是讀者能不能贏的關鍵。** 層疊規則裡沒有任何位置贏得了寫在
-      // style 屬性裡的 !important——外部樣式表寫再多 !important 都沒有用。
+      // **This is the case that decides whether the reader can win.** No position in the
+      // cascade beats an !important written in a style attribute — however many
+      // !important declarations an external stylesheet carries, they do nothing.
       rewritten = demoteImportant(rewritten, overridden, "declarations");
     }
     if (settings.fontSize !== undefined) {
@@ -351,14 +369,16 @@ function rewriteInlineStyles({
   }
 }
 
-/** `src` / `href` / `poster` / `xlink:href` 換成 `blob:` 位址。 */
+/** `src` / `href` / `poster` / `xlink:href` are swapped for `blob:` addresses. */
 function rewriteResourceReferences({ document, path, resources }: SectionBuild): void {
   for (const element of document.getElementsByTagName("*")) {
     const name = element.localName.toLowerCase();
 
-    // 超連結**不換**。換成 blob: 之後點下去會把 iframe 導航到另一份文件，而那
-    // 會把整個渲染狀態丟掉。連結的處置在 `section-view.ts`：擋下預設行為，把
-    // 「讀者按了哪一個連結」當成事實送出去，跳不跳由消費端決定（ADR-0002）。
+    // Hyperlinks are **not** rewritten. Rewritten to blob:, following one would navigate
+    // the iframe to another document, throwing away the whole rendering state. Links are
+    // handled in `section-view.ts`: prevent the default behaviour and emit "which link the
+    // reader activated" as a fact, leaving the decision to navigate to the consumer
+    // (ADR-0002).
     if (name === "a") continue;
 
     for (const attribute of ["src", "poster", "data"]) {
@@ -368,7 +388,7 @@ function rewriteResourceReferences({ document, path, resources }: SectionBuild):
       if (url !== undefined) element.setAttribute(attribute, url);
     }
 
-    // SVG 的 `<image>` 走 xlink:href，新版走 href。兩種都認。
+    // SVG's `<image>` uses xlink:href, and newer versions use href. Both are recognised.
     for (const [namespace, attribute] of [
       [XLINK_NAMESPACE, "href"],
       [null, "href"],
@@ -394,7 +414,7 @@ function rewriteResourceReferences({ document, path, resources }: SectionBuild):
   }
 }
 
-/** `srcset` 是「位址 描述子」以逗號分隔的清單。 */
+/** `srcset` is a comma-separated list of "address descriptor" pairs. */
 function rewriteSrcset(
   srcset: string,
   path: string,
@@ -416,15 +436,18 @@ function rewriteSrcset(
 }
 
 /**
- * frond 自己那兩份樣式表掛在 `<head>` 的最後面。
+ * frond's own two stylesheets go at the very end of `<head>`.
  *
- * 最後面是必要的：層疊在優先權相同時比順序，而讀者設定要贏過書的宣告。分頁那份
- * 全部帶 `!important` 又是 frond 自己的地板，順序對它不重要，但兩份放一起讀起來
- * 比較清楚。
+ * The end is necessary: with equal priority the cascade goes by order, and the reader's
+ * settings have to beat the book's declarations. The pagination one carries `!important`
+ * throughout and is frond's own floor anyway, so order does not matter to it, but keeping
+ * the two together reads more clearly.
  *
- * 版面那一份此刻是**空的**：它的內容要等文件載進 iframe、量到書寫方向之後才算得
- * 出來（`section-view.ts`）。先把元素放好，之後只要換 `textContent`——換內容不會
- * 重新解析文件，也就不會把讀者的捲動位置洗掉。
+ * The layout one is **empty** at this point: its content cannot be computed until the
+ * document is loaded into the iframe and the writing mode is measured
+ * (`section-view.ts`). The element is put in place first, and later only its
+ * `textContent` is replaced — replacing content does not re-parse the document, and so
+ * does not wipe out the reader's scroll position.
  */
 function appendFrondStyles({ document, settings }: SectionBuild): void {
   const head = document.head ?? document.documentElement;
@@ -439,22 +462,24 @@ function appendFrondStyles({ document, settings }: SectionBuild): void {
   head.append(layout);
 }
 
-/** 書的樣式表要走的每一個改寫，順序固定。 */
+/** Every rewrite a book's stylesheet goes through, in a fixed order. */
 function transformBookStylesheet(
   css: string,
   fromPath: string,
   settings: ReaderSettings,
   resources: ResourceUrls,
 ): string {
-  // `@import` **最先展開**，理由與 `<link>` 內嵌是同一個（見檔頭），外加一個：
-  // 展開之後底下每一個改寫都會看到被 import 進來的那幾條宣告。四本樣本書的
-  // `writing-mode` 就長在那裡，少了這一步它們整本排成橫排（`css.ts` 的
-  // `inlineImports`）。
+  // `@import` is **expanded first**, for the same reason as inlining `<link>` (see the file
+  // header), plus one more: after expansion every rewrite below sees the declarations that
+  // were imported in. The `writing-mode` of the four sample books lives right there, and
+  // without this step they lay out horizontally from cover to cover (`css.ts`'s
+  // `inlineImports`).
   let output = expandImports(css, fromPath, resources, new Set([fromPath]));
 
-  // 前綴與斷點的正規化接著做：它們只補宣告，不動既有的文字，所以放在前面時後面
-  // 每一個改寫都會看到補出來的那幾條（例如補出來的 `writing-mode` 也該被算進
-  // 「這份樣式表宣告了什麼」）。
+  // Prefix and break normalization come next: they only add declarations without touching
+  // the existing text, so putting them early means every rewrite after them sees the ones
+  // that were added (an added `writing-mode`, for instance, should also count towards "what
+  // this stylesheet declares").
   output = normalisePrefixedWritingMode(output);
   output = normalisePageBreaks(output);
 
@@ -466,25 +491,29 @@ function transformBookStylesheet(
 }
 
 /**
- * 遞迴展開 `@import`，把每一份被 import 的樣式表就地換成它的內容。
+ * Recursively expands `@import`, replacing each imported stylesheet in place with its
+ * content.
  *
- * ## 為什麼只有 `url()` 在這裡換掉，其餘的改寫留給上面那一輪
+ * ## Why only `url()` is rewritten here, and the rest is left to the pass above
  *
- * 相對位址是**唯一一項與「這段文字出自哪一個檔案」有關的改寫**：`a.css` 裡的
- * `url(fonts/x.woff)` 指的是 `a.css` 旁邊那個目錄，展開之後那個基準就消失了。
- * 所以它必須在這裡、以被 import 那一份自己的路徑為基準做完。
+ * Relative addresses are **the only rewrite that depends on which file this text came
+ * from**: `url(fonts/x.woff)` inside `a.css` refers to the directory beside `a.css`, and
+ * after expansion that basis is gone. So it has to be done here, against the imported
+ * file's own path.
  *
- * 其餘的改寫（前綴、斷點、`!important`、字級）與檔案位置無關，留給合併後那一輪
- * 一次做完——每一條宣告因此**恰好被改寫一次**。在這裡也做一遍的話，合併後那一
- * 輪會再看到同樣的宣告，於是補出來的 `writing-mode` 與 `break-*` 會出現兩份。
- * 那不會改變畫面，但會讓「frond 動過什麼」這個問題的答案變得難讀，而那份文字是
- * 查問題時唯一看得到的東西。
+ * The other rewrites (prefixes, breaks, `!important`, font size) have nothing to do with
+ * file position and are left to the merged pass to do in one go — so every declaration is
+ * rewritten **exactly once**. Doing them here too would mean the merged pass sees the same
+ * declarations again, and the added `writing-mode` and `break-*` would appear twice. That
+ * would not change the screen, but it would make the answer to "what did frond touch" hard
+ * to read, and that text is the only thing visible when investigating a problem.
  *
- * 展開後的 `blob:` 位址不怕被上一輪的 `rewriteUrls` 再看一次：`blob:` 是絕對
- * URL，`resolveHref` 判它不在封裝內，於是原樣留著（`resource-path.ts`）。
+ * Expanded `blob:` addresses are safe from the pass above's `rewriteUrls` seeing them
+ * again: `blob:` is an absolute URL, `resolveHref` judges it outside the package, and it is
+ * left verbatim (`resource-path.ts`).
  *
- * @param visiting 正在展開中的路徑。循環（`a.css` import `b.css` import `a.css`）
- *   時那一條 `@import` 原樣留著，而不是無限遞迴下去。
+ * @param visiting the paths currently being expanded. On a cycle (`a.css` imports `b.css`
+ *   imports `a.css`) that `@import` is left verbatim rather than recursing forever.
  */
 function expandImports(
   css: string,
@@ -501,8 +530,9 @@ function expandImports(
     try {
       bytes = resources.bytesOf(target.path);
     } catch {
-      // 書宣告了但壓縮檔裡沒有。與缺一份 `<link>` 的樣式表同一個處置：那一份的
-      // 規則沒有了，書仍然讀得完（`resources.ts` 的權衡）。
+      // Declared by the book but absent from the archive. Handled the same way as a missing
+      // `<link>` stylesheet: that file's rules are gone, and the book still reads through to
+      // the end (`resources.ts`'s trade-off).
       return undefined;
     }
 
@@ -524,10 +554,11 @@ function isStylesheet(mediaType: string): boolean {
 }
 
 /**
- * manifest 沒有宣告 media type 時照副檔名猜。
+ * Guesses from the extension when the manifest declares no media type.
  *
- * 只放實際會影響瀏覽器行為的那幾種。猜不到時回空字串——`Blob` 收得下，瀏覽器會
- * 依內容嗅探，而那與完全不給型別是同一件事。
+ * Only the few that actually affect browser behaviour are listed. An unguessable extension
+ * returns an empty string — `Blob` accepts that, the browser sniffs by content, and that is
+ * the same as giving no type at all.
  */
 function guessMediaType(path: string): string {
   const extension = /\.([a-z0-9]+)$/i.exec(path)?.[1]?.toLowerCase();

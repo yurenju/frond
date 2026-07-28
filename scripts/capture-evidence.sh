@@ -1,73 +1,80 @@
 #!/usr/bin/env bash
 #
-# 把一支一次性的 Playwright spec 產出的截圖帶出容器，落在 `docs/evidence/` 底下。
+# Brings the screenshots produced by a one-off Playwright spec out of the container, landing
+# them under `docs/evidence/`.
 #
-# 開 PR 前跟視覺有關的變更要三家都跑過、由 agent 判讀，判讀結果與圖一起寫進 PR
-# 說明（ADR-0001、docs/agents/pull-requests.md）。而**圖是在容器裡產生的**——
-# 三家瀏覽器與釘死的字型只存在於測試映像裡，在 host 上截出來的圖字型不對，量到
-# 的東西也就不是 CI 會看到的東西。
+# Before opening a PR, any visually relevant change has to be run in all three, read by an
+# agent, and the reading written into the PR description alongside the images (ADR-0001,
+# docs/agents/pull-requests.md). And **the images are produced inside the container** — the
+# three browsers and the pinned fonts only exist in the test image, so images captured on the
+# host have the wrong fonts, and what they measure is not what CI will see.
 #
-# 用法：
-#   npm run evidence -- tests/browser/evidence/<名字>.spec.ts
-#   npm run evidence -- tests/browser/evidence/<名字>.spec.ts --project=webkit
+# Usage:
+#   npm run evidence -- tests/browser/evidence/<name>.spec.ts
+#   npm run evidence -- tests/browser/evidence/<name>.spec.ts --project=webkit
 #
-# 第一個參數以後原樣傳給 playwright。**至少要給一個路徑**：不給的話就會用一個
-# 可寫的掛載跑完整套測試，那不是任何人想要的。
+# Everything from the first argument on passes through to playwright. **At least one path is
+# required**: without one it would run the whole test suite with a writable mount, which is
+# not what anyone wants.
 #
-# ## 一次性的 spec 放哪裡、為什麼進得了容器
+# ## Where one-off specs go, and why they reach the container
 #
-# 放 `tests/browser/evidence/`（該目錄已 gitignore——這種 spec 不留在 repo，
-# 見 docs/agents/pull-requests.md）。要放在 `tests/browser/` 底下是因為
-# playwright.config.ts 的 testDir 指著它，外面的檔案不會被收進來。
+# In `tests/browser/evidence/` (that directory is gitignored — such specs do not stay in the
+# repo; see docs/agents/pull-requests.md). It has to be under `tests/browser/` because
+# playwright.config.ts's testDir points there, and files outside are not picked up.
 #
-# 那個目錄被 git 忽略，但**映像照樣拿得到**：build context 看的是檔案系統而不是
-# git，`Dockerfile` 的 `COPY . .` 會把未追蹤的檔案一起帶進去。所以流程是「寫
-# spec → 跑這一支（它會重建映像）」，不需要先 commit。
+# That directory is ignored by git, but **the image gets it anyway**: the build context looks
+# at the filesystem rather than at git, and `Dockerfile`'s `COPY . .` brings untracked files
+# in with everything else. So the workflow is "write the spec → run this (it rebuilds the
+# image)", with no commit needed first.
 set -euo pipefail
 
-# 挑引擎、確認連得到 daemon、建置映像。三件事與 test-in-container.sh 共用。
+# Pick an engine, confirm the daemon is reachable, build the image. All three are shared with
+# test-in-container.sh.
 source "$(dirname "${BASH_SOURCE[0]}")/container.sh"
 
 if [[ $# -eq 0 ]]; then
-    echo "用法：npm run evidence -- <spec 路徑> [playwright 參數]" >&2
-    echo "例：  npm run evidence -- tests/browser/evidence/vertical.spec.ts --project=webkit" >&2
+    echo "Usage: npm run evidence -- <spec path> [playwright arguments]" >&2
+    echo "e.g.:  npm run evidence -- tests/browser/evidence/vertical.spec.ts --project=webkit" >&2
     exit 2
 fi
 
 EVIDENCE_DIR="$REPO_ROOT/docs/evidence"
 
-# 先在 host 上建好。掛載點若不存在，引擎會**代為建立**一個 root 擁有的目錄，
-# 而那是一個要 sudo 才刪得掉的殘骸。
+# Create it on the host first. If a mount point does not exist, the engine **creates one on
+# your behalf** owned by root, and that is a leftover you need sudo to delete.
 mkdir -p "$EVIDENCE_DIR"
 
 container_build
 
 # --- run -------------------------------------------------------------------
 #
-# ## 為什麼是掛一個目錄，而不是事後 `cp` 出來
+# ## Why mount a directory rather than `cp` afterwards
 #
-# 容器以 `--rm` 收掉，寫在裡面的檔案跟著消失；不加 `--rm` 再 `docker cp`
-# 也可以，但那要多管一個「容器有沒有被收乾淨」的狀態，而漏收的容器會靜靜地
-# 佔著幾 GB。掛載是同一件事的無狀態版本，也與 CI 掛 playwright-report 出去的
-# 做法一致（test-in-container.sh）。
+# The container is reaped with `--rm`, and files written inside it disappear with it;
+# dropping `--rm` and using `docker cp` would work too, but it adds one more piece of state
+# to manage ("has the container been cleaned up"), and a container that was missed quietly
+# occupies several GB. A mount is the stateless version of the same thing, and it is
+# consistent with how CI mounts playwright-report out (test-in-container.sh).
 #
-# ## 只掛 docs/evidence，不掛整個 repo
+# ## Mount only docs/evidence, not the whole repo
 #
-# 把 repo 掛進去看起來更方便（不必重建映像），但那會讓「容器裡跑的是哪一份程式
-# 碼」變成兩個答案：build 進去的那一份，與掛進來的那一份。它們在 npm ci 的產物
-# 上必然不同——`node_modules` 是在映像裡裝的。而且掛整個 repo 等於讓容器有機會
-# 改寫原始碼。
+# Mounting the repo in looks more convenient (no image rebuild), but it makes "which copy of
+# the code is running in the container" have two answers: the one built in, and the one
+# mounted in. They necessarily differ in what npm ci produced — `node_modules` was installed
+# in the image. And mounting the whole repo gives the container the chance to rewrite the
+# source.
 #
-# ## 檔案會是誰的
+# ## Who will own the files
 #
-# rootless 引擎下，容器的 root 對應到 host 上你自己的 uid，所以寫出來的檔案就是
-# 你的。**rootful docker 會產出 root 擁有的 PNG**，之後 git 動不了它——那是
-# docs/test-environment.md 建議 rootless 的又一個具體理由。
+# Under a rootless engine, the container's root maps to your own uid on the host, so the files
+# written out are yours. **Rootful docker produces root-owned PNGs** that git cannot touch
+# afterwards — one more concrete reason docs/test-environment.md recommends rootless.
 #
-# ## 網路照樣關掉
+# ## The network is off here too
 #
-# 截圖與測試同一個要求：頁面由 page.setContent 供給。一張需要連外才截得出來的
-# 圖，換一台機器就截不出來了。
+# Screenshots have the same requirement as the tests: pages are supplied by page.setContent.
+# An image that needs an outside connection to capture cannot be captured on another machine.
 exec "$ENGINE" run --rm --init --network=none \
     --volume "${EVIDENCE_DIR}:/work/docs/evidence" \
     "$IMAGE_NAME" npx playwright test "$@"

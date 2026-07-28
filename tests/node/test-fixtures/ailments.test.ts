@@ -234,7 +234,7 @@ describe("manifest href 裡的形狀", () => {
           },
         ],
       }),
-    ).toThrow(/封裝根/);
+    ).toThrow(/package root/);
   });
 });
 

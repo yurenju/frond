@@ -96,11 +96,11 @@ test("React 展示頁開得起一本繁中直排書", async ({ page }) => {
   await expect(page.getByTestId("book-title")).toHaveText("渡口");
   await expect(page.getByTestId("viewport")).toHaveAttribute("data-state", "ready");
   await expect(page.getByTestId("viewport")).toHaveAttribute("data-writing-mode", "vertical-rl");
-  await expect(page.getByTestId("status-writing-mode")).toHaveText("直排");
+  await expect(page.getByTestId("status-writing-mode")).toHaveText("Vertical");
   await expect(page.getByTestId("status-cfi")).toContainText("epubcfi(");
 
   // 整書索引建好之後 fraction 才有值（user story 25）。
-  await expect(page.getByTestId("status-fraction")).toContainText("全書");
+  await expect(page.getByTestId("status-fraction")).toContainText("Book progress");
   await expect(page.getByTestId("progress")).toHaveAttribute("data-state", "loaded");
 
   // StrictMode 開著（`app.tsx` 最後那一段），所以這一條同時在守「effect 跑兩次不

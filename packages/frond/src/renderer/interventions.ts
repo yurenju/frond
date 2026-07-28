@@ -1,54 +1,61 @@
 /**
- * frond 對書的每一次介入，逐項登記——ADR-0003 要求的那份**封閉清單**。
+ * Every intervention frond makes in a book, registered one by one — the **closed list**
+ * ADR-0003 requires.
  *
- * > frond 介入的每一項都登記成封閉清單並寫在文件裡，加一項要說明理由。危險不在
- * > 第一天而在第三十天：「反正已經覆寫 column-width 了，line-height 也順手調一下
- * > 吧」，然後半年後沒人記得為什麼書的排版跟原作者設計的不一樣。
+ * > Every one of frond's interventions is registered in a closed list and written down,
+ * > and adding one requires stating why. The danger is not on day one but on day thirty:
+ * > "we already override column-width anyway, might as well nudge line-height too", and
+ * > six months later nobody remembers why the book's typography differs from what its
+ * > author designed.
  *
- * 所以這份清單放在程式碼裡而不是只放在文件裡：`interventions.test.ts` 比的是
- * **集合相等**，多一項少一項都會紅。文件會漂，測試不會。
+ * So this list lives in the code rather than only in the documentation:
+ * `interventions.test.ts` compares **set equality**, and one entry too many or too few
+ * turns it red. Documentation drifts; tests do not.
  *
- * ## 四種理由，不是兩種
+ * ## Four reasons, not two
  *
- * ADR-0003 的正文說「只有兩種情況才成立」，但它的實例表其實用到四種。分清楚是有
- * 必要的：前兩種是**真的覆寫了書**，後兩種不是，而把它們混在一起會讓「frond 覆寫
- * 了幾件事」這個問題答不出來。
+ * ADR-0003's prose says "only two situations qualify", but its table of examples
+ * actually uses four. Telling them apart is necessary: the first two really do
+ * **override the book**, the latter two do not, and mixing them together leaves "how
+ * many things has frond overridden" unanswerable.
  *
- * | 理由 | 覆寫了書嗎 | ADR-0003 的依據 |
+ * | Reason | Overrides the book? | Basis in ADR-0003 |
  * | --- | --- | --- |
- * | `content-unreadable` | 是 | 正文理由 1：溢出被裁、重疊、空白頁 |
- * | `reader-blocked` | 是 | 正文理由 2：書用 `!important` 蓋掉讀者的選擇 |
- * | `frond-own-layer` | 否 | 實例表第一列：書從未宣告 `column-width`，分頁用的 CSS 本來就屬於 frond |
- * | `syntax-translation` | 否 | 實例表的前綴那一列：瀏覽器沒有照書做，翻譯宣告不改變書的意圖 |
+ * | `content-unreadable` | yes | prose reason 1: overflow clipped, overlap, blank pages |
+ * | `reader-blocked` | yes | prose reason 2: the book uses `!important` to override the reader's choice |
+ * | `frond-own-layer` | no | first row of the example table: books never declare `column-width`; the CSS used for pagination belongs to frond to begin with |
+ * | `syntax-translation` | no | the prefix row of the example table: the browser did not do what the book said, and translating the declaration does not change the book's intent |
  *
- * 只有前兩種需要對照門檻。後兩種是「frond 在做自己的事」與「把書的意思照原樣講
- * 一次給聽不懂的瀏覽器聽」。
+ * Only the first two need to be weighed against the threshold. The latter two are
+ * "frond doing its own job" and "restating the book's meaning to a browser that did not
+ * understand it".
  */
 
 export type InterventionReason =
-  /** 內容讀不到——溢出被裁、重疊、空白頁。 */
+  /** Content cannot be read — overflow clipped, overlap, blank pages. */
   | "content-unreadable"
-  /** 讀者設定被書擋住。 */
+  /** The reader's setting is blocked by the book. */
   | "reader-blocked"
-  /** 分頁機制本身的 CSS，書從未宣告過這一層。 */
+  /** CSS belonging to the pagination mechanism itself, a layer books have never declared. */
   | "frond-own-layer"
-  /** 書的意圖不變，只換一種瀏覽器認得的寫法。 */
+  /** The book's intent is unchanged; only the notation is swapped for one the browser recognises. */
   | "syntax-translation";
 
 export interface Intervention {
   readonly id: string;
-  /** frond 做了什麼。 */
+  /** What frond did. */
   readonly what: string;
   readonly reason: InterventionReason;
-  /** 為什麼這一項過得了門檻。 */
+  /** Why this one clears the threshold. */
   readonly why: string;
-  /** 哪一支實作它。 */
+  /** Which module implements it. */
   readonly where: string;
   /**
-   * 只在讀者設了某一項時才發生嗎。
+   * Whether it only happens when the reader has set something.
    *
-   * `reader-blocked` 那幾項全部是 `true`——沒有讀者設定就沒有東西被擋住，門檻
-   * 就不成立。這個欄位讓那條規則變成可以被斷言的東西。
+   * All the `reader-blocked` entries are `true` — with no reader setting there is
+   * nothing being blocked, and the threshold does not apply. This field turns that rule
+   * into something assertable.
    */
   readonly onlyWhenReaderOverrides: boolean;
 }
@@ -56,156 +63,171 @@ export interface Intervention {
 export const INTERVENTIONS: readonly Intervention[] = [
   {
     id: "multicol-pagination",
-    what: "在 documentElement 上寫分頁需要的每一條：writing-mode（跟著書實際排出來的方向，容器與內容才同軸）、column-width、column-count、column-gap、column-fill、inline-size、block-size、max-inline-size 與 max-block-size 解除、box-sizing、overflow",
+    what: "writes every declaration pagination needs onto documentElement: writing-mode (following the direction the book actually lays out in, so container and content share an axis), column-width, column-count, column-gap, column-fill, inline-size, block-size, releasing max-inline-size and max-block-size, box-sizing, overflow",
     reason: "frond-own-layer",
-    why: "分頁是 frond 的職責，multi-column 是它的工具。書從未宣告過這一層，所以這不是覆寫（ADR-0003 實例表第一列）",
+    why: "pagination is frond's responsibility and multi-column is its tool. Books have never declared this layer, so this is not an override (first row of ADR-0003's example table)",
     where: "src/renderer/layout.ts",
     onlyWhenReaderOverrides: false,
   },
   {
     id: "integer-page-geometry",
-    what: "容器的行內尺寸與欄寬一律取整數像素",
+    what: "always rounds the container's inline size and the column width to whole pixels",
     reason: "frond-own-layer",
-    why: "同上，這是分頁那一層的參數。分數尺寸會讓頁距累積誤差，症狀是一屏疊出好幾頁（spine 踩過）",
+    why: "as above, these are parameters of the pagination layer. Fractional sizes let the page stride accumulate error, with the symptom of several pages stacked in one screen (spine walked into this)",
     where: "src/renderer/geometry.ts",
     onlyWhenReaderOverrides: false,
   },
   {
     id: "reset-root-box",
-    what: "把 documentElement 與 body 的 margin、padding、border 歸零，並把 body 的 block-size 放回 auto",
+    what: "zeroes the margin, padding and border on documentElement and body, and puts body's block-size back to auto",
     reason: "frond-own-layer",
-    why: "版面的邊界由 frond 在 iframe 外層給（讀者設定的 margin），書的根元素間距會把欄的邊界推出畫面——spine 為此掛了一個永不解除的 MutationObserver",
+    why: "the layout margin is supplied by frond outside the iframe (the reader's margin setting), and spacing on the book's root element pushes the column boundary off screen — spine hung a MutationObserver that is never released for this",
     where: "src/renderer/layout.ts",
     onlyWhenReaderOverrides: false,
   },
   {
     id: "unprefix-writing-mode",
-    what: "-epub-／-webkit- 前綴的 writing-mode，補一條無前綴的等價宣告",
+    what: "adds an unprefixed equivalent alongside -epub-/-webkit- prefixed writing-mode",
     reason: "syntax-translation",
-    why: "Firefox 兩種前綴都不認，只寫前綴的書在它上面整本排成橫排。書的意圖沒有被改變，改的只是語法（ADR-0003 實例表、docs/browser-quirks.md）",
+    why: "Firefox recognises neither prefix, so a book writing only the prefixed form lays out entirely horizontally there. The book's intent is unchanged; only the syntax is (ADR-0003's example table, docs/browser-quirks.md)",
     where: "src/renderer/css.ts",
     onlyWhenReaderOverrides: false,
   },
   {
     id: "column-break",
-    what: "page-break-* 補一條 break-* 的等價宣告",
+    what: "adds a break-* equivalent alongside page-break-*",
     reason: "syntax-translation",
-    why: "page 這個斷點類型在分欄版面下不生效，書要求換頁的地方會接著排下去。補上 column 是把同一個意圖講成分欄版面聽得懂的話",
+    why: "the page break type has no effect in a multi-column layout, so content flows straight on where the book asked for a break. Adding column says the same intent in language a multi-column layout understands",
     where: "src/renderer/css.ts",
     onlyWhenReaderOverrides: false,
   },
   {
     id: "vertical-punctuation",
-    what: "直排時在 documentElement 上注入 font-feature-settings: \"vert\" 1",
+    what: "injects font-feature-settings: \"vert\" 1 on documentElement when vertical",
     reason: "syntax-translation",
-    why: "WebKit 在直排下不自動套用 vert，日文句點留在左下（docs/browser-quirks.md 第一條）。另外兩家自動套用，強制之後結果不變。這是把 writing-mode 已經蘊含的排版行為講給沒有照做的瀏覽器聽，不是新增書沒要求的效果——所以刻意**不帶 !important**，書自己宣告 font-feature-settings 時仍然是書贏",
+    why: "WebKit does not apply vert automatically in vertical mode, leaving the Japanese full stop at the bottom left (first entry in docs/browser-quirks.md). The other two apply it automatically, so forcing it changes nothing there. This is stating a typographic behaviour writing-mode already implies to a browser that did not follow it, not adding an effect the book never asked for — which is why it deliberately carries **no !important**, so a book declaring font-feature-settings itself still wins",
     where: "src/renderer/layout.ts",
     onlyWhenReaderOverrides: false,
   },
   {
     id: "cap-overflowing-boxes",
-    what: "body 與 img／svg／video／table 加上 max-inline-size 與 max-block-size 的上限（區塊軸那一側是像素而不是百分比），並給 img／svg／video 一條不帶 !important 的 break-inside: avoid",
+    what: "caps body and img/svg/video/table with max-inline-size and max-block-size (the block-axis side in pixels rather than a percentage), and gives img/svg/video a break-inside: avoid without !important",
     reason: "content-unreadable",
-    why: "書寫死 width: 800px 時小螢幕上右半邊被裁掉讀不到（ADR-0003 實例表）。放得下的時候這條是 no-op，所以它只在內容真的會被裁掉時才生效。區塊軸的上限必須是像素：`max-block-size: 100%` 要有確定的包含塊尺寸才解析得出來，而圖版外面那層 `height: auto` 的 div 讓它靜默地變成 no-op（layout.ts 有實測數字）",
+    why: "when a book hard-codes width: 800px the right half is clipped and unreadable on a small screen (ADR-0003's example table). When it fits, this rule is a no-op, so it only takes effect when the content really would be clipped. The block-axis cap has to be in pixels: `max-block-size: 100%` needs a definite containing-block size to resolve, and the `height: auto` div wrapping a plate silently turns it into a no-op (layout.ts has the measured numbers)",
     where: "src/renderer/layout.ts",
     onlyWhenReaderOverrides: false,
   },
   {
     id: "demote-important",
-    what: "拿掉書在讀者覆寫過的那幾個屬性上的 !important（樣式表與 style 屬性都算）",
+    what: "removes the book's !important on the properties the reader has overridden (in both stylesheets and style attributes)",
     reason: "reader-blocked",
-    why: "外部樣式表打不贏書寫在 style 屬性裡的 !important——層疊規則裡沒有任何位置贏得了它。範圍嚴格限於讀者實際設過的屬性（settings.ts 的 overriddenProperties）",
+    why: "an external stylesheet cannot beat an !important written in the book's style attribute — no position in the cascade wins against it. The scope is strictly limited to the properties the reader actually set (settings.ts's overriddenProperties)",
     where: "src/renderer/css.ts",
     onlyWhenReaderOverrides: true,
   },
   {
     id: "relativise-font-size",
-    what: "讀者設了字級時，把書的絕對 font-size 換算成 rem",
+    what: "converts the book's absolute font-size values to rem when the reader has set a font size",
     reason: "reader-blocked",
-    why: "光拿掉 !important 不夠：絕對值本身就讓那一段脫離繼承鏈，讀者調字級對它無效。換算保留書自己的字級**比例**，放棄的是絕對值——而那個意圖與 user story 42 直接衝突，ADR-0003 已裁定讀者贏",
+    why: "removing !important alone is not enough: an absolute value by itself detaches that stretch from the inheritance chain, so the reader's font size adjustment has no effect on it. Converting preserves the book's own **proportions** of font size and gives up the absolute values — an intent that conflicts directly with user story 42, which ADR-0003 has already resolved in the reader's favour",
     where: "src/renderer/css.ts",
     onlyWhenReaderOverrides: true,
   },
   {
     id: "reader-stylesheet",
-    what: "注入讀者設定的 font-size、font-family、line-height、color 與 background-color，全部帶 !important",
+    what: "injects the reader's font-size, font-family, line-height, color and background-color, all with !important",
     reason: "reader-blocked",
-    why: "ADR-0003 要求 frond 提供覆寫面。只包含讀者實際設過的項目——沒設的欄位一個字都不注入",
+    why: "ADR-0003 requires frond to provide an override surface. It covers only what the reader actually set — for an unset field not one character is injected",
     where: "src/renderer/settings.ts",
     onlyWhenReaderOverrides: true,
   },
   {
     id: "strip-scripted-content",
-    what: "拿掉內容文件裡任何命名空間的 <script>、on* 事件屬性，以及巢狀的瀏覽環境（iframe／object／embed／frame）",
+    what: "removes <script> in any namespace, on* event attributes, and nested browsing contexts (iframe/object/embed/frame) from content documents",
     reason: "frond-own-layer",
-    why: "ADR-0006 明列 frond 不支援 EPUB scripted content，而且那是安全決策不是功能取捨。iframe 為了讓 parent 收得到事件必須帶 allow-scripts（WebKit bug 218086），於是 sandbox 擋不住書內的腳本——擋得住的只有這一步。巢狀的瀏覽環境會**繼承** parent 的 sandbox 旗標，而內容以 blob: 供給等於帶著消費端 app 的來源，所以漏掉它就等於整條防線沒有",
+    why: "ADR-0006 explicitly states that frond does not support EPUB scripted content, and that this is a security decision rather than a feature trade-off. The iframe has to carry allow-scripts for the parent to receive events at all (WebKit bug 218086), so the sandbox cannot stop scripts inside the book — this step is the only thing that can. A nested browsing context **inherits** the parent's sandbox flags, and serving content as blob: means carrying the consuming app's origin, so missing it would mean there is no defence at all",
     where: "src/renderer/document-source.ts",
     onlyWhenReaderOverrides: false,
   },
   {
     id: "blob-urls",
-    what: "把書內資源的引用改寫成 blob: 位址",
+    what: "rewrites references to resources inside the book into blob: addresses",
     reason: "frond-own-layer",
-    why: "內容以同源 blob: 供給（ADR-0006），而 blob: 沒有目錄結構，書裡的相對路徑一律解析失敗。這是把同一個引用換一種寫法表達，指向的還是同一份資源",
+    why: "content is served as same-origin blob: (ADR-0006), and blob: has no directory structure, so every relative path in the book fails to resolve. This expresses the same reference in a different notation, still pointing at the same resource",
     where: "src/renderer/document-source.ts",
     onlyWhenReaderOverrides: false,
   },
 ];
 
 /**
- * ## 已知的缺口
+ * ## Known gaps
  *
- * 登記在這段註解裡而不是做成一個匯出的陣列：它沒有任何程式碼會讀，做成資料只是
- * 讓同一份說明存在兩個地方。
+ * Registered in this comment rather than as an exported array: no code reads it, and
+ * making it data would only put the same explanation in two places.
  *
- * 每一項都是「知道它在、也知道為什麼現在不做」，不是待辦清單。**理由分兩種，而
- * 分清楚很重要**：
+ * Each entry is "we know it is there, and we know why we are not doing it now", not a
+ * to-do list. **There are two kinds of reason, and telling them apart matters**:
  *
- * - **樣本裡沒有量到這個形狀**（第 1、2 項）。那些書上一次都沒出現的東西，先做等於
- *   照著規格而不是照著書實際的樣子寫（CONTEXT.md 的「範本書」）。這種缺口的正確
- *   處置是**等量到再說**——而底下的補記記著一次把這個判準用錯的教訓。
- * - **量到了，但要怎麼修是一個權衡決定**（第 3 項）。這種缺口不能用「沒量到」帶過，
- *   所以它額外要求：現況要有 fixture 與測試釘住，讓它變了有人知道。
+ * - **This shape was not measured in the sample** (entries 1 and 2). Doing something
+ *   about what never once appeared in those books means writing to the spec rather than
+ *   to what books actually look like (CONTEXT.md's "model books"). The right handling of
+ *   this kind of gap is **to wait until it is measured** — and the postscript below
+ *   records the lesson from applying that criterion wrongly once.
+ * - **It was measured, but how to fix it is a trade-off decision** (entry 3). This kind
+ *   of gap cannot be waved away with "not measured", so it carries an extra requirement:
+ *   the status quo needs a fixture and a test holding it, so that someone knows if it
+ *   changes.
  *
- * 1. **`font` 縮寫裡的絕對字級不換算成 `rem`。** 縮寫的值要拆開才知道哪一段是
- *    字級（`font: 12px/1.4 serif`），拆錯會把整條宣告寫壞，而寫壞比不換算更糟。
- *    `!important` 仍然拿得掉（`demote-important` 的範圍含 `font`），所以擋得住
- *    讀者的只剩「不帶 `!important` 的縮寫絕對字級」。
+ * 1. **Absolute font sizes inside the `font` shorthand are not converted to `rem`.** The
+ *    shorthand's value has to be taken apart to know which part is the size
+ *    (`font: 12px/1.4 serif`), and taking it apart wrongly corrupts the whole
+ *    declaration, which is worse than not converting. `!important` can still be removed
+ *    (`demote-important`'s scope covers `font`), so all that still blocks the reader is
+ *    "an absolute size in a shorthand without `!important`".
  *
- * 2. **`@import` 的 `layer()` 與 `supports()` 寫法不展開。** 兩者改變的是層疊的
- *    分層與條件，而 frond 展開 `@import` 的做法是把文字插進它原本的位置
- *    （`css.ts` 的 `inlineImports`）——插入重現不了分層。那一條 `@import` 原樣
- *    留著，也就仍然是非同步載入的。樣本裡一本都沒有。
+ * 2. **`@import`'s `layer()` and `supports()` forms are not expanded.** Both change the
+ *    cascade's layering and conditions, and the way frond expands `@import` is by
+ *    splicing the text into its original position (`css.ts`'s `inlineImports`) — splicing
+ *    cannot reproduce layering. That `@import` is left verbatim, and so is still loaded
+ *    asynchronously. Not one book in the sample has it.
  *
- * 3. **比一欄還高的表格，下半讀不到。** 這一項與其他缺口不同：**樣本裡量到了**
- *    （3 本共 9 節，最嚴重的一節被裁掉 2563px），而且 `cap-overflowing-boxes`
- *    對它是個 no-op——CSS 規定 `max-height` 對 `display: table` 是**下限**而不是
- *    上限，表格一律照內容長。而 **Firefox 不把表格切到相鄰的欄**（Chromium 與
- *    WebKit 都切），所以那些列伸出容器再被 `overflow: hidden` 裁掉；更糟的是不切
- *    欄等於內容不往行內軸延伸，於是**整節的頁數變成 1**，表格後面的東西一併讀
- *    不到。
+ * 3. **Tables taller than one column have their lower half unreadable.** This entry
+ *    differs from the others: **it was measured in the sample** (3 books, 9 sections, the
+ *    worst clipped by 2563px), and `cap-overflowing-boxes` is a no-op against it — CSS
+ *    specifies that `max-height` is a **lower** bound rather than an upper one for
+ *    `display: table`, so a table is always as long as its content. And **Firefox does not
+ *    break tables across adjacent columns** (Chromium and WebKit both do), so those rows
+ *    extend past the container and are clipped by `overflow: hidden`; worse, not breaking
+ *    across columns means the content does not extend along the inline axis, so the
+ *    **section's page count becomes 1** and everything after the table becomes unreadable
+ *    too.
  *
- *    不做的理由不是「沒量到」，是**這不是一個 bug 修正而是一個權衡決定**：剩下
- *    的路是把 `display: table` 換掉，換完每一列變成區塊、內容流進相鄰的欄、全部
- *    讀得到，代價是表格的對齊整個消失。「讀得到但對不齊」與「對得齊但一半看不
- *    到」哪個對讀者好，需要一張票去決定，而不是在一次修 bug 的過程裡順手挑一個。
+ *    The reason for not acting is not "not measured", it is that **this is a trade-off
+ *    decision rather than a bug fix**: the remaining route is to replace `display: table`,
+ *    after which every row becomes a block, content flows into adjacent columns and all of
+ *    it is readable, at the cost of the table's alignment disappearing entirely. Which is
+ *    better for the reader — "readable but misaligned" or "aligned but half invisible" —
+ *    needs an issue to decide, not a choice made in passing while fixing a bug.
  *
- *    現況由 fixture 加測試釘住（`table-taller-than-page`、
- *    `rendering.spec.ts` 的〈比一欄還高的表格〉），量測與三家對照見
- *    `docs/browser-quirks.md`。Firefox 開始切表格時那條測試會紅，屆時這一項就可以
- *    拿掉——換句話說這個缺口有可能不必動 frond 就自己消失，而那正是「釘住現況」
- *    要買到的東西。
+ *    The status quo is held by a fixture plus a test (`table-taller-than-page`,
+ *    `rendering.spec.ts`'s "a table taller than one column"), and the measurements and the
+ *    three-way comparison are in `docs/browser-quirks.md`. When Firefox starts breaking
+ *    tables that test turns red, and this entry can be removed then — in other words this
+ *    gap may well disappear without frond changing at all, and that is exactly what
+ *    "holding the status quo" buys.
  *
- * ## 補記：原本第 2、3 項已經不是缺口
+ * ## Postscript: what used to be entries 2 and 3 are no longer gaps
  *
- * 「`@import` 的字串寫法不解析」與「`@import` 進來的樣式表非同步載入」曾經登記
- * 在這裡，判準是「樣本裡沒有量到這個形狀」。**那個判準當時就是錯的**——後來拿
- * 34 本書實際跑一趟渲染，四本（九歌112年散文選、創業投資聖經、原子習慣、
- * 大器可以晚成，同一條 Kadokawa／BookCreator 工具鏈）的內容文件只 `<link>` 一支
- * 純 `@import` 字串的聚合檔，於是整份樣式表消失、四本直排書全部排成橫排。
+ * "`@import`'s string form is not parsed" and "stylesheets brought in by `@import` load
+ * asynchronously" were once registered here, on the criterion "this shape was not
+ * measured in the sample". **That criterion was wrong at the time** — a later rendering
+ * pass over 34 real books found four (九歌112年散文選, 創業投資聖經, 原子習慣,
+ * 大器可以晚成, all from the same Kadokawa/BookCreator toolchain) whose content
+ * documents only `<link>` an aggregator file consisting purely of `@import` strings, so
+ * the entire stylesheet disappeared and all four vertical books laid out horizontally.
  *
- * 留著這段記錄是因為教訓不在那兩行本身：**「樣本裡沒有」是一個要去量的斷言，
- * 不是一個可以推得的結論。** 那次登記靠的是「字串寫法在 EPUB 裡少見」這個印象，
- * 而樣本裡它佔 12%。
+ * This record is kept because the lesson is not in those two lines: **"not in the sample"
+ * is an assertion to go and measure, not a conclusion that can be inferred.** That
+ * registration rested on an impression that "the string form is rare in EPUB", and in the
+ * sample it accounts for 12%.
  */
-

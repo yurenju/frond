@@ -95,8 +95,8 @@ test("展示頁開得起一本繁中直排書", async ({ page }) => {
   // 開書之後：書名、直排、頁數都要有值。
   await expect(page.locator("#workspace")).toBeVisible();
   await expect(page.locator("#book-title")).toHaveText("渡口");
-  await expect(page.locator("#status-writing-mode")).toHaveText("直排");
-  await expect(page.locator("#status-page")).toContainText("第 1 /");
+  await expect(page.locator("#status-writing-mode")).toHaveText("Vertical");
+  await expect(page.locator("#status-page")).toContainText("Page 1 /");
   await expect(page.locator("#status-cfi")).toContainText("epubcfi(");
 
   // 整書索引建好之後 fraction 才有值（user story 25）。
@@ -156,5 +156,5 @@ test("書框在寬螢幕上是攤開的比例，窄螢幕上是單頁", async ({
 
   // 換了大小之後書要重排——frond 自己盯著容器（`Renderer` 的 ResizeObserver），
   // 頁數是它有沒有重排的證據。
-  await expect(page.locator("#status-page")).toContainText("第 1 /");
+  await expect(page.locator("#status-page")).toContainText("Page 1 /");
 });

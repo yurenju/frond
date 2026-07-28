@@ -3,14 +3,17 @@ import { describe, expect, test } from "vitest";
 import { sha1 } from "../../packages/frond/src/sha1.ts";
 
 /**
- * 手寫的 SHA-1 對 `node:crypto` 逐筆比對。
+ * The hand-written SHA-1, checked entry by entry against `node:crypto`.
  *
- * oracle 必須是**獨立的實作**，這一點在這裡特別要緊：fixture 產生器製造混淆、
- * 函式庫解混淆，兩邊都用同一份 `sha1()`。雜湊若是錯的，兩邊會用同一把錯的金鑰
- * 互相抵消——「解出來等於原檔」照樣綠，然後實際的書在讀者手上是滿頁豆腐字。
- * 只有第三方的實作擋得住那種假象。
+ * The oracle has to be an **independent implementation**, and that matters especially here:
+ * the fixture generator creates the obfuscation and the library undoes it, and both sides use
+ * the same `sha1()`. If the hash were wrong, both sides would use the same wrong key and
+ * cancel each other out — "what comes out equals the original" would still be green, and real
+ * books in a reader's hands would be a page full of tofu. Only a third-party implementation
+ * guards against that illusion.
  *
- * `node:crypto` 只出現在測試裡。`EpubBook` 那一側零 Node 依賴（ADR-0005）。
+ * `node:crypto` appears only in the tests. The `EpubBook` side has zero Node dependencies
+ * (ADR-0005).
  */
 
 function expected(text: string): string {
@@ -23,13 +26,14 @@ function digest(text: string): string {
     .join("");
 }
 
-describe("對 node:crypto 逐筆比對", () => {
+describe("checked entry by entry against node:crypto", () => {
   const INPUTS = [
     "",
     "a",
     "abc",
-    // 55、56、64、119、120 這幾個長度剛好踩在補位的邊界上：56 起要多補一個
-    // 區塊，64 是整區塊。手寫實作最典型的錯就落在這幾格。
+    // The lengths 55, 56, 64, 119 and 120 sit exactly on the padding boundaries: from 56 on an
+    // extra block is required, and 64 is a whole block. The most typical mistakes in a
+    // hand-written implementation land in these cases.
     "x".repeat(55),
     "x".repeat(56),
     "x".repeat(63),
@@ -38,18 +42,18 @@ describe("對 node:crypto 逐筆比對", () => {
     "x".repeat(119),
     "x".repeat(120),
     "x".repeat(1000),
-    // IDPF 的金鑰推導餵進去的就是這種字串。
+    // This is the kind of string IDPF's key derivation is fed.
     "urn:uuid:0c4f0b3a-2f5e-4d1a-9f6b-1a2b3c4d5e6f",
     "非 ASCII 的識別碼——UTF-8 編碼之後才雜湊",
   ];
 
-  test.for(INPUTS)("長度 %#", (input: string) => {
+  test.for(INPUTS)("length %#", (input: string) => {
     expect(digest(input)).toBe(expected(input));
   });
 });
 
-describe("回傳的形狀", () => {
-  test("永遠是 20 個位元組", () => {
+describe("the shape of what is returned", () => {
+  test("always 20 bytes", () => {
     expect(sha1(new Uint8Array(0))).toHaveLength(20);
     expect(sha1(new Uint8Array(1000))).toHaveLength(20);
   });

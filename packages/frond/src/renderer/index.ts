@@ -1,16 +1,20 @@
 /**
- * `Renderer` 這一層的公開面——ADR-0005 雙層切分的上半：需要 DOM。
+ * The public face of the `Renderer` layer — the upper half of ADR-0005's two-layer
+ * split: it needs the DOM.
  *
- * 消費端只需要這個檔案裡的東西：把書掛到容器上、翻頁、跳位置、換讀者設定、收事件。
- * `section-view.ts` / `document-source.ts` / `cfi-dom.ts` / `layout.ts` 是實作，
- * 不在公開面上。
+ * Consumers only need what is in this file: mounting a book on a container, turning
+ * pages, jumping to a position, changing reader settings, receiving events.
+ * `section-view.ts` / `document-source.ts` / `cfi-dom.ts` / `layout.ts` are
+ * implementation and are not on the public face.
  *
- * `MemoryBook` 在這裡，而且是刻意的：ADR-0002 明列 frond **必須自己提供 fake /
- * in-memory 實作，並視為公開 API 的一部分**——上層測試 Navigator 那類純決策模組
- * 時，不該被迫自己造假物。
+ * `MemoryBook` is here, and deliberately so: ADR-0002 explicitly requires frond to
+ * **provide its own fake / in-memory implementation and treat it as part of the public
+ * API** — a layer above testing a pure decision module such as a Navigator should not
+ * be forced to build its own doubles.
  *
- * 介入清單（`INTERVENTIONS`）也在公開面上。frond 動了書的哪幾處是消費端有權知道
- * 的事實，而不是實作細節（ADR-0003）。
+ * The intervention list (`INTERVENTIONS`) is on the public face too. Which parts of a
+ * book frond touched is a fact the consumer has a right to know, not an implementation
+ * detail (ADR-0003).
  */
 
 export { Renderer } from "./renderer.ts";

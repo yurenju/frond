@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 //
-// 把展示用的繁中直排合成書寫成檔案。
+// Writes the synthetic vertical Traditional Chinese demo book to a file.
 //
-//   npm run demo:book                    # 寫進 tests/books/demo-zh-tw.epub
-//   node scripts/build-demo-book.ts <路徑>
+//   npm run demo:book                    # writes to tests/books/demo-zh-tw.epub
+//   node scripts/build-demo-book.ts <path>
 //
-// 書的內容與理由在 `src/test-fixtures/demo-book.ts`。這支只是把它落地——截圖用
-// 的 spec 直接 import 那個模組，不必先寫檔（`docs/agents/pull-requests.md`）。
-// 這裡存在是為了手動試 demo 站的時候有一本書可以拖。
+// The book's content and the reasoning behind it are in
+// `src/test-fixtures/demo-book.ts`. This only puts it on disk — the screenshot specs
+// import that module directly and need no file written first
+// (`docs/agents/pull-requests.md`). This exists so there is a book to drag in when trying
+// the demo site by hand.
 //
-// 這支腳本以 `node` 直接執行（型別剝離），所以 import 一律寫 .ts 副檔名——
-// 剝離器不會把 ./x.js 對應回 ./x.ts。
+// This script is executed directly by `node` (type stripping), so imports always carry a
+// .ts extension — the stripper does not map ./x.js back to ./x.ts.
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -27,4 +29,4 @@ const bytes = buildDemoBook();
 await mkdir(dirname(output), { recursive: true });
 await writeFile(output, bytes);
 
-console.log(`${relative(REPOSITORY_ROOT, output)}（${bytes.length} bytes）`);
+console.log(`${relative(REPOSITORY_ROOT, output)} (${bytes.length} bytes)`);

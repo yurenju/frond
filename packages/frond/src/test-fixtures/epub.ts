@@ -2,73 +2,83 @@ import { sha1, SHA1_LENGTH } from "../sha1.ts";
 import { zip, type ZipEntry } from "./zip.ts";
 
 /**
- * 由一份宣告式的規格組出 EPUB 的位元組。
+ * Assembles EPUB bytes from a declarative specification.
  *
- * 這一層只知道「怎麼組一本合規的書」，不知道任何病症——病症在 `ailments.ts`
- * 裡表達成對同一份健康骨架的單點差異。這一刀是「一個 fixture 只帶一個病症」
- * 這條要求的實作方式：病症若散在組裝邏輯裡，遲早會有兩個病症共用一段
- * `if`，而 fixture 之間就開始互相污染。
+ * This layer only knows how to assemble a conforming book; it knows nothing about
+ * ailments — ailments are expressed in `ailments.ts` as single-point differences against
+ * one shared healthy skeleton. This cut is how the requirement "one fixture carries one
+ * ailment" is implemented: were ailments scattered through the assembly logic, sooner or
+ * later two of them would share an `if`, and the fixtures would start contaminating each
+ * other.
  *
- * ## EPUB 版本
+ * ## EPUB versions
  *
- * 這一層認得兩種**版本**（`EpubVersion`）：EPUB 3 與 EPUB 2。它們在封裝層是兩種
- * 不同的形狀，不是同一份骨架加一份 NCX——後者是照規格推出來的形狀，是範本書
- * 而不是書實際的形狀（ADR-0010）。差異全部收在這個檔案裡，`ailments.ts` 只
- * 指定要哪一種。
+ * This layer recognises two **versions** (`EpubVersion`): EPUB 3 and EPUB 2. At the
+ * packaging layer they are two different shapes, not one skeleton plus an NCX — the latter
+ * is the shape inferred from the spec, a model book rather than the shape books actually
+ * have (ADR-0010). Every difference is contained in this file, and `ailments.ts` only
+ * names which one it wants.
  *
- * **不叫「載體」**：CONTEXT.md 把載體這個詞留給**導覽文件**（`nav.xhtml` 與
- * `toc.ncx`），而版本與導覽載體是兩件事——ADR-0010 的規則 3 講的正是「宣告 3.x
- * 卻只有 NCX」那一格，兩個詞混用就講不出那句話。#22 票上寫的是載體，那是
- * CONTEXT.md 收窄這個詞之前寫的。
+ * **It is not called a "vehicle"**: CONTEXT.md reserves that word for the **navigation
+ * document** (`nav.xhtml` and `toc.ncx`), and the version and the navigation vehicle are
+ * two different things — ADR-0010's rule 3 is precisely about the "declares 3.x but has
+ * only an NCX" case, which cannot be stated at all if the two words are conflated. Issue
+ * #22 says vehicle, and that was written before CONTEXT.md narrowed the term.
  *
- * 版本只管**封裝層**：封裝文件、導覽文件、封面的宣告寫法。內容文件（XHTML）
- * 兩種版本共用同一份樣板。這條界線是刻意的——內容文件是 `Renderer` 看到的
- * 東西，讓它跟著版本分岔，每一個內容層的病症就要乘二。
+ * A version governs only the **packaging layer**: the package document, the navigation
+ * document, and how the cover is declared. Content documents (XHTML) share one template
+ * across both versions. That boundary is deliberate — content documents are what
+ * `Renderer` sees, and letting them fork by version would double every content-layer
+ * ailment.
  */
 
-/** OCF 規定的容器 media type。 */
+/** The container media type OCF mandates. */
 const MIMETYPE = "application/epub+zip";
 
-/** 書內容所在的目錄。OCF 沒有規定名稱，EPUB 3 的慣例是 `EPUB/`。 */
+/** The directory the book's content lives in. OCF mandates no name; EPUB 3's convention is `EPUB/`. */
 const CONTENT_DIRECTORY = "EPUB";
 
 const PACKAGE_DOCUMENT_PATH = "package.opf";
 const STYLESHEET_PATH = "style.css";
 
-/** OCF 宣告混淆與加密的地方。 */
+/** Where OCF declares obfuscation and encryption. */
 const ENCRYPTION_PATH = "META-INF/encryption.xml";
 
-/** EPUB 規格自己定的字型混淆演算法。Adobe 那套是另一個 URI，這裡不產。 */
+/** The font obfuscation algorithm the EPUB spec defines itself. Adobe's is a different URI, and is not produced here. */
 const IDPF_ALGORITHM = "http://www.idpf.org/2008/embedding";
 
-/** IDPF 只蓋檔案開頭這麼多位元組。 */
+/** IDPF masks only this many bytes at the head of the file. */
 const IDPF_OBFUSCATED_LENGTH = 1040;
 
 /**
- * 固定的最後修改時間。EPUB 3 要求 `dcterms:modified`，而取「現在」會讓同一份
- * 輸入每次產生不同的位元組——ZIP 的 mtime 之外的第二個決定性破口。
+ * A fixed last-modified time. EPUB 3 requires `dcterms:modified`, and taking "now" would
+ * make the same input produce different bytes every time — the second leak in determinism
+ * after ZIP mtimes.
  *
- * EPUB 2 沒有這個欄位，所以那條路上不寫它——也就沒有這個破口。
+ * EPUB 2 has no such field, so that route never writes it — and therefore never has this
+ * leak.
  */
 const FIXED_MODIFIED = "2020-01-01T00:00:00Z";
 
 /**
- * 封裝版本。支援範圍見 ADR-0010；`epub3` 指 EPUB 3.x，`epub2` 指 EPUB 2.0.1。
+ * The packaging version. For the supported range see ADR-0010; `epub3` means EPUB 3.x and
+ * `epub2` means EPUB 2.0.1.
  */
 export type EpubVersion = "epub3" | "epub2";
 
 /**
- * 省略 `EpubSpec.epubVersion` 時的版本。這個預設值只有這一個定義——`ailments.ts`
- * 的 `epubVersionOf` 也讀它，兩邊各自寫一次 `?? "epub3"` 就會有第二處事實。
+ * The version used when `EpubSpec.epubVersion` is omitted. This default has exactly one
+ * definition — `ailments.ts`'s `epubVersionOf` reads it too, and writing `?? "epub3"` on
+ * each side would create a second source of truth.
  */
 export const DEFAULT_EPUB_VERSION: EpubVersion = "epub3";
 
 /**
- * 每一種版本的導覽文件：manifest 的 id、預設路徑、media type。
+ * Each version's navigation document: manifest id, default path, media type.
  *
- * id 也跟著版本換，因為 `<spine toc="ncx">` 指過去的就是它——EPUB 2 的 NCX 掛著
- * `id="nav"` 讀起來像是 EPUB 3 的導覽文件改了副檔名，而那正是這一軸要避免的
- * 誤導。
+ * The id changes with the version too, because that is what `<spine toc="ncx">` points at
+ * — an EPUB 2 NCX carrying `id="nav"` reads like an EPUB 3 navigation document with a
+ * changed extension, and that is exactly the confusion this axis is trying to avoid.
  */
 const NAVIGATION: Record<
   EpubVersion,
@@ -79,111 +89,122 @@ const NAVIGATION: Record<
 };
 
 /**
- * 封面的宣告寫法。**兩條路都要走得通，而且不是按版本分派**——樣本裡有一本
- * EPUB 3 的封面只有舊寫法（ADR-0010）。所以這是獨立的一軸，不由版本推得。
+ * How a cover is declared. **Both routes have to work, and it is not dispatched on
+ * version** — one EPUB 3 book in the sample declares its cover only in the old notation
+ * (ADR-0010). So this is an independent axis, not inferred from the version.
  */
 export type CoverNotation = "cover-image-property" | "meta-name";
 
 const COVER_ID = "cover-image";
 
 /**
- * TOC 的第二層——掛在某個 Section 底下的子項目。
+ * The TOC's second level — a sub-entry hanging under some Section.
  *
- * 位置用 fragment 而不是另一個檔案的路徑：樣本裡那本巢狀的 EPUB 2（Sigil →
- * calibre）第二層指的正是同一份 Section 內的 id，而且**同一份 NCX 裡帶 fragment
- * 與不帶的混用**——省略 `fragment` 就是不帶的那一種。
+ * The position is a fragment rather than another file's path: in the sample's nested
+ * EPUB 2 (Sigil → calibre), the second level points at an id within the same Section, and
+ * **the same NCX mixes entries with and without fragments** — omitting `fragment` is the
+ * latter kind.
  */
 export interface TocSubitemSpec {
   readonly title: string;
   /**
-   * 這個子項目指向 Section 內的哪個 id。省略時指向 Section 的開頭，也就是與
-   * 上一層同一個 href——那是實際的書裡確實出現的形狀，不是缺陷。
+   * Which id within the Section this sub-entry points at. Omitted, it points at the start
+   * of the Section, which is the same href as the level above — a shape that really does
+   * occur in real books, not a defect.
    *
-   * 給了值時，Section 的 `body` 裡必須真的有那個 id，否則這份 fixture 帶的是
-   * 「TOC 指向不存在的錨點」這第二個病症。
+   * When a value is given, the Section's `body` has to actually contain that id, or this
+   * fixture carries a second ailment: "the TOC points at a non-existent anchor".
    */
   readonly fragment?: string;
 }
 
 export interface SectionSpec {
-  /** 相對於內容目錄的路徑，例如 `section-1.xhtml`。 */
+  /** The path relative to the content directory, e.g. `section-1.xhtml`. */
   readonly path: string;
   readonly title: string;
-  /** XHTML 的 `<body>` 內容，已是合法的 XML。 */
+  /** The XHTML `<body>` content, already valid XML. */
   readonly body: string;
   /**
-   * TOC 指向這個 Section 時所用的 href，相對於導覽文件。省略時由路徑推得。
-   * 病症 fixture 用它表達「TOC 的 href 與 Section 的實際位置寫法不同」。
+   * The href the TOC uses to point at this Section, relative to the navigation document.
+   * Omitted, it is derived from the path. Ailment fixtures use it to express "the TOC's
+   * href is written differently from the Section's actual position".
    *
-   * 兩種版本共用這個欄位：EPUB 3 寫進 `nav.xhtml` 的 `<a href>`，EPUB 2 寫進
-   * NCX 的 `<content src>`。實測的壞 TOC 正是長在 NCX 上（ADR-0010、#23）。
+   * Both versions share this field: EPUB 3 writes it into `nav.xhtml`'s `<a href>`, and
+   * EPUB 2 into the NCX's `<content src>`. The broken TOCs actually measured are precisely
+   * on NCXs (ADR-0010, #23).
    */
   readonly navHref?: string;
   /**
-   * 這個 Section 在 TOC 裡的子項目。省略或空陣列時 TOC 在這一項上是平的。
+   * This Section's sub-entries in the TOC. Omitted or empty, the TOC is flat at this entry.
    *
-   * 巢狀是 TOC 的層次，不是 readingOrder 的層次——readingOrder 永遠是平的一
-   * 串。兩種載體表達同一棵樹的形狀不同（`<ol>` 套 `<ol>` 對 navPoint 套
-   * navPoint），所以各自有各自的解析錯法（#23）。
+   * Nesting is a level of the TOC, not of the readingOrder — the readingOrder is always one
+   * flat run. The two vehicles express the same tree in different shapes (`<ol>` nested in
+   * `<ol>` versus navPoint nested in navPoint), so each has its own way of being parsed
+   * wrongly (#23).
    */
   readonly subitems?: readonly TocSubitemSpec[];
 }
 
 export interface ResourceSpec {
   /**
-   * manifest 寫出去的 href，同時決定這份資源放在壓縮檔的哪裡。相對於封裝文件
-   * ——而封裝文件就在內容目錄裡，所以 `images/plate.png` 這種寫法照舊。
+   * The href written into the manifest, which also determines where this resource sits in
+   * the archive. Relative to the package document — and the package document is inside the
+   * content directory, so `images/plate.png` works as before.
    *
-   * 允許 `../` 走到封裝根：`../js/reader.js` 的 href 落在壓縮檔的 `js/reader.js`
-   * 上，而那是實際通路書（Kobo）的形狀，合規且解得開（#8 的 comment、#23）。
-   * 走出封裝根的路徑會被擋下來——那才是真的不合規。
+   * `../` up to the package root is allowed: an href of `../js/reader.js` lands on
+   * `js/reader.js` in the archive, and that is the shape of a real retail book (Kobo),
+   * conforming and resolvable (the comment on #8, #23). A path that escapes the package
+   * root is rejected — that one really is non-conforming.
    */
   readonly path: string;
   readonly mediaType: string;
   readonly contents: Uint8Array;
   /**
-   * 這一項要不要混淆過再寫進壓縮檔。給了值就會一併寫出
-   * `META-INF/encryption.xml` 宣告它。
+   * Whether this item should be obfuscated before being written into the archive. Giving a
+   * value also writes out a `META-INF/encryption.xml` declaring it.
    *
-   * 只有 `"idpf"` 一種：Adobe 那套是不同的金鑰推導與長度，而 frond 對它的處置
-   * 是明確錯誤（`src/epub/font-obfuscation.ts`）。要為那條路做 fixture 的話，
-   * 產生器得先長出製造 Adobe 混淆的能力，那是另一張票的事。
+   * There is only `"idpf"`: Adobe's uses a different key derivation and length, and frond's
+   * handling of it is an explicit error (`src/epub/font-obfuscation.ts`). Making a fixture
+   * for that route would first require the generator to grow the ability to produce Adobe
+   * obfuscation, which is another issue's business.
    */
   readonly obfuscation?: "idpf";
 }
 
 export interface CoverSpec extends ResourceSpec {
   /**
-   * 用哪一種寫法宣告它，可以兩種都給——實際的書常態是兩種都寫（樣本裡 30 本）。
-   * 空陣列等於「有圖但沒有任何宣告指向它」，那是沒有意義的形狀，會被擋下來。
+   * Which notation declares it; both may be given — real books commonly write both (30 in
+   * the sample). An empty array would mean "there is an image but nothing declares it",
+   * which is a meaningless shape and is rejected.
    */
   readonly declaredBy: readonly CoverNotation[];
 }
 
 export interface EpubSpec {
   /**
-   * 封裝版本。省略時是 `"epub3"`——現有的 fixture 全部落在這一格，而預設值讓
-   * 它們的位元組不因為版本這一軸的出現而漂掉。
+   * The packaging version. Omitted, it is `"epub3"` — every existing fixture lands there,
+   * and the default keeps their bytes from drifting merely because this axis appeared.
    */
   readonly epubVersion?: EpubVersion;
   readonly title: string;
-  /** BCP 47 語言標籤。區域字面的選擇由它驅動，見 docs/test-environment.md。 */
+  /** A BCP 47 language tag. It drives regional face selection; see docs/test-environment.md. */
   readonly language: string;
-  /** 固定的 unique identifier。不可取亂數——那是決定性的破口。 */
+  /** A fixed unique identifier. It must not be random — that would be a leak in determinism. */
   readonly identifier: string;
   readonly stylesheet: string;
-  /** readingOrder。EPUB 封裝格式裡叫 `<spine>`，那是規格的線上格式用詞。 */
+  /** The readingOrder. In the EPUB packaging format it is called `<spine>`, which is the spec's term for the serialised format. */
   readonly readingOrder: readonly SectionSpec[];
   /**
-   * 省略時不寫出這個屬性，等同規格的預設值 `ltr`。刻意區分「沒宣告」與
-   * 「宣告成 ltr」——`ppd-rtl-vertical` 的病症就在這個屬性上。
+   * Omitted, the attribute is not written out, which is equivalent to the spec's default of
+   * `ltr`. "Not declared" and "declared as ltr" are deliberately distinguished —
+   * `ppd-rtl-vertical`'s ailment is on exactly this attribute.
    *
-   * EPUB 2 沒有這個屬性，兩者一起給會被擋下來。
+   * EPUB 2 has no such attribute, and giving both is rejected.
    */
   readonly pageProgressionDirection?: "ltr" | "rtl";
-  /** 導覽文件的路徑，相對於內容目錄。預設值隨版本而不同，見 `NAVIGATION`。 */
+  /** The navigation document's path, relative to the content directory. The default differs by version; see `NAVIGATION`. */
   readonly navigationPath?: string;
-  /** 省略時這本書沒有封面。那不是缺陷，是一種要測到的形狀（ADR-0010）。 */
+  /** Omitted, this book has no cover. That is not a defect, it is a shape that has to be tested (ADR-0010). */
   readonly cover?: CoverSpec;
   readonly resources?: readonly ResourceSpec[];
 }
@@ -193,8 +214,9 @@ export function buildEpub(spec: EpubSpec): Uint8Array {
   assertCoherent(spec, epubVersion);
 
   const navigationPath = spec.navigationPath ?? NAVIGATION[epubVersion].path;
-  // 封面的位元組與其他資源走同一條路，只有 manifest 那一側不同（見
-  // packageDocument）。封面排在前面，讓壓縮檔的項目順序穩定。
+  // The cover's bytes go through the same route as every other resource; only the manifest
+  // side differs (see packageDocument). The cover comes first, keeping the archive's entry
+  // order stable.
   const resources = [
     ...(spec.cover === undefined ? [] : [spec.cover]),
     ...(spec.resources ?? []),
@@ -203,12 +225,13 @@ export function buildEpub(spec: EpubSpec): Uint8Array {
   const obfuscated = resources.filter((resource) => resource.obfuscation !== undefined);
 
   const entries: ZipEntry[] = [
-    // mimetype 必須是第一個項目、且未壓縮（zip.ts 一律 stored，所以後半自動
-    // 成立）。閱讀器靠固定位移嗅出這是不是 EPUB。
+    // mimetype has to be the first entry and uncompressed (zip.ts is always stored, so the
+    // second half holds automatically). Readers sniff whether this is an EPUB at a fixed
+    // offset.
     { path: "mimetype", contents: encode(MIMETYPE) },
     { path: "META-INF/container.xml", contents: encode(containerXml()) },
-    // 沒有混淆過的項目就不寫這個檔案——多寫一個空的 encryption.xml 會讓「這本
-    // 書有沒有混淆」這個探針對每一份 fixture 都成立。
+    // With no obfuscated items this file is not written — writing an empty encryption.xml
+    // anyway would make the probe "does this book have obfuscation" true for every fixture.
     ...(obfuscated.length === 0
       ? []
       : [
@@ -249,36 +272,40 @@ export function buildEpub(spec: EpubSpec): Uint8Array {
 }
 
 /**
- * 版本與其他欄位的組合是不是講得通（EPUB 版本 × 封面宣告寫法）。
+ * Whether the version and the other fields make sense together (EPUB version × cover
+ * notation).
  *
- * 這裡丟錯而不是靜默修正：不合規的組合產生的書**看起來是好的**（多一個屬性、
- * 多一個欄位），沒有任何下游測試會紅，而它會被當成「書實際的形狀」拿去測解析。
+ * This throws rather than silently correcting: a book produced from an incoherent
+ * combination **looks fine** (one extra attribute, one extra field), no downstream test
+ * goes red, and it would then be taken as "the shape books actually have" and used to test
+ * parsing.
  */
 function assertCoherent(spec: EpubSpec, epubVersion: EpubVersion): void {
   if (epubVersion === "epub2" && spec.pageProgressionDirection !== undefined) {
     throw new Error(
-      "EPUB 2 沒有 page-progression-direction（ADR-0010：EPUB 2 一律落在「書沒說」那一格）",
+      "EPUB 2 has no page-progression-direction (ADR-0010: EPUB 2 always lands in the \"the book did not say\" case)",
     );
   }
 
   if (spec.cover === undefined) return;
 
   if (spec.cover.declaredBy.length === 0) {
-    throw new Error("封面至少要有一種宣告寫法，否則沒有任何東西指向它");
+    throw new Error("a cover needs at least one notation declaring it, or nothing points at it");
   }
   if (epubVersion === "epub2" && spec.cover.declaredBy.includes("cover-image-property")) {
     throw new Error(
-      'EPUB 2 的 manifest 沒有 properties 屬性，封面只能走 <meta name="cover">',
+      'an EPUB 2 manifest has no properties attribute; a cover can only go through <meta name="cover">',
     );
   }
 }
 
 /**
- * 一份相對於封裝文件的 href 落在壓縮檔的哪一項上。
+ * Which archive entry an href relative to the package document lands on.
  *
- * `..` 在這裡**要真的收掉**，不能字串接上去了事：`EPUB/../js/reader.js` 這個
- * 字面上的項目名不存在於任何壓縮檔裡，而寫成那樣的書是好書（#8 的 comment）。
- * 這正是「把 href 當字串接在內容目錄後面」會對一本好書誤報的那一步。
+ * `..` **really has to be absorbed** here rather than just concatenated: the literal entry
+ * name `EPUB/../js/reader.js` exists in no archive, and a book written that way is a good
+ * book (the comment on #8). This is precisely the step where "concatenate the href onto the
+ * content directory" reports a false positive on a good book.
  */
 function contentPath(path: string): string {
   const segments: string[] = [CONTENT_DIRECTORY];
@@ -289,7 +316,7 @@ function contentPath(path: string): string {
       continue;
     }
     if (segments.length === 0) {
-      throw new Error(`href 走出了封裝根，不合規：${path}`);
+      throw new Error(`href escapes the package root, which is non-conforming: ${path}`);
     }
     segments.pop();
   }
@@ -297,15 +324,18 @@ function contentPath(path: string): string {
 }
 
 /**
- * 用 IDPF 的演算法把一份資源混淆掉。
+ * Obfuscates a resource with the IDPF algorithm.
  *
- * **這是 `src/epub/font-obfuscation.ts` 的反向操作，而且刻意獨立寫一次。** 兩邊
- * 共用同一份實作的話，對演算法的任何誤解都會在混淆與還原兩側同時成立，「解出來
- * 等於原檔」照樣全綠，然後實際的書在讀者手上是滿頁豆腐字——`epub-archive.ts`
- * 用外部函式庫讀自己的產出，是同一條紀律。
+ * **This is the inverse of `src/epub/font-obfuscation.ts`, and is deliberately written out
+ * a second time.** Were both sides to share one implementation, any misunderstanding of the
+ * algorithm would hold on the obfuscating and the restoring side alike, "what comes out
+ * equals the original" would still be green, and real books in a reader's hands would be a
+ * page full of tofu — `epub-archive.ts` reading our own output with an external library is
+ * the same discipline.
  *
- * 共用的只有 `sha1()`：它是一個原語而不是這個演算法的一部分，而且它自己對
- * `node:crypto` 逐筆比對過（`tests/node/sha1.test.ts`），共用不會藏起錯誤。
+ * The only thing shared is `sha1()`: it is a primitive rather than part of this algorithm,
+ * and it is itself checked entry by entry against `node:crypto`
+ * (`tests/node/sha1.test.ts`), so sharing it hides no errors.
  */
 function obfuscate(contents: Uint8Array, identifier: string): Uint8Array {
   const key = sha1(encode(stripWhitespace(identifier)));
@@ -317,7 +347,7 @@ function obfuscate(contents: Uint8Array, identifier: string): Uint8Array {
   return obfuscated;
 }
 
-/** 規格點名要去掉的那四個空白碼位：space、tab、CR、LF。 */
+/** The four whitespace code points the spec names for removal: space, tab, CR, LF. */
 const IDPF_KEY_WHITESPACE = [0x20, 0x09, 0x0d, 0x0a];
 
 function stripWhitespace(identifier: string): string {
@@ -327,8 +357,9 @@ function stripWhitespace(identifier: string): string {
 }
 
 function encryptionXml(paths: readonly string[]): string {
-  // 帶 `enc:` 前綴是實際的書寫法（xmlenc 的命名空間）。前綴由讀取端剝掉，所以
-  // 這裡寫前綴同時也在測「不照字面比對前綴」那條路。
+  // The `enc:` prefix is how real books write it (the xmlenc namespace). The prefix is
+  // stripped by the read side, so writing it here also exercises the "do not match prefixes
+  // literally" route.
   const declarations = paths
     .map(
       (path) => `  <enc:EncryptedData>
@@ -379,17 +410,18 @@ function packageDocument(
   const epub2 = epubVersion === "epub2";
 
   const manifest = [
-    // EPUB 3 用 properties="nav" 標出導覽文件；EPUB 2 沒有這個屬性，靠 spine 的
-    // toc 屬性指向 NCX 的 id。
+    // EPUB 3 marks the navigation document with properties="nav"; EPUB 2 has no such
+    // attribute and points at the NCX's id through the spine's toc attribute.
     `    <item id="${NAVIGATION[epubVersion].id}" href="${navigationPath}" media-type="${NAVIGATION[epubVersion].mediaType}"${epub2 ? "" : ' properties="nav"'}/>`,
     `    <item id="stylesheet" href="${STYLESHEET_PATH}" media-type="text/css"/>`,
     ...spec.readingOrder.map(
       (section, index) =>
         `    <item id="${sectionId(index)}" href="${section.path}" media-type="application/xhtml+xml"/>`,
     ),
-    // 封面自己一項，不參與 resource-N 的編號。混在一起編號的話，一本書加上
-    // 封面就會讓其他資源的 id 整批位移，而 id 是 <meta name="cover"> 指過來的
-    // 東西——位移之後封面指向另一個資源，而那不會有任何東西報錯。
+    // The cover is its own item and takes no part in the resource-N numbering. Numbered
+    // together, adding a cover to a book would shift every other resource's id, and the id
+    // is what <meta name="cover"> points at — after the shift the cover points at a
+    // different resource, and nothing would report an error.
     ...(spec.cover === undefined ? [] : [manifestItem(COVER_ID, spec.cover, coverProperties(spec.cover))]),
     ...(spec.resources ?? []).map((resource, index) =>
       manifestItem(`resource-${index + 1}`, resource, ""),
@@ -406,21 +438,22 @@ function packageDocument(
       : ` page-progression-direction="${spec.pageProgressionDirection}"`;
 
   const metadata = [
-    // EPUB 2 的 dc:identifier 帶 opf:scheme 宣告它自稱是哪一種識別碼。frond 不
-    // 解讀它（ADR-0010），但實際的書會寫，而 calibre 產的書正是這個形狀。
+    // An EPUB 2 dc:identifier carries opf:scheme declaring which kind of identifier it
+    // claims to be. frond does not interpret it (ADR-0010), but real books write it, and
+    // books produced by calibre have exactly this shape.
     `    <dc:identifier id="pub-id"${epub2 ? ' opf:scheme="uuid"' : ""}>${escapeXml(spec.identifier)}</dc:identifier>`,
     `    <dc:title>${escapeXml(spec.title)}</dc:title>`,
     `    <dc:language>${spec.language}</dc:language>`,
-    // EPUB 3 才有 dcterms:modified。EPUB 2 這條路上沒有它的位置，那個固定
-    // 時間戳因此也不出現。
+    // dcterms:modified only exists in EPUB 3. It has no place on the EPUB 2 route, so that
+    // fixed timestamp does not appear there either.
     ...(epub2 ? [] : [`    <meta property="dcterms:modified">${FIXED_MODIFIED}</meta>`]),
-    // <meta name="cover"> 指的是 manifest 項目的 **id**，不是它的 href。
+    // <meta name="cover"> points at a manifest item's **id**, not its href.
     ...(spec.cover !== undefined && spec.cover.declaredBy.includes("meta-name")
       ? [`    <meta name="cover" content="${COVER_ID}"/>`]
       : []),
   ].join("\n");
 
-  // EPUB 2 的 metadata 要宣告 opf 前綴才能用 opf:scheme；EPUB 3 不需要。
+  // EPUB 2's metadata has to declare the opf prefix to use opf:scheme; EPUB 3 does not.
   const metadataNamespaces = epub2
     ? ' xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf"'
     : ' xmlns:dc="http://purl.org/dc/elements/1.1/"';
@@ -441,17 +474,20 @@ ${readingOrder}
 }
 
 /**
- * 要寫出去的 TOC 的一個節點。**兩種載體共用這棵樹**——形狀的差異全部在渲染那
- * 一步，不在樹上。分開建兩棵的話，「同一個 TOC 在 nav 與 NCX 上長成兩種形狀」
- * 這件事就只是巧合，而巢狀的那兩份 fixture 正是要拿來對照的一對（#23）。
+ * One node of the TOC to be written out. **Both vehicles share this tree** — every
+ * difference in shape is in the rendering step, not in the tree. Building two trees would
+ * make "the same TOC grows into two shapes on nav and on NCX" a mere coincidence, and the
+ * two nested fixtures are precisely a pair meant to be compared (#23).
  *
- * 名字帶 `Spec` 是為了與**讀回來**的那一棵分開：`tests/node/support/epub-archive.ts`
- * 匯出的 `TocNode` 是解析產出物得到的節點，多帶一個 `archivePath`。兩者是同一
- * 個概念的兩端，但形狀不同，共用一個名字只會讓人以為它們可以互換。
+ * The name carries `Spec` to keep it apart from the tree **read back**:
+ * `tests/node/support/epub-archive.ts` exports a `TocNode`, which is a node obtained by
+ * parsing the output and carries an extra `archivePath`. The two are the two ends of one
+ * concept, but their shapes differ, and sharing a name would only suggest they are
+ * interchangeable.
  */
 interface TocSpecNode {
   readonly title: string;
-  /** 相對於導覽文件的 href。 */
+  /** The href relative to the navigation document. */
   readonly href: string;
   readonly children: readonly TocSpecNode[];
 }
@@ -471,7 +507,7 @@ function tocTree(spec: EpubSpec, navigationPath: string): readonly TocSpecNode[]
   });
 }
 
-/** 這棵樹有幾層。全平的 TOC 是 1，NCX 的 `dtb:depth` 要寫的就是這個數字。 */
+/** How many levels this tree has. A wholly flat TOC is 1, and that is the number the NCX's `dtb:depth` has to carry. */
 function tocDepth(nodes: readonly TocSpecNode[]): number {
   return nodes.reduce(
     (deepest, node) => Math.max(deepest, 1 + tocDepth(node.children)),
@@ -480,9 +516,10 @@ function tocDepth(nodes: readonly TocSpecNode[]): number {
 }
 
 /**
- * `nav.xhtml` 的巢狀寫法：子清單是**掛在 `<li>` 裡面**的另一個 `<ol>`，不是
- * `<li>` 的兄弟。放成兄弟的話 XHTML 仍然良構、瀏覽器也畫得出來，但那棵樹是平
- * 的——這是這個載體最典型的寫錯法，而它在只有一層的 TOC 上看不出來。
+ * `nav.xhtml`'s nesting notation: a sub-list is another `<ol>` **hung inside the `<li>`**,
+ * not a sibling of the `<li>`. Placed as a sibling the XHTML is still well-formed and the
+ * browser still draws it, but that tree is flat — this is the most typical way of getting
+ * this vehicle wrong, and it is invisible in a single-level TOC.
  */
 function navigationItems(nodes: readonly TocSpecNode[], indent: number): string {
   const pad = " ".repeat(indent);
@@ -524,31 +561,34 @@ ${items}
 }
 
 /**
- * EPUB 2 的導覽文件——NCX（Navigation Control file for XML，出自 DAISY）。
+ * EPUB 2's navigation document — the NCX (Navigation Control file for XML, from DAISY).
  *
- * 它不是 XHTML：navPoint 的層次就是 TOC 的層次，標籤在 `<navLabel><text>`，
- * 位置在 `<content src>`。`nav.xhtml` 的巢狀是 `<ol>` 套 `<ol>`，這裡是
- * navPoint 套 navPoint——形狀不同，所以各自有各自的解析錯法（#23）。
+ * It is not XHTML: navPoint nesting is the TOC's nesting, the label is in
+ * `<navLabel><text>` and the position in `<content src>`. `nav.xhtml` nests `<ol>` in
+ * `<ol>`; this nests navPoint in navPoint — different shapes, so each has its own way of
+ * being parsed wrongly (#23).
  */
 function navigationControlFile(spec: EpubSpec, navigationPath: string): string {
   const tree = tocTree(spec, navigationPath);
 
-  // playOrder 是 NCX 自己宣告的閱讀順序，與 navPoint 的文件順序在合規的書裡
-  // 一致——**包括巢狀的部分**：它是整棵樹拉平後的序號，不是每一層各自從 1 重
-  // 數。frond 不靠它排序，但實際的書都會寫（樣本裡那本是 1..48 連續），少了它
-  // 就與實際的書不同。
+  // playOrder is the reading order the NCX declares for itself, and it agrees with the
+  // navPoints' document order in a conforming book — **including the nested parts**: it is
+  // the ordinal over the whole tree flattened, not restarting from 1 at each level. frond
+  // does not rely on it for ordering, but real books all write it (the one in the sample
+  // runs 1..48 consecutively), and without it this would differ from real books.
   let playOrder = 0;
   const renderNavPoints = (nodes: readonly TocSpecNode[], indent: number): string => {
     const pad = " ".repeat(indent);
     return nodes
       .map((node) => {
         playOrder += 1;
-        // 先把自己的序號記下來再往下走：子項目會把計數器推上去，而樣板字串是
-        // 在子項目算完之後才取值的。少了這一行，父項目拿到的是子樹用掉的最後
-        // 一個序號。
+        // Record our own ordinal before descending: the children push the counter up, and
+        // the template string only takes its value after the children have been computed.
+        // Without this line the parent would get the last ordinal the subtree used.
         const order = playOrder;
-        // 子項目**寫在 navPoint 裡面**，不是它的兄弟——那是 NCX 表達層次的唯一
-        // 方式，也是這個載體最典型的寫錯法。
+        // Sub-entries are written **inside** the navPoint rather than as its siblings —
+        // that is the NCX's only way of expressing levels, and also the most typical way of
+        // getting this vehicle wrong.
         const children =
           node.children.length === 0
             ? ""
@@ -603,10 +643,11 @@ function sectionId(index: number): string {
 }
 
 /**
- * 由 `from` 這份文件看向 `target` 的相對 href。兩者都是相對於內容目錄的路徑。
+ * The relative href from the document `from` to `target`. Both are paths relative to the
+ * content directory.
  *
- * 這裡不用 `node:path`：EPUB 的 href 是 URL 而不是檔案系統路徑，在 Windows 上
- * `path.relative` 會給出 `\` 分隔的結果。
+ * `node:path` is not used here: an EPUB href is a URL rather than a filesystem path, and on
+ * Windows `path.relative` would give a `\`-separated result.
  */
 function relativeHref(target: string, from: string): string {
   const fromSegments = from.split("/").slice(0, -1);

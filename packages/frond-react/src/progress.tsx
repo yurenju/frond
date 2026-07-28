@@ -1,14 +1,15 @@
 /**
- * `Progress`——全書讀到哪了。
+ * `Progress` — how far through the book we are.
  *
- * ## 為什麼是唯讀的，不是一根可以拖的定位軸
+ * ## Why it is read-only rather than a draggable position slider
  *
- * 拖曳定位需要的東西這個套件全都給得出來（`useReader().goToFraction()`），但**滑桿
- * 本身不該由我們出**：那是一個一般性的控制項，消費端多半已經有一個（自己的設計系
- * 統、Radix 的 `Slider`、或者就是 `<input type="range">`），而我們寫的那一個必然
- * 在鍵盤操作、觸控命中區、RTL 這幾件事上比不過。
+ * Everything drag-to-position needs is available from this package
+ * (`useReader().goToFraction()`), but **the slider itself should not come from us**: it is
+ * a general-purpose control, the consumer most likely already has one (their own design
+ * system, Radix's `Slider`, or simply `<input type="range">`), and whatever we wrote would
+ * inevitably lose to it on keyboard operation, touch target size and RTL.
  *
- * 所以這裡只出「顯示進度」這一格，拖曳留給消費端：
+ * So this covers only "show the progress", and dragging is left to the consumer:
  *
  * ```tsx
  * const { location, goToFraction } = useReader();
@@ -18,11 +19,12 @@
  *        onChange={(e) => void goToFraction(e.currentTarget.valueAsNumber)} />
  * ```
  *
- * ## `fraction` 會有一段時間是 undefined
+ * ## `fraction` is undefined for a while
  *
- * 整書索引是 `attach()` 之後在背景建的（frond 的 user story 25），在那之前沒有全書
- * 進度可言。這裡把那一格畫成 `data-state="indeterminate"` 而不是 0——畫成 0 的話讀
- * 者看到的是「我在書的最前面」，而那是一句假話。
+ * The whole-book index is built in the background after `attach()` (frond's user story 25),
+ * and until then there is no whole-book progress to speak of. That case is drawn here as
+ * `data-state="indeterminate"` rather than 0 — drawn as 0, the reader would see "I am at the
+ * very start of the book", and that would be a lie.
  */
 
 import { forwardRef, type ComponentPropsWithoutRef, type ReactNode } from "react";
@@ -30,7 +32,7 @@ import { useReader } from "./context.ts";
 import { Slot } from "./slot.tsx";
 
 export interface ProgressProps extends ComponentPropsWithoutRef<"div"> {
-  /** 不渲染自己的 `<div>`，把 props 併進唯一的 child。見 `slot.tsx`。 */
+  /** Renders no `<div>` of its own, merging the props into the single child. See `slot.tsx`. */
   readonly asChild?: boolean;
 }
 
@@ -54,9 +56,9 @@ export const Progress = forwardRef<HTMLDivElement, ProgressProps>(function Progr
       data-frond-part="progress"
       data-state={fraction === undefined ? "indeterminate" : "loaded"}
       style={{
-        // 進度以 custom property 出去，而不是直接設 `width`。差別在於消費端因此
-        // 可以決定它是一條長條、一個圓弧、一個 `scaleX`，還是根本不畫——設
-        // `width` 的話我們就替它選了「長條」那一種。
+        // The progress goes out as a custom property rather than setting `width` directly.
+        // The difference is that the consumer can then decide whether it is a bar, an arc, a
+        // `scaleX`, or not drawn at all — setting `width` would have chosen "a bar" for them.
         ...(fraction === undefined ? {} : { ["--frond-progress" as string]: String(fraction) }),
         ...style,
       }}

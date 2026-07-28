@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 //
-// 把展示站的 React 那一頁打包起來。由 `scripts/build-site.sh` 呼叫，不是獨立入口。
+// Bundles the demo site's React page. Called by `scripts/build-site.sh`; not a standalone
+// entry point.
 //
-// 這支腳本以 `node` 直接執行（型別剝離），所以 import 一律寫 .ts 副檔名——
-// 剝離器不會把 ./x.js 對應回 ./x.ts。
+// This script is executed directly by `node` (type stripping), so imports always carry a
+// .ts extension — the stripper does not map ./x.js back to ./x.ts.
 
 import { copyFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -14,28 +15,31 @@ const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SITE_REACT = join(REPOSITORY_ROOT, "site", "react");
 
 /**
- * ## 這一頁為什麼可以有打包器，而首頁不行
+ * ## Why this page may have a bundler when the home page may not
  *
- * 首頁是「frond 出貨相依為零」的實物證明：`<script type="module">` 直接 import
- * `tsc` emit 出來的檔案，沒有第三個工具。把任何需要打包的東西放進那一頁，那句宣稱
- * 就不再檢查任何東西。
+ * The home page is physical proof of "frond ships with zero dependencies": a
+ * `<script type="module">` importing the files `tsc` emitted, with no third tool involved.
+ * Putting anything requiring bundling on that page would leave the claim checking nothing.
  *
- * 這一頁證明的是**另一件事**，而它同樣需要一個實物證明：`@yurenju/frond-react`
- * 相依 react，於是它的消費端一定有打包器——所以這裡該問的問題不是「能不能不打
- * 包」，是「**出貨的那包東西，被一個零設定的打包器吃下去，在真的瀏覽器裡跑不跑得
- * 動**」。
+ * This page proves **something else**, and it needs physical proof just as much:
+ * `@yurenju/frond-react` depends on react, so its consumers all have a bundler — and the
+ * question to ask here is not "can it go unbundled" but "**does the shipped package, fed to a
+ * zero-configuration bundler, actually run in a real browser**".
  *
- * ## 因此解析走 node_modules，不走原始碼
+ * ## Hence resolution goes through node_modules, not the source
  *
- * 這裡刻意**沒有** alias。`tests/browser/react/support/harness.ts` 有（它把套件名
- * 指回各自的 `src/`，那樣改一行就看得到結果），而這一支相反：它解析到的是每個套件
- * 的 `dist/`，也就是消費端 `npm install` 之後拿到的那些檔案。
+ * There is deliberately **no** alias here. `tests/browser/react/support/harness.ts` has one
+ * (it points the package names back at their `src/`, so a one-line change is immediately
+ * visible), and this does the opposite: it resolves to each package's `dist/`, which is what a
+ * consumer gets after `npm install`.
  *
- * 兩者的差別就是這一頁的價值。測試對著原始碼跑，所以它抓不到「`exports` 的路徑打
- * 錯」「`files` 漏了東西」「emit 出來的 `.js` 少了一個副檔名」這一類只在出貨產物
- * 上成立的錯——而那些錯在消費端是致命的。這一頁每次部署都在走那條路。
+ * The difference between the two is this page's value. The tests run against the source, so
+ * they cannot catch "a wrong path in `exports`", "`files` missed something" or "the emitted
+ * `.js` is missing an extension" — mistakes that only exist in the shipped artifact, and that
+ * are fatal for a consumer. This page walks that route on every deploy.
  *
- * 代價是 `npm run site` 必須先把兩個套件都建起來。`build-site.sh` 因此把順序寫死。
+ * The cost is that `npm run site` has to build both packages first. `build-site.sh` therefore
+ * hard-codes the order.
  */
 const result = await build({
   entryPoints: [join(SITE_REACT, "app.tsx")],
@@ -46,19 +50,23 @@ const result = await build({
   target: "es2022",
   jsx: "automatic",
   minify: true,
-  // sourcemap 讓「在展示站上看到怪東西」可以直接對回原始碼。它指的是 frond 出貨
-  // 的 `src/`（那些檔案在 tarball 裡，見 ADR-0008），所以連 frond 內部都跳得進去。
+  // The sourcemap lets "I saw something odd on the demo site" map straight back to the source.
+  // It points at frond's shipped `src/` (those files are in the tarball; see ADR-0008), so it
+  // can even step into frond's internals.
   sourcemap: true,
-  // React 的開發版會多做很多檢查並印警告。展示站要的是它實際跑起來的樣子，而不是
-  // 一頁 console 警告，所以用生產版。
+  // React's development build does a great deal of extra checking and logs warnings. The demo
+  // site wants to show how it actually runs, not a page of console warnings, so the production
+  // build is used.
   define: { "process.env.NODE_ENV": '"production"' },
   metafile: true,
 });
 
-// 預設樣式複製過去，頁面用一個 `disabled` 得掉的 <link> 掛它。
+// The default styles are copied over, and the page attaches them with a `<link>` that can be
+// disabled.
 //
-// 不 import 進 bundle：那樣它就變成「一定會生效」，而這一頁要示範的正好是它**可以
-// 完全不生效**。一個開關切得掉的 <link> 是唯一表達得出這件事的形狀。
+// They are not imported into the bundle: that would make them "always in effect", and what
+// this page is demonstrating is precisely that they **can be entirely absent**. A `<link>`
+// that a switch can turn off is the only shape that expresses this.
 await copyFile(
   join(REPOSITORY_ROOT, "packages", "frond-react", "styles.css"),
   join(SITE_REACT, "frond-react.css"),
@@ -67,5 +75,5 @@ await copyFile(
 const outputs = Object.entries(result.metafile.outputs);
 for (const [path, meta] of outputs) {
   if (path.endsWith(".map")) continue;
-  console.log(`site/react/bundle.js：${(meta.bytes / 1024).toFixed(0)} kB（含 react）`);
+  console.log(`site/react/bundle.js: ${(meta.bytes / 1024).toFixed(0)} kB (react included)`);
 }

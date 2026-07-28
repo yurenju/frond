@@ -1,74 +1,87 @@
 /**
- * 把書裡的 `href` 對應到壓縮檔內的項目名稱。
+ * Maps an `href` in a book to an entry name inside the archive.
  *
- * **這是全專案唯一的一條路。** manifest（`resources.ts`）、容器的 `full-path`
- * （`container.ts`）與 TOC（`toc.ts`）都叫這個函式，各自只換一個基底：解析
- * 相對於引用它的那份文件。spine 的原罪正是同一種正規化被獨立實作了兩次、彼此
- * 不知道對方存在，於是修好一邊另一邊照壞（#1）。多一個呼叫端不算重複，多一個
- * `decodeURIComponent` 才是。
+ * **This is the one and only route in the project.** The manifest (`resources.ts`),
+ * the container's `full-path` (`container.ts`) and the TOC (`toc.ts`) all call this
+ * function, each swapping in a different base: resolution is relative to the document
+ * that cites the href. Spine's original sin was exactly this — the same
+ * normalization implemented twice, each unaware of the other, so fixing one left the
+ * other broken (#1). One more call site is not duplication; one more
+ * `decodeURIComponent` is.
  *
- * **這不是字串接合。** `href` 是 URL 而不是檔案系統路徑，要照 URL 的規則相對於
- * 引用它的那份文件解析。實證（#8 的留言）：一本 Kobo 通路的 EPUB 3，OPF 在
- * `OEBPS/content.opf`，manifest 裡有
+ * **This is not string concatenation.** An `href` is a URL, not a filesystem path,
+ * and has to be resolved by URL rules relative to the document citing it. Evidence
+ * (from the comments on #8): a Kobo-channel EPUB 3 whose OPF sits at
+ * `OEBPS/content.opf` has this in its manifest
  *
  * ```xml
  * <item id="js-kobo.js" href="../js/kobo.js" media-type="application/javascript"/>
  * ```
  *
- * 而 `js/kobo.js` 確實存在於封裝根。`OEBPS/` 接上 `../js/kobo.js` 得到的字面
- * `OEBPS/../js/kobo.js` 不是任何一個 ZIP 項目的名字，於是字串接合的實作會把這本
- * **合規的書**判成「OPF 指向不存在的檔案」。
+ * and `js/kobo.js` really does exist at the package root. Joining `OEBPS/` to
+ * `../js/kobo.js` gives the literal `OEBPS/../js/kobo.js`, which is not the name of
+ * any ZIP entry, so a concatenating implementation judges this **conforming book** to
+ * have an OPF pointing at a missing file.
  *
- * 借 WHATWG `URL` 的解析規則（零 DOM 依賴，Node 與瀏覽器都有它），它同時處理
- * `../` 與 percent-encoding——後者是另一個病症（`toc-href-percent-comma`）。
+ * Borrowing WHATWG `URL`'s resolution rules (zero DOM dependency; Node and browsers
+ * both have it) handles `../` and percent-encoding at once — the latter being a
+ * separate ailment (`toc-href-percent-comma`).
  *
- * ## 為什麼要一個哨兵目錄
+ * ## Why a sentinel directory
  *
- * `URL` 在根目錄把多餘的 `..` 吃掉：`../../x` 相對於 `/OEBPS/a.opf` 解析成
- * `/x`，而不是失敗。那正好讓「跳出封裝根」這種不合規（也是路徑穿越的形狀）變得
- * 看不見。所以基底多墊一層哨兵目錄：解析後還在哨兵底下的才在封裝內，被吃掉那
- * 一層的就是跳出去了。
+ * `URL` swallows surplus `..` at the root: `../../x` relative to `/OEBPS/a.opf`
+ * resolves to `/x` rather than failing. That is precisely what would make "escapes
+ * the package root" — non-conforming, and also the shape of a path traversal —
+ * invisible. So the base is padded with one sentinel directory: whatever still sits
+ * under the sentinel after resolution is inside the package, and whatever had that
+ * level swallowed has escaped.
  */
 
 const ORIGIN = "https://frond.invalid";
 
-/** 墊在封裝根之上的一層。名字不會出現在任何回傳值裡。 */
+/** The layer padded on above the package root. Its name never appears in any return value. */
 const SENTINEL = "/__container__/";
 
 /**
- * 封裝根，當作 `fromArchivePath` 用。
+ * The package root, for use as a `fromArchivePath`.
  *
- * `META-INF/` 底下那幾個檔案（`container.xml` 的 `full-path`、`encryption.xml`
- * 的 `CipherReference URI`）指的路徑相對的是封裝根，而不是它們自己所在的目錄。
- * 各自寫一個空字串也會動，但那個空字串看起來像「忘了填」而不是一個決定。
+ * The few files under `META-INF/` (`container.xml`'s `full-path`,
+ * `encryption.xml`'s `CipherReference URI`) name paths relative to the package root
+ * rather than to their own directory. Writing an empty string at each site would
+ * work too, but that empty string reads like a forgotten field rather than a
+ * decision.
  */
 export const CONTAINER_ROOT = "";
 
 export type ResolvedHref =
-  /** 解析後落在封裝內，`path` 是壓縮檔內的項目名稱。 */
+  /** Resolved inside the package; `path` is the entry name within the archive. */
   | {
       readonly kind: "in-container";
       readonly path: string;
       /**
-       * href 的 `#` 之後那一段，已解碼。沒有 fragment 時是 `undefined`。
+       * The part of the href after `#`, already decoded. `undefined` when there is
+       * no fragment.
        *
-       * manifest 的 href 不會有它（那裡指的是整份檔案），**TOC 的常常有**：量到
-       * 的數字是那 33 本書的導覽文件裡 1568 個目錄 href 有 914 個帶 fragment，
-       * 分布在 22 本書上。丟掉它的實作在第一層目錄上完全正常，只有跳到章節中段
-       * 時才會靜默地停在 Section 開頭。
+       * Manifest hrefs never carry one (there it names a whole file); **TOC hrefs
+       * often do**: the measured number is that across those 33 books' navigation
+       * documents, 914 of 1568 TOC hrefs carry a fragment, spread over 22 books. An
+       * implementation that discards it behaves perfectly on top-level entries, and
+       * only silently stops at the start of the Section when jumping into the middle
+       * of a chapter.
        *
-       * 解碼是必要的：id 可以是非 ASCII，而 URL 裡的它是 percent-encoded 的。
+       * Decoding is necessary: an id may be non-ASCII, and inside a URL it is
+       * percent-encoded.
        */
       readonly fragment: string | undefined;
     }
-  /** 絕對 URL——不在這個壓縮檔裡。EPUB 3 允許遠端資源，frond 不下載它。 */
+  /** An absolute URL — not in this archive. EPUB 3 allows remote resources; frond does not download them. */
   | { readonly kind: "remote"; readonly url: string }
-  /** 解析後跳出封裝根。不合規。 */
+  /** Resolves outside the package root. Non-conforming. */
   | { readonly kind: "outside-container" };
 
 /**
- * @param href 原樣照抄的 href
- * @param fromArchivePath 引用它的那份文件在壓縮檔內的路徑
+ * @param href the href, copied verbatim
+ * @param fromArchivePath the archive path of the document citing it
  */
 export function resolveHref(href: string, fromArchivePath: string): ResolvedHref {
   const base = new URL(`${SENTINEL}${fromArchivePath}`, ORIGIN);
@@ -77,8 +90,9 @@ export function resolveHref(href: string, fromArchivePath: string): ResolvedHref
   try {
     resolved = new URL(href, base);
   } catch {
-    // `URL` 只有在完全解析不出來時才丟——例如 href 是空字串以外的無效
-    // 絕對 URL（`http://[`）。那種書的這一項指不到任何東西。
+    // `URL` only throws when it cannot resolve at all — for instance when the href
+    // is an invalid absolute URL other than the empty string (`http://[`). In such a
+    // book this item points at nothing.
     return { kind: "outside-container" };
   }
 
@@ -92,18 +106,20 @@ export function resolveHref(href: string, fromArchivePath: string): ResolvedHref
   return {
     kind: "in-container",
     path: decodePath(resolved.pathname.slice(SENTINEL.length)),
-    // `hash` 帶著 `#`，而空的 fragment（`a.xhtml#`）與沒有 fragment 是同一件事
-    // ——兩者都指向那份文件的開頭。
+    // `hash` carries the `#`, and an empty fragment (`a.xhtml#`) is the same thing
+    // as no fragment — both point at the start of that document.
     fragment:
       resolved.hash.length > 1 ? decodePath(resolved.hash.slice(1)) : undefined,
   };
 }
 
 /**
- * ZIP 的項目名稱是原始位元組，不是 percent-encoded 的 URL，所以解析完要還原。
+ * ZIP entry names are raw bytes, not percent-encoded URLs, so resolution has to be
+ * undone afterwards.
  *
- * 還原不了的（`%zz` 這種壞編碼）就原樣留著——那本書的 href 本來就寫壞了，而
- * 「查不到這個項目」比「開書時丟一個 `URIError`」好懂。
+ * Whatever will not decode (broken encodings like `%zz`) is left verbatim — that
+ * book's href was written wrong to begin with, and "this entry is not found" is
+ * easier to understand than "a `URIError` while opening the book".
  */
 function decodePath(pathname: string): string {
   try {

@@ -1,8 +1,9 @@
 /**
- * 冒煙測試共用的最小文件外殼。
+ * The minimal document shell shared by the smoke tests.
  *
- * 背景固定純白、邊界歸零，是因為 ink.ts 的墨水判準假設背景是白的，而元素截圖
- * 的邊界若被 margin 推移，重心的正規化座標就會偏掉。
+ * The background is fixed pure white and the margins zeroed, because ink.ts's ink criterion
+ * assumes a white background, and if an element screenshot's bounds were displaced by a
+ * margin the normalized coordinates of the centroid would be off.
  */
 export function documentWith(body: string): string {
   return `<!doctype html>

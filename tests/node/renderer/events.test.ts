@@ -7,7 +7,7 @@ interface TestEvents {
 }
 
 describe("typed emitter", () => {
-  test("送出去的事件只到對應的 listener", () => {
+  test("an emitted event reaches only the matching listener", () => {
     const emitter = new Emitter<TestEvents>();
     const pings: number[] = [];
     const pongs: string[] = [];
@@ -21,7 +21,7 @@ describe("typed emitter", () => {
     expect(pongs).toEqual([]);
   });
 
-  test("同一個事件可以有很多 listener，依掛上去的順序", () => {
+  test("one event can have many listeners, in the order they were attached", () => {
     const emitter = new Emitter<TestEvents>();
     const order: string[] = [];
 
@@ -32,7 +32,7 @@ describe("typed emitter", () => {
     expect(order).toEqual(["first", "second"]);
   });
 
-  test("on() 回傳的函式解得掉訂閱", () => {
+  test("the function on() returns undoes the subscription", () => {
     const emitter = new Emitter<TestEvents>();
     const seen: number[] = [];
 
@@ -44,7 +44,7 @@ describe("typed emitter", () => {
     expect(seen).toEqual([1]);
   });
 
-  test("解除兩次是安全的", () => {
+  test("unsubscribing twice is safe", () => {
     const emitter = new Emitter<TestEvents>();
     const unsubscribe = emitter.on("ping", () => {});
 
@@ -52,9 +52,10 @@ describe("typed emitter", () => {
     expect(() => unsubscribe()).not.toThrow();
   });
 
-  test("listener 在自己的回呼裡解除訂閱，不會漏掉排在後面的", () => {
-    // 一次性的監聽（「下一次 relocate 時做一件事」）就是這個形狀。邊走訪邊改動
-    // 同一個集合的實作會靜默地跳過第二個 listener。
+  test("a listener unsubscribing inside its own callback does not skip the ones after it", () => {
+    // A one-shot listener ("do something on the next relocate") has exactly this shape. An
+    // implementation mutating the same set while iterating it would silently skip the second
+    // listener.
     const emitter = new Emitter<TestEvents>();
     const seen: string[] = [];
 
@@ -69,12 +70,12 @@ describe("typed emitter", () => {
     expect(seen).toEqual(["first", "second"]);
   });
 
-  test("沒有 listener 的事件送出去不丟錯", () => {
+  test("emitting an event with no listeners does not throw", () => {
     const emitter = new Emitter<TestEvents>();
     expect(() => emitter.emit("pong", { text: "x" })).not.toThrow();
   });
 
-  test("clear() 之後一個都不送", () => {
+  test("after clear() nothing is delivered", () => {
     const emitter = new Emitter<TestEvents>();
     const seen: number[] = [];
 

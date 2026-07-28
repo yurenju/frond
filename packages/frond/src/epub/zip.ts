@@ -2,38 +2,49 @@ import { crc32 } from "../crc32.ts";
 import { EpubOpenError } from "./errors.ts";
 
 /**
- * ZIP reader，剛好夠讀 OCF（EPUB）容器。
+ * A ZIP reader, just enough to read an OCF (EPUB) container.
  *
- * ## 為什麼不用函式庫
+ * ## Why not a library
  *
- * frond 出貨時**零 runtime 相依**。這一支取代的是 `fflate.unzipSync`，而它之所
- * 以只有兩百行，是因為**解壓本身沒有自己寫**：`DecompressionStream('deflate-raw')`
- * 是平台內建的，Node 與三家瀏覽器都在（`tests/browser/smoke/decompression-stream.spec.ts`
- * 是那個假設的絆線）。留給這個檔案的只剩容器格式的剖析，而那是一組定長欄位。
+ * frond ships with **zero runtime dependencies**. This module replaces
+ * `fflate.unzipSync`, and the reason it is only two hundred lines is that
+ * **decompression itself is not hand-written**:
+ * `DecompressionStream('deflate-raw')` is built into the platform, present in Node
+ * and all three browsers (`tests/browser/smoke/decompression-stream.spec.ts` is the
+ * tripwire on that assumption). What is left for this file is parsing the container
+ * format, and that is a set of fixed-length fields.
  *
- * 換掉它順便修掉一件事：`unzipSync` 是同步的，開一本 34 MB 的書會把主執行緒鎖
- * 住將近一百毫秒。這裡的解壓落在 JS 執行緒之外並且分批重疊，實測比同步版更快。
+ * Replacing it fixed something along the way: `unzipSync` is synchronous, and opening
+ * a 34 MB book locks the main thread for nearly a hundred milliseconds. Here
+ * decompression happens off the JS thread and overlaps in batches, which measures
+ * faster than the synchronous version.
  *
- * ## 從 central directory 讀，不是從 local header 掃
+ * ## Read from the central directory, do not scan local headers
  *
- * 兩種讀法都拿得到項目。差別在 local header 的長度欄位**允許是騙人的**——寫入
- * 端若邊壓邊寫（streaming），寫 local header 時還不知道壓完多長，於是三個欄位
- * 填 0、真正的值補在資料後面的 data descriptor 裡（general purpose flag 的第 3
- * 個 bit）。central directory 沒有這個問題：它在檔案最後才寫，每個欄位都是定案
- * 的值。**照 central directory 讀，data descriptor 就自動不是一種要處理的情況**，
- * 而不是一條要記得寫的分支。
+ * Both routes reach the entries. The difference is that a local header's length
+ * fields **are allowed to lie** — a writer compressing as it writes (streaming) does
+ * not yet know the compressed length when it writes the local header, so it puts 0 in
+ * three fields and the real values follow the data in a data descriptor (bit 3 of the
+ * general purpose flag). The central directory has no such problem: it is written
+ * last, and every field there is final. **Reading the central directory makes the
+ * data descriptor automatically not a case to handle**, rather than a branch to
+ * remember to write.
  *
- * ## 明確不支援的，一律丟錯而不是猜
+ * ## Whatever is explicitly unsupported throws rather than guesses
  *
- * ZIP64、加密、deflate 以外的壓縮方法、多磁碟區。樣本裡（34 本書、3309 個項目）
- * 這四種**一個都沒有**——ZIP64 要書超過 4 GB 或超過 65535 個項目才會用上。
- * 它們的共同點是：猜錯的代價是**解出一批看起來像資料的垃圾**，而那會一路流到
- * 畫面上變成亂碼或壞圖，沒有人查得到根因在這裡。所以寧可開不起來。
+ * ZIP64, encryption, compression methods other than deflate, multi-volume archives.
+ * In the sample (34 books, 3309 entries) **not one** of these four appears — ZIP64
+ * only comes into play past 4 GB or 65535 entries. What they have in common is that
+ * the cost of guessing wrong is **inflating a pile of garbage that looks like data**,
+ * which flows all the way to the screen as mojibake or broken images, with nobody
+ * able to trace the root cause back here. Better to not open at all.
  *
- * 有意不做的還有一項：**項目名稱不做路徑消毒**。`../` 開頭的名稱在這裡照收，
- * 因為 frond 從不拿它寫檔案——它只是一張表的鍵，而查表的那一側（`resource-path.ts`
- * 的 `resolveHref`）已經擋掉了跳出封裝根的 href。在這裡多擋一次，會讓那本書
- * 從「有一項資源指到封裝外」變成「整本開不起來」，而那是兩件不同的事。
+ * One more thing is deliberately not done: **entry names are not path-sanitised**. A
+ * name starting with `../` is accepted here, because frond never uses it to write a
+ * file — it is only a key in a table, and the lookup side (`resource-path.ts`'s
+ * `resolveHref`) already rejects hrefs that escape the package root. Blocking it a
+ * second time here would turn that book from "one resource points outside the
+ * package" into "the whole book will not open", and those are two different things.
  */
 
 const LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50;
@@ -41,7 +52,7 @@ const CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
 const END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
 const ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_SIGNATURE = 0x07064b50;
 
-/** 三種記錄的固定長度，都不含後面接的檔名、extra field 與註解。 */
+/** The fixed size of the three record kinds, none of them counting the filename, extra field and comment that follow. */
 const LOCAL_FILE_HEADER_SIZE = 30;
 const CENTRAL_DIRECTORY_RECORD_SIZE = 46;
 const END_OF_CENTRAL_DIRECTORY_SIZE = 22;
@@ -50,33 +61,37 @@ const ZIP64_LOCATOR_SIZE = 20;
 const STORED = 0;
 const DEFLATED = 8;
 
-/** general purpose flag 的第 0 個 bit：這一項被加密過。 */
+/** Bit 0 of the general purpose flag: this entry is encrypted. */
 const ENCRYPTED_FLAG = 0x0001;
 
 /**
- * ZIP64 的哨兵值。欄位滿格代表「真正的值在 ZIP64 的 extra field 裡」，而不是
- * 「這一項剛好是 4 GB」——照字面讀會得到一個荒謬的長度，然後解出垃圾。
+ * ZIP64's sentinel values. A saturated field means "the real value is in the ZIP64
+ * extra field", not "this entry happens to be 4 GB" — reading it literally gives an
+ * absurd length, and then inflates garbage.
  */
 const ZIP64_SENTINEL_16 = 0xffff;
 const ZIP64_SENTINEL_32 = 0xffffffff;
 
-/** 壓縮檔註解的長度上限（欄位是 16 bit），也就是 EOCD 往回找的搜尋範圍。 */
+/** The maximum length of the archive comment (the field is 16 bits), which is also how far back the search for the EOCD reaches. */
 const MAX_ARCHIVE_COMMENT_SIZE = 0xffff;
 
 /**
- * 一批同時解壓幾項。
+ * How many entries are inflated at once.
  *
- * 併發是效能的來源（實測 255 個項目：逐項 345 ms，併發 54 ms），但不設上限就
- * 等於讓一本書決定同時開幾條 stream，而項目數是書寫的。32 已經足夠讓解壓互相
- * 重疊——瓶頸在解壓本身，不在還能再多開幾條。
+ * Concurrency is where the speed comes from (measured over 255 entries: 345 ms one at
+ * a time, 54 ms concurrently), but leaving it unbounded lets a book decide how many
+ * streams are open at once, and the entry count is written by the book. 32 is already
+ * enough for the inflations to overlap — the bottleneck is inflation itself, not how
+ * many more streams could be opened.
  */
 const DECOMPRESSION_BATCH_SIZE = 32;
 
 /**
- * 把整個壓縮檔讀成「路徑 → 位元組」。
+ * Reads the whole archive into "path → bytes".
  *
- * 一次全解到記憶體，與 `openContainer` 的介面是同一個決定：它之上的每一層都只
- * 看得到那張表，所以之後要換成延遲解壓或 range request，動的仍然只有這裡。
+ * Inflating everything into memory at once is the same decision as `openContainer`'s
+ * interface: every layer above sees nothing but that table, so switching later to lazy
+ * inflation or range requests still only changes this file.
  */
 export async function readZip(
   archive: Uint8Array,
@@ -108,9 +123,10 @@ function readCentralDirectory(
 ): readonly DirectoryEntry[] {
   const end = findEndOfCentralDirectory(archive, view);
 
-  // 多磁碟區的壓縮檔：這一份只是其中一片，其餘的位元組根本不在手上。
+  // A multi-volume archive: this file is only one piece, and the remaining bytes are
+  // simply not in hand.
   if (view.getUint16(end + 4, true) !== 0 || view.getUint16(end + 6, true) !== 0) {
-    throw unsupported("這個壓縮檔分成多片（multi-disk），frond 只讀單一檔案");
+    throw unsupported("this archive is split across several disks (multi-disk); frond only reads a single file");
   }
 
   const count = view.getUint16(end + 10, true);
@@ -122,17 +138,17 @@ function readCentralDirectory(
     size === ZIP64_SENTINEL_32 ||
     hasZip64Locator(view, end)
   ) {
-    throw unsupported("這個壓縮檔是 ZIP64，frond 不支援");
+    throw unsupported("this archive is ZIP64, which frond does not support");
   }
 
   const entries: DirectoryEntry[] = [];
   let at = offset;
   for (let index = 0; index < count; index += 1) {
     if (at + CENTRAL_DIRECTORY_RECORD_SIZE > archive.length) {
-      throw notAZip(`central directory 的第 ${index + 1} 項超出檔案結尾`);
+      throw notAZip(`central directory entry ${index + 1} runs past the end of the file`);
     }
     if (view.getUint32(at, true) !== CENTRAL_DIRECTORY_SIGNATURE) {
-      throw notAZip(`central directory 的第 ${index + 1} 項沒有正確的簽章`);
+      throw notAZip(`central directory entry ${index + 1} does not have the right signature`);
     }
 
     const flags = view.getUint16(at + 8, true);
@@ -147,21 +163,22 @@ function readCentralDirectory(
     const path = decodePath(archive, at + CENTRAL_DIRECTORY_RECORD_SIZE, pathLength);
 
     if ((flags & ENCRYPTED_FLAG) !== 0) {
-      throw unsupported(`${path} 被加密過，frond 不解密`);
+      throw unsupported(`${path} is encrypted, and frond does not decrypt`);
     }
     if (method !== STORED && method !== DEFLATED) {
-      throw unsupported(`${path} 用的壓縮方法是 ${method}，frond 只讀 stored 與 deflate`);
+      throw unsupported(`${path} uses compression method ${method}; frond only reads stored and deflate`);
     }
     if (
       compressedSize === ZIP64_SENTINEL_32 ||
       uncompressedSize === ZIP64_SENTINEL_32 ||
       localHeaderOffset === ZIP64_SENTINEL_32
     ) {
-      throw unsupported(`${path} 的長度或位置要 ZIP64 才表達得了，frond 不支援`);
+      throw unsupported(`${path}'s length or position needs ZIP64 to express, which frond does not support`);
     }
 
-    // 目錄項目沒有內容，只是給檔案總管看的結構。收進表裡的話，`has("OEBPS/")`
-    // 會回答「有」，而那個路徑取不出任何位元組。
+    // Directory entries have no contents; they are structure for a file browser to
+    // show. Taken into the table, `has("OEBPS/")` would answer yes for a path from
+    // which no bytes can be taken.
     if (!path.endsWith("/")) {
       entries.push({
         path,
@@ -178,11 +195,13 @@ function readCentralDirectory(
 }
 
 /**
- * 從檔案結尾往回找 EOCD。
+ * Searches backwards from the end of the file for the EOCD.
  *
- * **只比簽章是不夠的**：那四個位元組可以合法地出現在壓縮資料裡，或出現在壓縮檔
- * 自己的註解裡。所以每個候選位置都要再問一次「它宣告的註解長度，剛好等於它後面
- * 剩下的位元組嗎」——真正的 EOCD 一定對得起來，撞到的假簽章幾乎不會。
+ * **Matching the signature alone is not enough**: those four bytes may legitimately
+ * occur inside compressed data, or inside the archive's own comment. So every
+ * candidate position has to be asked once more: "does the comment length it declares
+ * exactly equal the bytes remaining after it?" — the real EOCD always adds up, and a
+ * false signature almost never does.
  */
 function findEndOfCentralDirectory(archive: Uint8Array, view: DataView): number {
   const earliest = Math.max(
@@ -194,10 +213,10 @@ function findEndOfCentralDirectory(archive: Uint8Array, view: DataView): number 
     const commentLength = view.getUint16(at + 20, true);
     if (at + END_OF_CENTRAL_DIRECTORY_SIZE + commentLength === archive.length) return at;
   }
-  throw notAZip("找不到 ZIP 的 end of central directory 記錄");
+  throw notAZip("no ZIP end of central directory record found");
 }
 
-/** ZIP64 的 locator 就貼在 EOCD 前面。有它就代表真正的目錄資訊在 ZIP64 那一套裡。 */
+/** The ZIP64 locator sits immediately before the EOCD. Its presence means the real directory information is in the ZIP64 form. */
 function hasZip64Locator(view: DataView, end: number): boolean {
   const at = end - ZIP64_LOCATOR_SIZE;
   if (at < 0) return false;
@@ -205,12 +224,13 @@ function hasZip64Locator(view: DataView, end: number): boolean {
 }
 
 /**
- * 項目名稱一律當 UTF-8 解。
+ * Entry names are always decoded as UTF-8.
  *
- * ZIP 原本的字集是 CP437，UTF-8 要靠 general purpose flag 的第 11 個 bit 宣告。
- * 這裡不分兩條路，因為 EPUB 規定容器內的路徑就是 UTF-8，而樣本裡 3309 個項目
- * **沒有一個**的名稱含非 ASCII 位元組——兩種解法在那批書上結果完全相同。多寫
- * 一張 CP437 對照表換不到任何一本已知的書。
+ * ZIP's original character set is CP437, and UTF-8 has to be declared by bit 11 of the
+ * general purpose flag. There are no two routes here, because EPUB specifies that
+ * paths inside the container are UTF-8, and **not one** of the sample's 3309 entries
+ * has a name containing non-ASCII bytes — both readings give identical results on that
+ * set of books. Writing out a CP437 table buys no known book.
  */
 function decodePath(archive: Uint8Array, at: number, length: number): string {
   return new TextDecoder().decode(archive.subarray(at, at + length));
@@ -226,17 +246,18 @@ async function contentsOf(
     header + LOCAL_FILE_HEADER_SIZE > archive.length ||
     view.getUint32(header, true) !== LOCAL_FILE_HEADER_SIGNATURE
   ) {
-    throw notAZip(`${entry.path} 的 local file header 不在 central directory 說的位置上`);
+    throw notAZip(`${entry.path}'s local file header is not where the central directory said it would be`);
   }
 
-  // extra field 的長度要讀 local header 自己的那一格——同一個項目在兩處的 extra
-  // field 允許不一樣長（寫入端常在 local 這側補對齊用的填充），拿 central 的長度
-  // 來算資料起點會偏掉。
+  // The extra field length has to be read from the local header's own slot — the same
+  // entry is allowed to have extra fields of different lengths in the two places
+  // (writers often add alignment padding on the local side), and computing the data
+  // start from the central directory's length would be off.
   const pathLength = view.getUint16(header + 26, true);
   const extraLength = view.getUint16(header + 28, true);
   const start = header + LOCAL_FILE_HEADER_SIZE + pathLength + extraLength;
   if (start + entry.compressedSize > archive.length) {
-    throw notAZip(`${entry.path} 的資料超出檔案結尾，這個壓縮檔不完整`);
+    throw notAZip(`${entry.path}'s data runs past the end of the file; this archive is incomplete`);
   }
 
   const raw = archive.subarray(start, start + entry.compressedSize);
@@ -245,31 +266,37 @@ async function contentsOf(
 
   if (contents.length !== entry.uncompressedSize) {
     throw notAZip(
-      `${entry.path} 解出 ${contents.length} 個位元組，但目錄說是 ${entry.uncompressedSize} 個`,
+      `${entry.path} inflated to ${contents.length} bytes, but the directory says ${entry.uncompressedSize}`,
     );
   }
-  // CRC 對不上代表位元組壞了。不擋的話壞掉的內容會一路流到畫面上——一本下載到
-  // 一半的書會變成「這一章是亂碼」，而那時候沒有人查得到根因在解壓。
+  // A CRC mismatch means the bytes are corrupt. Without this check, broken content
+  // flows all the way to the screen — a half-downloaded book becomes "this chapter is
+  // mojibake", and by then nobody can trace the root cause back to inflation.
   if (crc32(contents) !== entry.crc) {
-    throw notAZip(`${entry.path} 的 CRC 對不上，這一項的位元組壞了`);
+    throw notAZip(`${entry.path}'s CRC does not match; this entry's bytes are corrupt`);
   }
   return contents;
 }
 
 async function inflateRaw(raw: Uint8Array, path: string): Promise<Uint8Array> {
-  // `deflate-raw` 不是 `deflate`：後者帶 zlib 的表頭，而 ZIP 的項目裡沒有那兩個
-  // 位元組。餵錯的話每一項都會解壓失敗。
+  // `deflate-raw` is not `deflate`: the latter carries a zlib header, and ZIP entries
+  // do not have those two bytes. Feeding the wrong one makes every entry fail to
+  // inflate.
   const stream = new DecompressionStream("deflate-raw");
 
-  // 寫入不能先 await：`write()` 要等讀取端把資料收走才 resolve（背壓），先等它
-  // 就是死鎖。但它也不能不接——資料壞掉時 writable 與 readable **兩側都會**
-  // reject，而沒人接的那一側會變成 unhandled rejection：測試照樣綠，行程在別的
-  // 地方炸掉。所以這裡讓它並行跑、把錯誤吞掉，真正的錯誤由讀取端回報。
+  // The write must not be awaited first: `write()` only resolves once the read side
+  // has taken the data (backpressure), so awaiting it here is a deadlock. But it
+  // cannot be left unhandled either — when the data is corrupt **both** the writable
+  // and the readable reject, and whichever side nobody catches becomes an unhandled
+  // rejection: the tests still go green and the process blows up somewhere else. So it
+  // runs concurrently here with its error swallowed, and the real error is reported by
+  // the read side.
   const written = (async () => {
     const writer = stream.writable.getWriter();
-    // 型別上 `Uint8Array` 的底層可能是 `SharedArrayBuffer`，而 `write()` 的簽章
-    // 不收那一種。實際上這一段永遠是 `readZip` 收到的那個壓縮檔的一小片，不是
-    // 共享記憶體——這裡斷言的是那件事，不是繞過檢查。
+    // Type-wise a `Uint8Array` may be backed by a `SharedArrayBuffer`, and `write()`'s
+    // signature does not accept that. In practice this is always a slice of the
+    // archive `readZip` was handed, not shared memory — what is asserted here is that
+    // fact, not a way around the check.
     await writer.write(raw as Uint8Array<ArrayBuffer>);
     await writer.close();
   })().catch(() => undefined);
@@ -286,7 +313,7 @@ async function inflateRaw(raw: Uint8Array, path: string): Promise<Uint8Array> {
     }
   } catch (cause) {
     await written;
-    throw notAZip(`${path} 的 deflate 資料解不開`, { cause });
+    throw notAZip(`${path}'s deflate data will not inflate`, { cause });
   }
   await written;
 
@@ -300,7 +327,7 @@ async function inflateRaw(raw: Uint8Array, path: string): Promise<Uint8Array> {
 }
 
 function notAZip(detail: string, options?: ErrorOptions): EpubOpenError {
-  return new EpubOpenError("not-a-zip", `這些位元組不是讀得動的 ZIP：${detail}`, options);
+  return new EpubOpenError("not-a-zip", `these bytes are not a readable ZIP: ${detail}`, options);
 }
 
 function unsupported(detail: string): EpubOpenError {

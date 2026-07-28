@@ -1,25 +1,30 @@
 /**
- * 讀者設定——權威順序裡最高的那一層（ADR-0003：`讀者設定 > frond 修正 > 書的宣告`）。
+ * Reader settings — the topmost layer in the authority order (ADR-0003:
+ * `reader settings > frond's corrections > the book's declarations`).
  *
- * ADR-0003 說「frond 拒絕自己修，就有義務讓上層修得動」，所以這個覆寫面不是加分
- * 項而是必要條件。清單也是那份 ADR 訂的：字型、字級、行高、邊界、單欄／雙欄／
- * 自動（僅橫排）、主題。
+ * ADR-0003 says "where frond refuses to fix something itself, it takes on the duty of
+ * letting the layer above fix it", so this override surface is a requirement rather
+ * than a bonus. The list is set by that ADR too: font, font size, line height, margin,
+ * one/two/auto columns (horizontal only), theme.
  *
- * **明確不做對齊**（左對齊／左右對齊），ADR-0003 明列。
+ * **Text alignment is explicitly not offered** (left-aligned / justified), as ADR-0003
+ * states.
  *
- * ## 沒有設定就沒有介入
+ * ## No setting means no intervention
  *
- * 每一個欄位都可以是 `undefined`，而 `undefined` 與「設成書的預設值」是兩件不同
- * 的事：沒設的欄位，frond 一個字都不會覆寫，書自己的宣告原封不動（ADR-0003 的
- * 「書自己的字型與排版在我沒有主動調整時被完整保留」，user story 45）。
+ * Every field may be `undefined`, and `undefined` is a different thing from "set to the
+ * book's default": for an unset field frond overrides not one character, and the book's
+ * own declarations stand untouched (ADR-0003's "the book's own fonts and typography are
+ * preserved intact as long as I have not actively adjusted anything", user story 45).
  *
- * 這條界線在 `overriddenProperties()` 上變成機器讀得懂的東西——它回答「該拿掉書
- * 的哪幾個 `!important`」，而答案只包含讀者真的設過的那幾項。
+ * That boundary becomes machine-readable in `overriddenProperties()` — it answers
+ * "which of the book's `!important` declarations should be taken away", and the answer
+ * covers only what the reader actually set.
  */
 
 import type { ColumnChoice, Margin } from "./geometry.ts";
 
-/** 主題的前景與背景。任何 CSS 顏色值都可以。 */
+/** A theme's foreground and background. Any CSS colour value will do. */
 export interface Theme {
   readonly foreground: string;
   readonly background: string;
@@ -27,35 +32,36 @@ export interface Theme {
 
 export interface ReaderSettings {
   /**
-   * 指名的字面。**指名而不是 generic family**：三家瀏覽器對 `serif` 的 CJK
-   * 解析並不一致（#4），而讀者設定是權威順序裡唯一能合法指名的一層
-   * （ADR-0004）。
+   * A named face. **Named rather than a generic family**: the three browsers do not
+   * agree on CJK resolution for `serif` (#4), and reader settings are the one layer in
+   * the authority order that may legitimately name a face (ADR-0004).
    */
   readonly fontFamily: string | undefined;
-  /** 字級，px。 */
+  /** Font size, in px. */
   readonly fontSize: number | undefined;
-  /** 行高，倍數（無單位）。 */
+  /** Line height, as a multiplier (unitless). */
   readonly lineHeight: number | undefined;
   /**
-   * 版面的邊界，px。純量是四邊等距，物件版依書寫方向分軸（`geometry.ts` 的
-   * `Margin`）。
+   * The layout margin, in px. A scalar means all four sides equally; the object form
+   * splits by axis according to the writing mode (`geometry.ts`'s `Margin`).
    *
-   * 它**不是**注入書的 CSS，而是把 iframe 在容器裡縮進來——見
-   * `section-view.ts`。邊界因此完全不經過書的層疊，也不必跟書的 `body` padding
-   * 打架。
+   * It is **not** CSS injected into the book; it insets the iframe within its container
+   * — see `section-view.ts`. The margin therefore never passes through the book's
+   * cascade, and never has to fight the book's `body` padding.
    */
   readonly margin: Margin;
-  /** 欄數。直排一律單欄，設了也不生效（ADR-0003）。 */
+  /** The column count. Vertical is always single-column, and setting it has no effect (ADR-0003). */
   readonly columns: ColumnChoice;
   readonly theme: Theme | undefined;
 }
 
 /**
- * 什麼都沒設的讀者。
+ * A reader who has set nothing.
  *
- * 邊界是唯一有預設值的欄位——0 的話文字會貼著螢幕邊，那不是「書自己的宣告」，
- * 是 frond 沒有給版面。這個值屬於 frond 自己的那一層（ADR-0003 的第一列：
- * 分頁用的版面本來就屬於 frond）。
+ * The margin is the one field with a default — at 0 the text would sit flush against the
+ * edge of the screen, and that is not "the book's own declaration", it is frond failing
+ * to provide a layout. This value belongs to frond's own layer (ADR-0003's first row:
+ * the layout used for pagination belongs to frond to begin with).
  */
 export const DEFAULT_SETTINGS: ReaderSettings = {
   fontFamily: undefined,
@@ -66,7 +72,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   theme: undefined,
 };
 
-/** 套用一份局部設定。沒提到的欄位保持原樣。 */
+/** Applies a partial set of settings. Fields not mentioned keep their current value. */
 export function withSettings(
   base: ReaderSettings,
   patch: Partial<ReaderSettings>,
@@ -75,14 +81,17 @@ export function withSettings(
 }
 
 /**
- * 讀者實際覆寫了哪幾個 CSS 屬性。
+ * Which CSS properties the reader has actually overridden.
  *
- * 這份集合是介入的**範圍**：只有落在裡面的屬性，才會把書宣告上的 `!important`
- * 拿掉（`css.ts` 的 `demoteImportant`）。讀者沒設字級時 `font-size` 不在裡面，
- * 書的 `font-size: 12px !important` 原樣留著——那是 ADR-0003 的門檻，不是疏漏。
+ * This set is the **scope** of the intervention: only properties inside it have the
+ * book's declared `!important` taken away (`css.ts`'s `demoteImportant`). When the
+ * reader has not set a font size, `font-size` is not in it, and the book's
+ * `font-size: 12px !important` stands verbatim — that is ADR-0003's threshold, not an
+ * oversight.
  *
- * `font` 這個縮寫屬性只要三個字型相關設定有任何一個被覆寫就列進來：它一條就能
- * 同時寫死字級、行高與字面，留著 `!important` 等於留下一個繞道。
+ * The `font` shorthand is included as soon as any one of the three font-related settings
+ * is overridden: a single `font` declaration can pin the size, the line height and the
+ * face all at once, so leaving its `!important` in place would leave a way around.
  */
 export function overriddenProperties(
   settings: ReaderSettings,
@@ -111,18 +120,21 @@ export function overriddenProperties(
 }
 
 /**
- * 讀者設定那份注入的樣式表。
+ * The stylesheet injected for the reader's settings.
  *
- * 每一條都帶 `!important`，而且**在書的 `!important` 被拿掉之後才有意義**——
- * 兩件事要一起做才贏得了（`css.ts` 的 `demoteImportant` 與 `relativiseFontSizes`）。
- * 只注入這一份的話，書的 `p { font-size: 12px !important }` 照樣贏，因為它的
- * 選擇器比較specific。
+ * Every rule carries `!important`, and **it only means anything once the book's
+ * `!important` has been taken away** — the two have to happen together to win
+ * (`css.ts`'s `demoteImportant` and `relativiseFontSizes`). Injecting this alone, the
+ * book's `p { font-size: 12px !important }` still wins, because its selector is more
+ * specific.
  *
- * ## 為什麼字級只設在根元素，其餘設在每一個元素上
+ * ## Why the font size is only set on the root element while the rest is set on every element
  *
- * 字級要保留書自己的層次（標題比正文大），所以只設根元素，讓比例靠繼承與
- * `rem` 往下傳。字面、行高與顏色沒有這個顧慮——讀者說「用這個字面」就是整本都用，
- * 所以直接蓋到每一個元素上，書在後代元素上宣告的值才蓋不回來。
+ * The font size has to preserve the book's own hierarchy (headings larger than body
+ * text), so only the root is set and the proportions carry down through inheritance and
+ * `rem`. The face, line height and colour have no such concern — a reader saying "use
+ * this face" means the whole book, so those are applied to every element directly, which
+ * is the only way the book's declarations on descendant elements cannot win them back.
  */
 export function readerStylesheet(settings: ReaderSettings): string {
   const rules: string[] = [];
@@ -146,15 +158,19 @@ export function readerStylesheet(settings: ReaderSettings): string {
   }
 
   if (settings.theme !== undefined) {
-    // 背景分兩條：底色只給根元素，其餘一律透明。
+    // The background takes two rules: the base colour goes only on the root element, and
+    // everything else is made transparent.
     //
-    // 書把背景寫死在 `body` 或某個包裝 div 上是常態（`hardcoded-colors`），而
-    // 那一塊白色會蓋在讀者的深色底上。全部設成讀者的底色也不對——那會讓書用
-    // 底色區分的引文區塊消失。透明是唯一一個「讓底色透出來、又不假裝書沒有
-    // 分區」的答案。
+    // Books hard-coding a background on `body` or on some wrapper div is the norm
+    // (`hardcoded-colors`), and that patch of white would sit on top of the reader's dark
+    // background. Setting it all to the reader's background is wrong too — that would make
+    // the quote blocks a book distinguishes by background disappear. Transparent is the
+    // one answer that lets the base colour through without pretending the book has no
+    // sections.
     //
-    // 代價要講清楚：**設了主題就等於放棄書自己的配色**。那是主題這件事本身的
-    // 代價，不是這裡的實作選擇——user story 43 要的正是它。
+    // The cost has to be stated plainly: **setting a theme means giving up the book's own
+    // colour scheme.** That is the cost of theming itself rather than a choice of this
+    // implementation — it is precisely what user story 43 asks for.
     rules.push(`:root { background-color: ${settings.theme.background} !important; }`);
     rules.push(`:root *:not(:root) { background-color: transparent !important; }`);
   }

@@ -1,41 +1,50 @@
 /**
- * `Renderer` 對「一本書」的要求，以及一份 in-memory 的實作。
+ * What `Renderer` requires of "a book", plus one in-memory implementation.
  *
- * ## 為什麼 `Renderer` 不直接吃 `EpubBook`
+ * ## Why `Renderer` does not consume `EpubBook` directly
  *
- * ADR-0002 明列 frond **必須自己提供 fake / in-memory 實作，並視為公開 API 的
- * 一部分**——上層測試自己的整合層時不該被迫造假物。這個介面就是那句話的落點：
- * `EpubBook` 結構上滿足它（那件事由 `tests/node/renderer/book.test.ts` 在型別層
- * 釘住），而 `MemoryBook` 是另一個滿足它的實作。
+ * ADR-0002 explicitly requires frond to **provide its own fake / in-memory
+ * implementation and treat it as part of the public API** — a layer above testing its
+ * own integration code should not be forced to build doubles. This interface is where
+ * that sentence lands: `EpubBook` satisfies it structurally (pinned at the type level
+ * by `tests/node/renderer/book.test.ts`), and `MemoryBook` is another implementation
+ * that satisfies it.
  *
- * 收窄介面還買到第二件事，而那件事在這個 repo 裡是具體的：`Renderer` 的相依因此
- * **不含解壓與 XML 解析**。瀏覽器測試要把 frond 餵進頁面時，模組圖裡沒有任何
- * bare specifier 要解析，於是整套測試不需要打包器（`tests/browser/support/harness.ts`）。
- * 那不是巧合——`EpubBook` 那一層本來就與渲染無關，會被拖進來只是因為型別綁在
- * 一起。
+ * Narrowing the interface buys a second thing, and in this repo that thing is concrete:
+ * `Renderer`'s dependencies therefore **exclude decompression and XML parsing**. When
+ * the browser tests feed frond into a page, the module graph has no bare specifier to
+ * resolve, so the whole test suite needs no bundler
+ * (`tests/browser/support/harness.ts`). That is no coincidence — the `EpubBook` layer
+ * has nothing to do with rendering to begin with, and would only be dragged in because
+ * the types were tied together.
  *
- * ## 這裡的型別是結構性的，不是從 `EpubBook` import 來的
+ * ## The types here are structural, not imported from `EpubBook`
  *
- * 直接 import `Section` 與 `Resource` 會讓這個介面跟著 `EpubBook` 的每一次擴充
- * 走，而 `Renderer` 用不到的欄位（`properties`、manifest 的 id）會變成 fake 的
- * 義務。所以這裡寫**渲染實際需要的那幾格**，另外用一條型別斷言確保 `EpubBook`
- * 仍然滿足它——漂開的時候會在 `npm run typecheck` 紅，不是在執行期。
+ * Importing `Section` and `Resource` directly would make this interface follow every
+ * extension of `EpubBook`, and fields `Renderer` never uses (`properties`, the manifest
+ * id) would become obligations on the fake. So what is written here is **the few slots
+ * rendering actually needs**, with a separate type assertion ensuring `EpubBook` still
+ * satisfies it — any drift turns `npm run typecheck` red rather than showing up at
+ * runtime.
  */
 
-/** 一本渲染得出來的書。 */
+/** A book that can be rendered. */
 export interface RenderableBook {
-  /** 閱讀順序。順序即封裝文件宣告的順序（CONTEXT.md）。 */
+  /** The reading order. The order is the one the package document declares (CONTEXT.md). */
   readonly readingOrder: readonly RenderableSection[];
   /**
-   * 書宣告的資源。`Renderer` 只從這裡取 media type——內容文件引用一份資源時
-   * 給的是路徑，而 `blob:` 需要知道型別才建得起來。
+   * The resources the book declares. `Renderer` only takes the media type from here —
+   * a content document referencing a resource gives a path, and building a `blob:`
+   * requires knowing the type.
    */
   readonly resources: readonly RenderableResource[];
   /**
-   * 壓縮檔內某個路徑的位元組。混淆過的字型在這一層已經還原。
+   * The bytes at some path inside the archive. Obfuscated fonts are already restored at
+   * this layer.
    *
-   * @throws 路徑不存在或解不開時丟——**不回空位元組**。空位元組在畫面上的症狀
-   * 是缺圖或滿頁豆腐字，那時候沒有人查得到根因在取用這一步。
+   * @throws when the path does not exist or will not decode — **it does not return
+   * empty bytes**. Empty bytes show up on screen as a missing image or a page full of
+   * tofu, and by then nobody can trace the root cause back to this fetch.
    */
   bytes(path: string): Uint8Array;
 }
@@ -44,8 +53,9 @@ export interface RenderableSection {
   readonly path: string;
   readonly mediaType: string;
   /**
-   * 在不在線性的閱讀進程上。`Renderer` **不濾掉** `false` 的那幾項——封面頁與
-   * 版權頁確實是書的一部分，濾掉它們是政策不是事實（ADR-0002）。
+   * Whether it is on the linear reading progression. `Renderer` **does not filter out**
+   * the `false` ones — cover pages and copyright pages really are part of the book, and
+   * filtering them out is policy, not fact (ADR-0002).
    */
   readonly linear: boolean;
 }
@@ -61,10 +71,11 @@ export type RenderableLocation =
   | { readonly kind: "remote" };
 
 /**
- * 一份 in-memory 的書——公開 API 的一部分（ADR-0002），不是測試工具。
+ * An in-memory book — part of the public API (ADR-0002), not a test utility.
  *
- * 上層要測「拿到 relocate 事件之後 UI 該怎麼更新」這類純決策的程式碼時，需要一本
- * 可以精確控制的書，而不是一個 EPUB 檔案。這裡給的就是那個。
+ * When a layer above wants to test purely decisional code such as "how the UI should
+ * update after a relocate event", it needs a book it can control exactly, not an EPUB
+ * file. This is that.
  */
 export class MemoryBook implements RenderableBook {
   readonly readingOrder: readonly RenderableSection[];
@@ -85,7 +96,7 @@ export class MemoryBook implements RenderableBook {
   bytes(path: string): Uint8Array {
     const bytes = this.files.get(path);
     if (bytes === undefined) {
-      throw new Error(`這本 MemoryBook 裡沒有 ${path}`);
+      throw new Error(`this MemoryBook has no ${path}`);
     }
     return bytes;
   }
@@ -136,7 +147,7 @@ export interface MemoryBookSpec {
 
 export interface MemorySectionSpec {
   readonly path: string;
-  /** XHTML 原始碼，或已經編碼好的位元組。 */
+  /** XHTML source, or bytes that are already encoded. */
   readonly content: string | Uint8Array;
   readonly mediaType?: string;
   readonly linear?: boolean;

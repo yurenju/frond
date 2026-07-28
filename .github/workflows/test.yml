@@ -5,7 +5,7 @@ on:
     branches: [main]
   pull_request:
 
-# 同一個 PR 連續推送時，取消還在跑的舊 run。
+# Cancel a still-running older run when a PR is pushed to repeatedly.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -14,17 +14,21 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      # Action 一律釘 commit SHA，不用 tag。理由與映像／瀏覽器／字型釘死同一條
-      # （docs/test-environment.md「版本為什麼全部釘死」）：CI 自己動了而程式碼
-      # 沒動的紅燈最難查。tag 是可移動的參照——`v7` 會隨新 release 漂移，連
-      # `v7.0.1` 都可以被重新指向，所以只有 SHA 是真的釘死。版本寫在註解裡給人看。
+      # Actions are always pinned to a commit SHA, never a tag. The reasoning is the same as
+      # for pinning the image, the browsers and the fonts (docs/test-environment.md, "why
+      # every version is pinned"): a red light where CI moved and the code did not is the
+      # hardest to trace. A tag is a movable reference — `v7` drifts with each new release,
+      # and even `v7.0.1` can be repointed, so only a SHA is really pinned. The version is
+      # written in a comment for people to read.
       #
-      # 這兩個 action 之前停在 v4，宣告的執行環境是已棄用的 Node.js 20，GitHub
-      # 已在強制改用 Node 24 執行（#12）。v7 原生就是 node24。
+      # These two actions used to sit at v4, whose declared runtime is the deprecated
+      # Node.js 20, and GitHub has already forced execution onto Node 24 (#12). v7 is
+      # natively node24.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # CI 與本機共用同一個映像，也共用同一支腳本。任何只在 CI 生效的步驟都
-      # 會製造「本機綠、CI 紅」的落差，而字型層的落差極難查（ADR-0004）。
+      # CI and local machines share one image, and one script. Any step that only takes
+      # effect in CI creates a "green locally, red in CI" gap, and a gap at the font layer is
+      # extremely hard to trace (ADR-0004).
       - name: Run the test suite in the container
         run: ./scripts/test-in-container.sh
 

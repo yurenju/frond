@@ -1,70 +1,81 @@
 #!/usr/bin/env bash
 #
-# 容器引擎的共用前置：挑引擎、確認連得到、建置映像。
+# Shared preamble for the container engine: pick an engine, confirm it is reachable, build
+# the image.
 #
-# **這支不是拿來執行的，是給其他腳本 `source` 的**——`test-in-container.sh`
-# （跑測試）與 `capture-evidence.sh`（取截圖）都要在同一個映像裡跑，而「怎麼跟
-# 容器引擎講話」只能有一個答案。各寫一份的話，兩邊對 rootless socket 的診斷、
-# 對 proxy 的處置遲早會漂開，而漂開的那一天，兩支腳本會在同一台機器上一支能跑
-# 一支不能——那種症狀很難查到根因是「有兩份設定」。
+# **This is not meant to be executed; it is meant to be `source`d by other scripts** —
+# `test-in-container.sh` (running tests) and `capture-evidence.sh` (taking screenshots) both
+# have to run in the same image, and "how to talk to the container engine" can only have one
+# answer. Written separately, the two sides' diagnostics for the rootless socket and their
+# handling of proxies would sooner or later drift, and on the day they did, one script would
+# work on a machine where the other did not — a symptom whose root cause ("there are two
+# configurations") is very hard to trace.
 #
-# source 之後可以用：
-#   ENGINE           podman 或 docker
-#   REPO_ROOT        repo 根目錄的絕對路徑
-#   IMAGE_NAME       映像名稱
-#   container_build  建置映像
+# After sourcing, available are:
+#   ENGINE           podman or docker
+#   REPO_ROOT        the absolute path of the repo root
+#   IMAGE_NAME       the image name
+#   container_build  builds the image
 #
-# 需要新的容器跑法時**加一支腳本並 source 這一支**，不要在文件或提交訊息裡留
-# 一行裸的 docker 指令（AGENTS.md）。
+# When a new way of running containers is needed, **add a script and source this one**;
+# do not leave a bare docker command in documentation or a commit message (AGENTS.md).
 
 IMAGE_NAME="${FROND_TEST_IMAGE:-frond-test}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# podman 優先。理由不是偏好，是權限模型：docker 的 socket 等同 host root，
-# 把開發者或 agent 加進 docker 群組等於開一條升權路徑。rootless podman 跑在
-# 一般 uid 底下，沒有 daemon 也沒有等同 root 的 socket。
+# podman first. The reason is not preference but the permission model: docker's socket is
+# equivalent to host root, and adding a developer or an agent to the docker group opens a
+# privilege escalation path. Rootless podman runs under an ordinary uid, with no daemon and
+# no root-equivalent socket.
 if command -v podman >/dev/null 2>&1; then
     ENGINE=podman
 elif command -v docker >/dev/null 2>&1; then
     ENGINE=docker
 else
-    echo "找不到 podman 或 docker。安裝方式見 docs/test-environment.md。" >&2
+    echo "Neither podman nor docker found. For installation see docs/test-environment.md." >&2
     exit 1
 fi
 
-# 引擎在 PATH 上不等於連得到 daemon。少了這一步，設定沒接好的機器會一路走到
-# build 才炸，而錯誤訊息是 socket 路徑不存在——看起來像沒裝，實際上是裝了但
-# client 沒指對地方，兩者的處置完全不同。
+# The engine being on PATH does not mean the daemon is reachable. Without this step, a
+# misconfigured machine gets all the way to the build before blowing up, and the error
+# message is that a socket path does not exist — which looks like "not installed" when in
+# fact it is installed and the client is pointed at the wrong place, and the two call for
+# entirely different responses.
 #
-# 這裡只**診斷**不代打：socket 位置屬於容器引擎的設定，不是測試腳本的責任
-# （同 build 段那條 proxy 的理由）。腳本自己去猜 socket 在哪，會把一台設錯的
-# 機器靜默修好，於是沒有人知道它是錯的。
+# This only **diagnoses**; it does not act on the user's behalf: the socket's location
+# belongs to the container engine's configuration, not to a test script's responsibility
+# (the same reasoning as the proxy note in the build section). A script guessing where the
+# socket is would silently fix a misconfigured machine, and then nobody would know it was
+# misconfigured.
 if ! "$ENGINE" info >/dev/null 2>&1; then
-    echo "找到 ${ENGINE} 但連不到 daemon。" >&2
+    echo "Found ${ENGINE} but cannot reach the daemon." >&2
     if [[ "$ENGINE" == docker && -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/docker.sock" ]]; then
-        # rootless dockerd 跑著，但 client 還指著 rootful 的 /var/run/docker.sock。
-        # dockerd-rootless-setuptool.sh 裝完會要求做這一步，漏掉不會有任何警告。
-        echo "rootless 的 socket 在 ${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/docker.sock，但 client 沒指過去。接上：" >&2
+        # A rootless dockerd is running, but the client still points at the rootful
+        # /var/run/docker.sock. dockerd-rootless-setuptool.sh asks for this step after
+        # installation, and missing it produces no warning at all.
+        echo "The rootless socket is at ${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/docker.sock, but the client is not pointed at it. To connect:" >&2
         echo "    docker context create rootless --docker host=unix://${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/docker.sock" >&2
         echo "    docker context use rootless" >&2
     else
-        echo "檢查 daemon 是否在跑，以及 client 指向何處（docker context ls / DOCKER_HOST）。" >&2
+        echo "Check whether the daemon is running, and where the client points (docker context ls / DOCKER_HOST)." >&2
     fi
-    echo "見 docs/test-environment.md。" >&2
+    echo "See docs/test-environment.md." >&2
     exit 1
 fi
 
-# 這裡刻意不處理 proxy。
+# Proxies are deliberately not handled here.
 #
-# 直覺的做法是把外面的 HTTP_PROXY 用 --build-arg 傳進去，但那是錯的：出口
-# proxy 通常掛在 127.0.0.1 上，而那個位址在容器的 network namespace 裡指向
-# 容器自己的 loopback，不是外面的 proxy。傳進去只會把引擎本來設對的值蓋掉，
-# 讓 apt-get 撞上 connection refused。
+# The intuitive approach is passing the outer HTTP_PROXY in with --build-arg, but that is
+# wrong: an egress proxy usually listens on 127.0.0.1, and that address inside the
+# container's network namespace refers to the container's own loopback rather than the
+# proxy outside. Passing it in only overrides the value the engine had already set
+# correctly, and apt-get then hits connection refused.
 #
-# proxy 屬於容器引擎的設定而不是測試腳本的責任。rootless docker 會自行把
-# daemon 的 proxy 設定注入每個容器（指向 slirp gateway 而非 loopback）。
-# 沒有 proxy 的環境（例如 GitHub Actions）本來就不需要任何處理。
+# Proxies belong to the container engine's configuration rather than to a test script's
+# responsibility. Rootless docker injects the daemon's proxy settings into every container
+# itself (pointing at the slirp gateway rather than loopback). An environment with no proxy
+# (GitHub Actions, say) needs no handling to begin with.
 container_build() {
-    echo "==> 以 ${ENGINE} 建置 ${IMAGE_NAME}"
+    echo "==> building ${IMAGE_NAME} with ${ENGINE}"
     "$ENGINE" build --tag "$IMAGE_NAME" "$REPO_ROOT"
 }

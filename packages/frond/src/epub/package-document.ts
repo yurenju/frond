@@ -2,67 +2,77 @@ import { EpubOpenError } from "./errors.ts";
 import { parseXml, type XmlElement } from "./xml.ts";
 
 /**
- * 封裝文件（OPF）——一本書對自己的宣告：它是什麼版本、叫什麼名字、由哪些檔案
- * 組成、要照什麼順序讀。
+ * The package document (OPF) — a book's declaration about itself: what version it
+ * is, what it is called, which files it is made of, and in what order they are read.
  *
- * 這一層**只讀，不解析路徑也不查表**：`href` 原樣照抄，要怎麼對應到壓縮檔內的
- * 項目是 `epub-book.ts` 的事（那需要知道封裝文件自己在哪裡）。這一刀讓「書怎麼
- * 宣告」與「檔案在哪裡」各自可讀可測。
+ * This layer **only reads; it neither resolves paths nor looks anything up**: an
+ * `href` is copied verbatim, and mapping it onto an archive entry is
+ * `epub-book.ts`'s job (that requires knowing where the package document itself is).
+ * This cut keeps "how the book declares things" and "where the files are" separately
+ * readable and testable.
  */
 
-/** 支援的封裝版本。範圍與界線見 ADR-0010。 */
+/** The supported packaging versions. For the range and its boundary see ADR-0010. */
 export type EpubVersion = "epub2" | "epub3";
 
 export interface ManifestItem {
   readonly id: string;
-  /** 相對於封裝文件的 href，原樣照抄——含 `../` 與 percent-encoding。 */
+  /** The href relative to the package document, copied verbatim — including `../` and percent-encoding. */
   readonly href: string;
   readonly mediaType: string;
-  /** `properties` 是空白分隔的清單，不是單一值。 */
+  /** `properties` is a whitespace-separated list, not a single value. */
   readonly properties: readonly string[];
 }
 
 export interface ReadingOrderItem {
   readonly idref: string;
-  /** `linear="no"` 的項目不在線性的閱讀進程裡（封面頁、版權頁）。 */
+  /** Items with `linear="no"` are outside the linear reading progression (cover pages, copyright pages). */
   readonly linear: boolean;
 }
 
 /**
- * 頁面推進方向——翻頁往哪個方向前進（`<spine page-progression-direction>`）。
+ * The page progression direction — which way turning a page advances
+ * (`<spine page-progression-direction>`).
  *
- * **與書寫方向是兩件事**（CONTEXT.md）：直排／橫排寫在樣式表裡，由 `Renderer`
- * 回報。這裡回報的是書在封裝文件裡宣告的翻頁方向。
+ * **A different thing from the writing mode** (CONTEXT.md): vertical/horizontal is
+ * written in the stylesheet and reported by `Renderer`. What is reported here is the
+ * page turn direction the book declares in its package document.
  */
 export type PageProgressionDirection = "ltr" | "rtl";
 
 /**
- * 一本書對自己的宣告。
+ * A book's declaration about itself.
  *
- * 每一個欄位都可能是 `undefined`——**書沒說就回報沒說**，不補預設值（ADR-0002：
- * frond 給事實，消費端給政策）。書櫃要顯示「未知作者」還是留白是政策，而
- * `EpubBook` 一旦把「沒說」填成空字串或 `"ltr"`，消費端就再也分不出來了。
+ * Every field may be `undefined` — **if the book did not say, report that it did not
+ * say**, without filling in defaults (ADR-0002: frond supplies facts, the consumer
+ * supplies policy). Whether a bookshelf shows "Unknown author" or leaves it blank is
+ * policy, and once `EpubBook` turns "did not say" into an empty string or `"ltr"`,
+ * the consumer can never tell the difference again.
  */
 export interface BookMetadata {
-  /** `dc:title`。 */
+  /** `dc:title`. */
   readonly title: string | undefined;
-  /** `dc:creator`，依文件順序。沒宣告時是空清單。 */
+  /** `dc:creator`, in document order. An empty list when none is declared. */
   readonly authors: readonly string[];
-  /** `dc:language`，BCP 47 語言標籤，原樣照抄。 */
+  /** `dc:language`, a BCP 47 language tag, copied verbatim. */
   readonly language: string | undefined;
   /**
-   * `<package unique-identifier>` 指到的那個 `dc:identifier`，原樣照抄。
+   * The `dc:identifier` that `<package unique-identifier>` points at, copied
+   * verbatim.
    *
-   * 書櫃要靠它認出「這兩個檔案是同一本書」，所以它跟著 metadata 一起回報。
+   * A bookshelf relies on it to recognise "these two files are the same book", so it
+   * is reported alongside the metadata.
    */
   readonly identifier: string | undefined;
-  /** 封裝文件宣告的版本。 */
+  /** The version the package document declares. */
   readonly epubVersion: EpubVersion;
   /**
-   * 頁面推進方向。**書沒說時是 `undefined`，不是 `"ltr"`**（ADR-0010）——EPUB 2
-   * 一律落在這一格，因為那個版本根本沒有這個屬性。
+   * The page progression direction. **`undefined` when the book did not say, not
+   * `"ltr"`** (ADR-0010) — EPUB 2 always lands in this case, because that version has
+   * no such attribute at all.
    *
-   * 這裡回報的**不是書寫方向**：直排／橫排寫在樣式表裡，由 `Renderer` 回報。
+   * What is reported here is **not the writing mode**: vertical/horizontal is
+   * written in the stylesheet and reported by `Renderer`.
    */
   readonly pageProgressionDirection: PageProgressionDirection | undefined;
 }
@@ -70,19 +80,22 @@ export interface BookMetadata {
 export interface PackageDocument {
   readonly metadata: BookMetadata;
   /**
-   * `<meta name="cover" content="…">` 指向的 manifest **id**（不是 href）。
+   * The manifest **id** (not href) that `<meta name="cover" content="…">` points at.
    *
-   * 這是 EPUB 2 宣告封面的唯一寫法，而 EPUB 3 的書也常寫（樣本裡 30 本兩種都
-   * 寫，另有一本 EPUB 3 只寫這一種），所以它不隨版本消失。
+   * This is the only way EPUB 2 declares a cover, and EPUB 3 books commonly write it
+   * too (30 books in the sample write both, and one more EPUB 3 book writes only
+   * this one), so it does not disappear with the version.
    */
   readonly coverMetaId: string | undefined;
   readonly manifest: readonly ManifestItem[];
   readonly readingOrder: readonly ReadingOrderItem[];
   /**
-   * `<spine toc="…">` 指向的 manifest **id**——EPUB 2 用它指出 NCX 在哪。
+   * The manifest **id** that `<spine toc="…">` points at — EPUB 2 uses it to say
+   * where the NCX is.
    *
-   * 這是封裝文件對導覽文件的唯一一種指法（EPUB 3 改用 manifest 的
-   * `properties="nav"`），所以它跟著封裝文件一起讀出來，由 `toc.ts` 決定怎麼用。
+   * This is the only way a package document points at a navigation document (EPUB 3
+   * switched to the manifest's `properties="nav"`), so it is read out along with the
+   * package document, and `toc.ts` decides what to do with it.
    */
   readonly readingOrderTocId: string | undefined;
 }
@@ -99,7 +112,7 @@ export function parsePackageDocument(
   if (packageElement === undefined) {
     throw new EpubOpenError(
       "malformed-package-document",
-      `${label} 沒有 <package> 根元素`,
+      `${label} has no <package> root element`,
     );
   }
 
@@ -109,8 +122,9 @@ export function parsePackageDocument(
   return {
     metadata: {
       title: firstText(metadata?.children("title") ?? []),
-      // 作者依文件順序全部取出，不按 `opf:role` 篩選：`role` 是選擇性的，樣本裡
-      // 沒有一本靠它才分得出作者，而按它篩會讓沒寫 role 的書變成沒有作者。
+      // Every author is taken in document order, without filtering on `opf:role`:
+      // `role` is optional, not one book in the sample needs it to tell its authors
+      // apart, and filtering on it would leave books that omit role with no authors.
       authors: (metadata?.children("creator") ?? [])
         .map((creator) => creator.text())
         .filter((name) => name !== ""),
@@ -129,13 +143,16 @@ export function parsePackageDocument(
 }
 
 /**
- * 書的識別碼。
+ * The book's identifier.
  *
- * `<package unique-identifier>` 指向的那個 `<dc:identifier>` 才是這本書的識別碼
- * ——一本書可以有多個 identifier（ISBN、UUID、通路自己的編號），挑錯一個會讓
- * 同一本書在書櫃裡被當成兩本。指不到時退回第一個，因為讀者要的是書打得開。
+ * The `<dc:identifier>` that `<package unique-identifier>` points at is this book's
+ * identifier — a book may carry several identifiers (ISBN, UUID, a retailer's own
+ * number), and picking the wrong one makes one book appear twice on a shelf. When
+ * nothing is pointed at, this falls back to the first, because what the reader wants
+ * is for the book to open.
  *
- * 值原樣取出，不解讀 `opf:scheme` 宣稱的是哪一種識別碼（ADR-0010）。
+ * The value is taken verbatim, without interpreting which kind of identifier
+ * `opf:scheme` claims it is (ADR-0010).
  */
 function readIdentifier(
   packageElement: XmlElement,
@@ -150,8 +167,10 @@ function readIdentifier(
 }
 
 /**
- * 只認 `ltr` 與 `rtl`。EPUB 3 允許的第三個值 `default` 的語意就是「不指定方向」
- * ——與屬性缺席同一格，所以照樣回報「書沒說」而不是自己挑一個方向。
+ * Only `ltr` and `rtl` are recognised. The semantics of EPUB 3's third permitted
+ * value, `default`, are exactly "do not specify a direction" — the same case as the
+ * attribute being absent, so that too reports "the book did not say" rather than
+ * picking a direction.
  */
 function readPageProgressionDirection(
   readingOrderElement: XmlElement,
@@ -161,16 +180,18 @@ function readPageProgressionDirection(
 }
 
 /**
- * `<package version>`。
+ * `<package version>`.
  *
- * ADR-0010 劃的界線在這裡執行：2.x 與 3.x 支援，**其餘明確拒絕**。OEBPS 1.2 與
- * OEB 1.0 的封裝文件在結構上就是另一種格式，勉強讀下去只會在更深的地方以更難
- * 懂的方式失敗。
+ * The boundary ADR-0010 draws is enforced here: 2.x and 3.x are supported, and
+ * **everything else is explicitly rejected**. OEBPS 1.2 and OEB 1.0 package
+ * documents are structurally a different format, and forcing a read of them only
+ * fails deeper down in a harder-to-understand way.
  */
 function readVersion(packageElement: XmlElement, label: string): EpubVersion {
   const version = packageElement.attribute("version")?.trim();
-  // 比主版本而不是比前綴：`version="3"` 少了小數點仍是 EPUB 3，而比 `"3."`
-  // 會把它誤拒。
+  // Compare the major version rather than a prefix: `version="3"` without the
+  // decimal point is still EPUB 3, and comparing against `"3."` would wrongly reject
+  // it.
   const major = version?.split(".")[0];
   if (major === "3") return "epub3";
   if (major === "2") return "epub2";
@@ -178,8 +199,8 @@ function readVersion(packageElement: XmlElement, label: string): EpubVersion {
   throw new EpubOpenError(
     "unsupported-package-version",
     version === undefined
-      ? `${label} 的 <package> 沒有宣告 version`
-      : `不支援的封裝版本 ${version}（frond 支援 EPUB 2.x 與 3.x，見 ADR-0010）`,
+      ? `${label}'s <package> declares no version`
+      : `unsupported packaging version ${version} (frond supports EPUB 2.x and 3.x; see ADR-0010)`,
   );
 }
 
@@ -191,7 +212,7 @@ function readManifest(
   if (manifest === undefined) {
     throw new EpubOpenError(
       "malformed-package-document",
-      `${label} 沒有 <manifest>`,
+      `${label} has no <manifest>`,
     );
   }
 
@@ -206,8 +227,9 @@ function readManifest(
 }
 
 /**
- * readingOrder 在封裝格式裡的元素名稱是 `spine`。CONTEXT.md 把 spine 列為
- * _Avoid_，所以那個字只出現在讀取它的這一個函式裡，其餘一律叫 readingOrder。
+ * The element name for the readingOrder in the packaging format is `spine`.
+ * CONTEXT.md lists spine as _Avoid_, so that word appears only in this one function
+ * that reads it; everywhere else it is called readingOrder.
  */
 function pickReadingOrder(
   packageElement: XmlElement,
@@ -217,7 +239,7 @@ function pickReadingOrder(
   if (element === undefined) {
     throw new EpubOpenError(
       "malformed-package-document",
-      `${label} 沒有 <spine>，這本書沒有宣告 readingOrder`,
+      `${label} has no <spine>, so this book declares no readingOrder`,
     );
   }
   return element;

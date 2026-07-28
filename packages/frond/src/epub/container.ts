@@ -4,26 +4,28 @@ import { parseXml } from "./xml.ts";
 import { readZip } from "./zip.ts";
 
 /**
- * OCF 容器——一本 EPUB 的外殼：一個 ZIP，加上 `META-INF/container.xml` 指出封裝
- * 文件在哪裡。
+ * The OCF container — an EPUB's outer shell: a ZIP, plus a
+ * `META-INF/container.xml` saying where the package document is.
  *
- * 這一層之所以自成一個模組，是因為它是**唯一知道「書是一個壓縮檔」的地方**。
- * 它之上的每一層都只看得到「路徑 → 位元組」這張表，於是解壓的實作（現在是
- * `zip.ts` 全解到記憶體）可以換成串流或 range request，而不必動到任何解析的
- * 程式碼。
+ * This layer is its own module because it is the **only place that knows a book is
+ * an archive**. Every layer above it sees nothing but a "path → bytes" table, so the
+ * decompression implementation (today `zip.ts` inflating everything into memory) can
+ * be swapped for streaming or range requests without touching a line of the parsing
+ * code.
  *
- * `openContainer` 是非同步的，因為解壓是——`DecompressionStream` 沒有同步版本
- * （`zip.ts`）。**只有開的那一刻是非同步的**：位元組在這裡就全部解好收進表裡，
- * 所以 `bytes()` 與 `text()` 仍然是同步的，它們之上四個解析模組一行都不必改。
+ * `openContainer` is async because decompression is — `DecompressionStream` has no
+ * synchronous form (`zip.ts`). **Only the moment of opening is async**: the bytes are
+ * all inflated into the table right here, so `bytes()` and `text()` stay synchronous
+ * and the four parsing modules above them need not change a line.
  *
- * 零 DOM 依賴（ADR-0005）：`DecompressionStream` 與 `URL` 都是 WHATWG 的標準
- * 物件，Node 與三家瀏覽器都在。
+ * Zero DOM dependency (ADR-0005): `DecompressionStream` and `URL` are both standard
+ * WHATWG objects, present in Node and in all three browsers.
  */
 
 const CONTAINER_PATH = "META-INF/container.xml";
 
 export interface EpubContainer {
-  /** 封裝文件（OPF）在壓縮檔內的路徑。 */
+  /** The path of the package document (OPF) inside the archive. */
   readonly packageDocumentPath: string;
   has(path: string): boolean;
   bytes(path: string): Uint8Array;
@@ -40,7 +42,7 @@ export async function openContainer(archive: Uint8Array): Promise<EpubContainer>
     if (found === undefined) {
       throw new EpubOpenError(
         "missing-resource",
-        `壓縮檔內沒有 ${path}`,
+        `the archive has no ${path}`,
       );
     }
     return found;
@@ -48,21 +50,23 @@ export async function openContainer(archive: Uint8Array): Promise<EpubContainer>
   const text = (path: string): string => decoder.decode(bytes(path));
 
   if (!has(CONTAINER_PATH)) {
-    // 沒有 container.xml 就沒有入口。一個沒有它的 ZIP 可能是任何東西——
-    // 一個 .cbz、一個 .docx、一個作者自己壓的資料夾。
+    // No container.xml means no entry point. A ZIP without one could be anything —
+    // a .cbz, a .docx, a folder the author zipped up themselves.
     throw new EpubOpenError(
       "missing-container",
-      `這個壓縮檔沒有 ${CONTAINER_PATH}，不是 EPUB 的 OCF 容器`,
+      `this archive has no ${CONTAINER_PATH}; it is not an EPUB OCF container`,
     );
   }
 
   const packageDocumentPath = readPackageDocumentPath(text(CONTAINER_PATH));
   if (!has(packageDocumentPath)) {
-    // 容器指到一個不存在的封裝文件。這與「manifest 指向不存在的檔案」是兩件
-    // 不同的壞法：這裡壞的是入口本身，整本書一頁都讀不到。
+    // The container points at a package document that does not exist. This is a
+    // different kind of breakage from "the manifest points at a missing file": what
+    // is broken here is the entry point itself, so not one page of the book is
+    // readable.
     throw new EpubOpenError(
       "missing-package-document",
-      `${CONTAINER_PATH} 指向 ${packageDocumentPath}，但壓縮檔內沒有這一項`,
+      `${CONTAINER_PATH} points at ${packageDocumentPath}, but the archive has no such entry`,
     );
   }
 
@@ -75,14 +79,17 @@ export async function openContainer(archive: Uint8Array): Promise<EpubContainer>
 }
 
 /**
- * `container.xml` 裡的第一個 rootfile 就是封裝文件。
+ * The first rootfile in `container.xml` is the package document.
  *
- * OCF 允許多個 rootfile（同一份內容的多種表述），但 EPUB 規定第一個
- * `application/oebps-package+xml` 的那一個是**這本書**。frond 只讀那一個。
+ * OCF allows several rootfiles (multiple renditions of the same content), but EPUB
+ * specifies that the first `application/oebps-package+xml` one is **this book**.
+ * frond reads only that one.
  *
- * `full-path` 與 manifest 的 href 一樣是 **URL**，只是它的基底是封裝根而不是某
- * 一份文件，所以走同一條解析（percent-encoding 要還原，解析後跳出封裝根的不
- * 合規）。兩邊各寫一套的話，只有其中一邊會記得書可以把路徑編碼過。
+ * `full-path` is a **URL** just like a manifest href, only its base is the package
+ * root rather than some document, so it goes through the same resolution
+ * (percent-encoding has to be undone; resolving outside the package root is
+ * non-conforming). Writing one of each would mean only one of the two remembers that
+ * books are allowed to encode their paths.
  */
 function readPackageDocumentPath(source: string): string {
   const container = parseXml(source, {
@@ -95,7 +102,7 @@ function readPackageDocumentPath(source: string): string {
   if (fullPath === undefined || fullPath === "") {
     throw new EpubOpenError(
       "malformed-container",
-      `${CONTAINER_PATH} 沒有指出封裝文件的位置（<rootfile full-path>）`,
+      `${CONTAINER_PATH} does not say where the package document is (<rootfile full-path>)`,
     );
   }
 
@@ -103,7 +110,7 @@ function readPackageDocumentPath(source: string): string {
   if (resolved.kind !== "in-container") {
     throw new EpubOpenError(
       "malformed-container",
-      `${CONTAINER_PATH} 指到封裝外：full-path="${fullPath}"`,
+      `${CONTAINER_PATH} points outside the package: full-path="${fullPath}"`,
     );
   }
   return resolved.path;

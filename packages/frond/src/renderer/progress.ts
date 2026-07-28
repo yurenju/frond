@@ -1,36 +1,42 @@
 /**
- * 全書進度（fraction）——0 到 1 的比例，供拖拉定位軸與進度顯示用
- * （user story 23、24）。
+ * Whole-book progress (a fraction) — a ratio from 0 to 1, for a draggable position
+ * slider and for showing progress (user stories 23 and 24).
  *
- * ## 為什麼用字元數而不是頁數
+ * ## Why characters rather than pages
  *
- * 頁數會隨 viewport、字級、欄數改變，所以「第 37 頁 / 共 200 頁」在讀者調完字級
- * 之後指的是另一個位置。字元數不會——它是書的性質，不是版面的性質。定位軸因此
- * 在調字級前後指向同一段文字。
+ * The page count changes with the viewport, the font size and the column count, so
+ * "page 37 of 200" refers to a different position once the reader has adjusted the font
+ * size. A character count does not — it is a property of the book, not of the layout. A
+ * position slider therefore points at the same stretch of text before and after a font
+ * size change.
  *
- * 這也是為什麼 `RenderLocation` 同時有 `page`／`pageCount` 與 `fraction`：前者
- * 只在**這一節、這個版面**裡有意義，後者跨整本書而且穩定。CONTEXT.md 那句
- * 「CFI 精確但不可比大小，fraction 可比大小但粗」講的是第三個軸。
+ * This is also why `RenderLocation` carries both `page`/`pageCount` and `fraction`: the
+ * former is only meaningful **within this section and this layout**, while the latter
+ * spans the whole book and is stable. CONTEXT.md's line "a CFI is exact but not
+ * orderable by magnitude; a fraction is orderable but coarse" is about a third axis.
  *
- * ## 為什麼要等
+ * ## Why there is a wait
  *
- * 字元數要把每一節的內容都讀過一次才數得出來，而那是 I/O 加解析。所以 fraction
- * 有一個「還不能用」的狀態（user story 25），而不是先給一個近似值再偷偷改掉——
- * 定位軸從錯的位置跳到對的位置，看起來像 bug。
+ * Counting characters means reading through every section's content once, and that is
+ * I/O plus parsing. So the fraction has a "not usable yet" state (user story 25),
+ * rather than handing out an approximation and quietly correcting it later — a slider
+ * jumping from the wrong position to the right one looks like a bug.
  *
- * **這一支不碰 DOM**：數字元的那一步在 `renderer.ts`，這裡只收數字。
+ * **This module does not touch the DOM**: the character counting itself is in
+ * `renderer.ts`, and this only receives the numbers.
  */
 
 /**
- * 一本書每一節有多少字元。
+ * How many characters each section of a book has.
  *
- * 索引一旦建好就不會變——它是書的性質。所以這個類別沒有任何 mutator。
+ * Once built, the index never changes — it is a property of the book. So this class has
+ * no mutators at all.
  */
 export class ProgressIndex {
-  /** 全書字元數。 */
+  /** The whole book's character count. */
   readonly characters: number;
 
-  /** 第 i 節開始之前，前面各節的字元數總和。長度比節數多一（最後一格是總數）。 */
+  /** The characters in all preceding sections, before section i starts. One longer than the section count (the last slot is the total). */
   private readonly starts: readonly number[];
 
   private constructor(starts: readonly number[], characters: number) {
@@ -50,12 +56,12 @@ export class ProgressIndex {
     return new ProgressIndex(starts, running);
   }
 
-  /** 這本書有幾節。 */
+  /** How many sections this book has. */
   get sectionCount(): number {
     return this.starts.length - 1;
   }
 
-  /** 第 `sectionIndex` 節有多少字元。 */
+  /** How many characters section `sectionIndex` has. */
   charactersIn(sectionIndex: number): number {
     const start = this.starts[sectionIndex];
     const end = this.starts[sectionIndex + 1];
@@ -64,10 +70,11 @@ export class ProgressIndex {
   }
 
   /**
-   * 某個位置的全書進度。
+   * The whole-book progress at some position.
    *
-   * 一本一個字都沒有的書（整本都是圖）進度永遠是 0——**不是 NaN**。除以零在這裡
-   * 不會丟錯，它會安靜地把一個 NaN 送進定位軸，然後定位軸消失。
+   * A book with not a single character (all images) always has progress 0 — **not
+   * NaN**. Dividing by zero does not throw here; it quietly feeds a NaN into the
+   * position slider, and then the slider disappears.
    */
   fractionAt(sectionIndex: number, charactersIntoSection: number): number {
     if (this.characters === 0) return 0;
@@ -79,12 +86,14 @@ export class ProgressIndex {
   }
 
   /**
-   * 一個進度落在哪一節的第幾個字元——拖拉定位軸放開時要的那個方向。
+   * Which section a progress value falls in, and at which character — the direction
+   * needed when a dragged position slider is released.
    *
-   * 落在兩節交界上時算**後面那一節的開頭**，而不是前一節的結尾：讀者把定位軸
-   * 拖到 50% 時期待看到的是「一半的位置」，而一節的結尾在畫面上是上一章的最後
-   * 一頁。空的節（`empty-and-image-only-sections`）不會被選中，因為它的區間長度
-   * 是 0。
+   * Landing exactly on a boundary counts as **the start of the later section** rather
+   * than the end of the earlier one: a reader dragging the slider to 50% expects to see
+   * "the halfway position", and the end of a section is, on screen, the last page of the
+   * previous chapter. Empty sections (`empty-and-image-only-sections`) are never
+   * selected, because their interval has length 0.
    */
   locate(fraction: number): { sectionIndex: number; charactersIntoSection: number } {
     if (this.sectionCount === 0) {

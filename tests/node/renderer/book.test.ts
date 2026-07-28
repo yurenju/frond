@@ -12,12 +12,13 @@ const FIXTURE_DIRECTORY = join(
   "fixtures",
 );
 
-describe("EpubBook 滿足 Renderer 對書的要求", () => {
-  test("開出來的書可以直接當成 RenderableBook 用", async () => {
-    // **這一條的價值在型別而不在執行期。** `RenderableBook` 是結構性的介面，
-    // 沒有任何一行程式碼宣告 `EpubBook implements RenderableBook`——所以兩邊漂開
-    // 的時候，唯一會紅的地方就是這一行的型別檢查。少了它，Renderer 會在某次
-    // EpubBook 改欄位之後靜默地接不上，而那要到瀏覽器測試才炸。
+describe("EpubBook satisfies what Renderer requires of a book", () => {
+  test("an opened book can be used directly as a RenderableBook", async () => {
+    // **This test's value is in the types, not at runtime.** `RenderableBook` is a structural
+    // interface, and not one line of code declares `EpubBook implements RenderableBook` — so
+    // when the two drift, the only thing that turns red is this line's type check. Without it,
+    // Renderer would silently fail to connect after some change to EpubBook's fields, and that
+    // would only blow up in the browser tests.
     const book: RenderableBook = await EpubBook.open(
       readFileSync(join(FIXTURE_DIRECTORY, "vertical-japanese.epub")),
     );
@@ -39,22 +40,23 @@ describe("MemoryBook", () => {
     ],
   });
 
-  test("它就是一本 RenderableBook", () => {
+  test("it is a RenderableBook", () => {
     const renderable: RenderableBook = book;
     expect(renderable.readingOrder.length).toBe(2);
   });
 
-  test("內容以 UTF-8 編碼", () => {
+  test("content is encoded as UTF-8", () => {
     expect(new TextDecoder().decode(book.bytes("one.xhtml"))).toBe("<p>一</p>");
   });
 
-  test("linear 預設是 true，指定了就照指定的", () => {
+  test("linear defaults to true, and follows what was specified when it was", () => {
     expect(book.readingOrder[0]!.linear).toBe(true);
-    // 非線性的項目**留在清單裡**——濾掉封面頁與版權頁是政策不是事實（ADR-0002）。
+    // Non-linear items **stay in the list** — filtering out cover and copyright pages is
+    // policy, not fact (ADR-0002).
     expect(book.readingOrder[1]!.linear).toBe(false);
   });
 
-  test("內容文件與其他資源都在 resources 上，媒體型別查得到", () => {
+  test("content documents and other resources are all on resources, with a findable media type", () => {
     const paths = book.resources.map((resource) =>
       resource.location.kind === "remote" ? "(remote)" : resource.location.path,
     );
@@ -64,12 +66,13 @@ describe("MemoryBook", () => {
     expect(book.resources[0]!.mediaType).toBe("application/xhtml+xml");
   });
 
-  test("取不存在的路徑會丟，不回空位元組", () => {
-    // 回空位元組的症狀是缺圖或滿頁豆腐字，而那時候沒有人查得到根因在取用這一步。
+  test("taking a path that does not exist throws rather than returning empty bytes", () => {
+    // The symptom of empty bytes is a missing image or a page full of tofu, and by then nobody
+    // can trace the root cause back to this fetch.
     expect(() => book.bytes("nope.xhtml")).toThrow(/nope\.xhtml/);
   });
 
-  test("位元組形式的內容原樣收下", () => {
+  test("content given as bytes is taken verbatim", () => {
     const raw = MemoryBook.of({
       sections: [{ path: "x.xhtml", content: Uint8Array.of(60, 112, 62) }],
     });

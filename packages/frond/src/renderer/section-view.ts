@@ -1,17 +1,22 @@
 /**
- * 一節的畫面：一個 iframe，加上它裡面那份文件的量測與捲動。
+ * One section's view: an iframe, plus the measurement and scrolling of the document
+ * inside it.
  *
- * 一節一個 iframe（ADR-0006）。這幾乎沒有選擇餘地——EPUB 的樣式表大量使用 `body`、
- * `p`、`*` 這類全域選擇器，Shadow DOM 擋不住那種等級的污染；而分頁需要一個真正的
- * document 來承載 `writing-mode` 與 multi-column。
+ * One iframe per section (ADR-0006). There is barely a choice here — EPUB stylesheets
+ * make heavy use of global selectors such as `body`, `p` and `*`, and Shadow DOM cannot
+ * hold back pollution at that level; and pagination needs a real document to carry
+ * `writing-mode` and multi-column.
  *
- * ## 邊界在 iframe 外面，不在書的 CSS 裡
+ * ## The margin is outside the iframe, not in the book's CSS
  *
- * 讀者設定的邊界靠**把 iframe 在容器裡縮進來**達成，不是注入 padding 給書。差別
- * 不只是實作偏好：padding 落在分欄容器上會讓第一欄與其餘的欄起點不一樣，於是
- * 「翻一頁 = 移動一個頁距」不再成立（foliate 為此要多記一個 `contentStart`）。
- * 縮 iframe 則讓文件完全不知道邊界的存在——頁距是乾淨的整數，書的層疊也不必跟
- * frond 搶 `body` 的 padding（spine 為了搶那一格掛了一個永不解除的 MutationObserver）。
+ * The reader's margin is achieved by **insetting the iframe within its container**,
+ * rather than injecting padding into the book. The difference is more than an
+ * implementation preference: padding on the multi-column container makes the first column
+ * start at a different place from the rest, so "one page turn = one page stride" no longer
+ * holds (foliate has to track an extra `contentStart` for this). Insetting the iframe
+ * leaves the document entirely unaware the margin exists — the stride is a clean whole
+ * number, and the book's cascade never has to fight frond over `body`'s padding (spine
+ * hung a MutationObserver that is never released to fight for that one slot).
  */
 
 import {
@@ -35,29 +40,30 @@ import { textNodesIn } from "./text-index.ts";
 import { readWritingMode } from "./writing-mode.ts";
 
 export interface SectionViewHooks {
-  /** 讀者按了內容裡的連結。frond 只擋下預設行為，跳不跳由消費端決定（ADR-0002）。 */
+  /** The reader activated a link in the content. frond only prevents the default; the consumer decides whether to navigate (ADR-0002). */
   readonly onLinkActivate: (href: string) => void;
-  /** iframe 裡的選取範圍變了。 */
+  /** The selection inside the iframe changed. */
   readonly onSelectionChange: () => void;
-  /** iframe 裡的指標按下或放開。座標已經換算到容器座標系。 */
+  /** A pointer went down or up inside the iframe. Coordinates are already converted to the container's coordinate system. */
   readonly onPointer: (
     kind: "pointerdown" | "pointerup",
     event: RendererPointerEvent,
   ) => void;
-  /** iframe 裡的按鍵。焦點在 iframe 裡時外層收不到，所以要從這裡出去。 */
+  /** A key inside the iframe. The outer page receives nothing while focus is in the iframe, so it has to come out through here. */
   readonly onKey: (kind: "keydown" | "keyup", event: RendererKeyEvent) => void;
 }
 
 /**
- * 書寫方向讀不出來。
+ * The writing mode could not be read.
  *
- * 這是一個**明確的失敗**而不是退回橫排：Firefox 在讀不到時回空字串
- * （`docs/browser-quirks.md`），而把空字串當成橫排的實作，症狀會是「直排書偶爾
- * 整本排成橫排」。
+ * This is an **explicit failure** rather than a fallback to horizontal: Firefox returns an
+ * empty string when it cannot be read (`docs/browser-quirks.md`), and an implementation
+ * treating the empty string as horizontal has the symptom "vertical books occasionally lay
+ * out entirely horizontally".
  */
 export class WritingModeUnreadableError extends Error {
   constructor(path: string) {
-    super(`${path} 的書寫方向讀不出來——computed style 是空字串`);
+    super(`${path}'s writing mode could not be read — the computed style is an empty string`);
     this.name = "WritingModeUnreadableError";
   }
 }
@@ -71,9 +77,9 @@ export class SectionView {
   private readonly host: HTMLElement;
   private settings: ReaderSettings;
   private metrics: PageMetrics;
-  /** 讀者設定的邊界落到四個實體邊之後的值。座標換算與 iframe 定位都要它。 */
+  /** The reader's margin after landing on the four physical sides. Both coordinate conversion and iframe positioning need it. */
   private insets: Insets;
-  /** 依文件順序攤平的文字節點。量位置時要二分搜尋它，所以只算一次。 */
+  /** The text nodes flattened into document order. Measuring positions binary-searches it, so it is computed once. */
   private textNodes: readonly Text[];
 
   private constructor(
@@ -106,10 +112,11 @@ export class SectionView {
   ): Promise<SectionView> {
     const frame = host.ownerDocument.createElement("iframe");
 
-    // `allow-scripts` 是被 WebKit 逼出來的，不是因為要跑書的腳本：少了它，
-    // WebKit 連 parent 掛在 contentDocument 上的 listener 都收不到（bug 218086，
-    // #7 已在三家重現）。書的腳本已經在文件還是文字的時候拿掉了
-    // （`document-source.ts`），所以這個 sandbox 值不會讓書內的程式碼跑起來。
+    // `allow-scripts` is forced on us by WebKit, not because the book's scripts should run:
+    // without it, WebKit does not even deliver events to listeners the parent attached to
+    // contentDocument (bug 218086, reproduced in all three in #7). The book's scripts were
+    // already removed while the document was still text (`document-source.ts`), so this
+    // sandbox value does not let code inside the book run.
     frame.setAttribute("sandbox", "allow-same-origin allow-scripts");
     frame.setAttribute("title", "");
     frame.style.border = "0";
@@ -118,16 +125,17 @@ export class SectionView {
     frame.style.background = "transparent";
     host.append(frame);
 
-    // 載入前先用一個對稱的邊界撐開。軸向的邊界要有書寫方向才映得出實體邊，而
-    // 那要等文件排出來才讀得到——所以正式的尺寸在下面讀到方向之後再量一次。
-    // 純量的邊界兩次算出來一樣，那條路上不會有第二次 reflow。
+    // Size it with a symmetric margin before loading. An axis-split margin needs the
+    // writing mode to map onto physical sides, and that cannot be read until the document
+    // has laid out — so the real size is measured again below, after the mode is read. A
+    // scalar margin computes the same both times, so that path has no second reflow.
     sizeFrame(frame, host, marginInsets(settings.margin, "horizontal-tb"));
 
     await new Promise<void>((resolve, reject) => {
       frame.addEventListener("load", () => resolve(), { once: true });
       frame.addEventListener(
         "error",
-        () => reject(new Error(`${path} 的 iframe 載入失敗`)),
+        () => reject(new Error(`${path}'s iframe failed to load`)),
         { once: true },
       );
       frame.src = source.url;
@@ -135,19 +143,21 @@ export class SectionView {
 
     const document = frame.contentDocument;
     if (document === null) {
-      throw new Error(`${path} 載入後取不到 contentDocument`);
+      throw new Error(`${path}'s contentDocument was unavailable after loading`);
     }
 
-    // 字型載入完才量。分頁是字型的函數：字型還沒到位時量到的斷行與斷頁是暫時的，
-    // 而那組數字會被寫進頁數與位置。foliate 也是用它取代 Firefox 上不可靠的
-    // `ResizeObserver`（`docs/browser-quirks.md` 表一 #3）。
+    // Measure only once the fonts have loaded. Pagination is a function of the fonts: the
+    // line and page breaks measured before they arrive are provisional, and that set of
+    // numbers gets written into the page count and the positions. foliate also uses this
+    // in place of the unreliable `ResizeObserver` on Firefox (`docs/browser-quirks.md`
+    // table 1, #3).
     await document.fonts.ready;
 
     const reading = readWritingMode(document);
     if (reading.kind === "unreadable") throw new WritingModeUnreadableError(path);
 
-    // 量幾何**之前**再 size 一次：`metricsFor` 讀的是 iframe 的 client 尺寸，
-    // 而軸向的邊界到這一刻才知道該扣哪兩邊。
+    // Size it once more **before** measuring geometry: `metricsFor` reads the iframe's
+    // client size, and only now is it known which two sides an axis-split margin subtracts.
     const insets = marginInsets(settings.margin, reading.writingMode);
     sizeFrame(frame, host, insets);
 
@@ -168,21 +178,25 @@ export class SectionView {
   }
 
   /**
-   * 這一節共幾頁。
+   * How many pages this section has.
    *
-   * ## 為什麼不能只看捲動總長
+   * ## Why the scroll extent alone will not do
    *
-   * 捲動總長會把**只有邊距的尾巴**算成一頁。直排時特別容易踩到：書寫
-   * `p { margin: 0 0 1em }`（實際的書的常態）時，那個 `margin-bottom` 是實體
-   * 邊界，在 `vertical-rl` 下落在**分頁軸**上——最後一段的下邊距因此可能把捲動
-   * 總長推進下一欄，而那一欄裡一個字都沒有。
+   * The scroll extent counts **a tail consisting only of margin** as a page. Vertical mode
+   * walks into this particularly easily: when the book writes `p { margin: 0 0 1em }` (the
+   * norm in real books), that `margin-bottom` is a physical margin, and under `vertical-rl`
+   * it falls on the **pagination axis** — so the last paragraph's bottom margin can push
+   * the scroll extent into the next column, and that column has not a single character in
+   * it.
    *
-   * 讀者翻到那一頁會看到全白，而「空白頁」正是封閉缺陷清單裡的一項
-   * （`docs/agents/pull-requests.md`）。更麻煩的是它讓位置的往返失去 identity：
-   * 那一頁報得出頁碼，卻報不出屬於自己的 CFI（最靠近的位置在上一頁），於是
-   * 「CFI → 跳過去 → CFI」在最後一頁對不上。
+   * A reader turning to that page sees blank white, and "blank page" is one of the entries
+   * on the closed defect list (`docs/agents/pull-requests.md`). Worse, it breaks the
+   * identity of the position round trip: that page can report a page number but not a CFI
+   * of its own (the nearest position is on the previous page), so "CFI → jump → CFI" does
+   * not match on the last page.
    *
-   * 所以頁數取兩者的小者：捲動總長算出來的，與**內容實際延伸到的那一頁**。
+   * So the page count is the smaller of the two: the one from the scroll extent, and **the
+   * page the content actually extends to**.
    */
   get pageCount(): number {
     const byScroll = pageCountFor(this.metrics, this.scrollExtent);
@@ -193,7 +207,7 @@ export class SectionView {
       : Math.max(1, Math.min(byScroll, lastWithContent + 1));
   }
 
-  /** 目前停在第幾頁，從 0 起算。 */
+  /** Which page it is currently on, counting from 0. */
   get page(): number {
     return Math.min(pageAt(this.metrics, this.scrollOffset), this.pageCount - 1);
   }
@@ -208,11 +222,13 @@ export class SectionView {
   }
 
   /**
-   * 版面變了（容器尺寸、讀者的邊界或欄數）之後重新量一次。
+   * Re-measures after the layout changed (the container size, the reader's margin or
+   * column count).
    *
-   * **不重新載入文件**：換的只是 `<style id="frond-layout">` 的內容，DOM 不動，
-   * 所以指向節點的 `Range` 在重排之後仍然有效——位置的回復因此不必依賴 CFI 的
-   * 字串往返。
+   * **The document is not reloaded**: only the content of `<style id="frond-layout">`
+   * changes, the DOM is untouched, and so `Range`s pointing at nodes are still valid after
+   * reflow — recovering a position therefore does not have to go through a CFI string round
+   * trip.
    */
   relayout(settings: ReaderSettings): void {
     this.settings = settings;
@@ -222,7 +238,7 @@ export class SectionView {
     this.applyLayout();
   }
 
-  /** 一個 `Range` 落在分頁軸上的哪個位置（已加回捲動量）。 */
+  /** Where a `Range` falls along the pagination axis (with the scroll offset added back). */
   offsetOf(range: Range): number {
     const rect = firstVisibleRect(range);
     if (rect === undefined) return 0;
@@ -233,10 +249,10 @@ export class SectionView {
   }
 
   /**
-   * 一個 `Range` 落在第幾頁。
+   * Which page a `Range` falls on.
    *
-   * 走的是 `pageContaining` 而不是 `pageAt`——內容的位置落在一頁裡面的任何地方，
-   * 不是頁距的整數倍（`geometry.ts`）。
+   * This goes through `pageContaining` rather than `pageAt` — a content position falls
+   * anywhere within a page, not on a whole multiple of the stride (`geometry.ts`).
    */
   pageOf(range: Range): number {
     return Math.min(
@@ -246,14 +262,16 @@ export class SectionView {
   }
 
   /**
-   * 某一頁最前面那個字元。
+   * The first character on some page.
    *
-   * 二分搜尋而不是從頭掃：`huge-single-section` 那本書的一節有一千多個段落，
-   * 每翻一頁掃一次的話每次都要量幾千個矩形。二分搜尋成立的前提是**文字節點在
-   * 分頁軸上的位置隨文件順序遞增**——那正是分欄版面的性質。
+   * A binary search rather than a scan from the start: one section of the
+   * `huge-single-section` book has over a thousand paragraphs, and scanning on every page
+   * turn would mean measuring thousands of rectangles each time. The binary search holds
+   * on the premise that **text nodes' positions along the pagination axis increase with
+   * document order** — which is exactly the property of a multi-column layout.
    *
-   * 找不到（整節沒有文字，例如 `empty-and-image-only-sections` 的那一節）時回
-   * `undefined`。
+   * Returns `undefined` when nothing is found (a section with no text at all, such as the
+   * one in `empty-and-image-only-sections`).
    */
   positionAtPageStart(page: number): { readonly node: Text; readonly offset: number } | undefined {
     if (this.textNodes.length === 0) return undefined;
@@ -262,22 +280,24 @@ export class SectionView {
     const nodeIndex = this.firstNodeAtOrAfter(target);
     const node = this.textNodes[nodeIndex];
     if (node === undefined) {
-      // 目標落在最後一個文字節點之後：停在它的結尾。
+      // The target falls past the last text node: stop at its end.
       const last = this.textNodes[this.textNodes.length - 1]!;
       return { node: last, offset: last.length };
     }
 
-    // 這一個節點可能跨在頁的邊界上（長段落），所以再往節點裡面二分一次。
+    // This node may straddle the page boundary (a long paragraph), so binary-search once
+    // more inside the node.
     return { node, offset: this.firstCharacterAtOrAfter(node, target) };
   }
 
   /**
-   * 把一個位置變成這份文件裡的一個 `Range`。
+   * Turns a position into a `Range` within this document.
    *
-   * 放在這裡而不是讓呼叫端自己 `createRange()`：`Range` 必須由**這一份**文件建
-   * 出來，拿外層文件的 `createRange()` 去指 iframe 裡的節點會丟
-   * `WrongDocumentError`。把那個約束收在擁有文件的這一邊，呼叫端就不會有第二個
-   * 地方需要記得它。
+   * It lives here rather than letting the caller `createRange()` itself: a `Range` has to
+   * be built by **this** document, and using the outer document's `createRange()` to point
+   * at nodes inside the iframe throws `WrongDocumentError`. Keeping that constraint on the
+   * side that owns the document means there is no second place the caller has to remember
+   * it.
    */
   rangeAt(position: { readonly node: Node; readonly offset: number }): Range {
     const range = this.document.createRange();
@@ -286,30 +306,33 @@ export class SectionView {
     return range;
   }
 
-  /** 涵蓋整個元素的 `Range`——跳到某個錨點時要的那一個。 */
+  /** A `Range` covering a whole element — the one needed when jumping to an anchor. */
   rangeOfNode(node: Node): Range {
     const range = this.document.createRange();
     range.selectNode(node);
     return range;
   }
 
-  /** 這份文件裡 id 是這個的元素。 */
+  /** The element in this document with this id. */
   elementById(id: string): Element | null {
     return this.document.getElementById(id);
   }
 
   /**
-   * 一段範圍在容器座標系裡的矩形——消費端要自己畫 highlight 時要的幾何
-   * （user story 49、51）。
+   * A range's rectangles in the container's coordinate system — the geometry a consumer
+   * needs to draw its own highlights (user stories 49 and 51).
    *
-   * 給的是**相對於容器**而不是相對於 iframe：消費端把 highlight 畫在容器上，
-   * 而 iframe 自己還被邊界推移過。顏色、樣式、動畫由消費端決定，frond 只給幾何
-   * （ADR-0002）。
+   * They are given **relative to the container** rather than to the iframe: the consumer
+   * draws highlights on the container, and the iframe itself is offset by the margin.
+   * Colour, style and animation are the consumer's decision; frond only supplies the
+   * geometry (ADR-0002).
    */
   rectsFor(range: Range): readonly DOMRect[] {
-    // 長度為零的 range 走 `measurable`（先撐開一個字元）而不是直接問它自己的
-    // 矩形，理由與量位置時相同：游標在欄邊界上會被畫到上一欄的結尾。順帶也解掉
-    // 「零寬的矩形被濾光、消費端收到空陣列」那一格。
+    // A zero-length range goes through `measurable` (expanding by one character first)
+    // rather than being asked for its own rectangles, for the same reason as when measuring
+    // a position: a caret on a column boundary gets drawn at the end of the previous
+    // column. It also happens to solve the case where zero-width rectangles are all
+    // filtered out and the consumer receives an empty array.
     const resolved =
       measurable(range)
         .map((candidate) =>
@@ -330,7 +353,7 @@ export class SectionView {
     );
   }
 
-  /** 目前選取的範圍。沒有選取或選取不在這份文件裡時是 `undefined`。 */
+  /** The current selection. `undefined` when there is none, or when it is not in this document. */
   selection(): Range | undefined {
     const selection = this.document.getSelection();
     if (selection === null || selection.rangeCount === 0) return undefined;
@@ -345,26 +368,31 @@ export class SectionView {
   }
 
   /**
-   * 內容實際延伸到第幾頁。一個字也沒有、一張圖也沒有的節回 `undefined`。
+   * Which page the content actually extends to. Returns `undefined` for a section with
+   * neither a character nor an image.
    *
-   * 「內容」包含文字與被取代元素（圖片、影片）——只看文字的話，
-   * `empty-and-image-only-sections` 那種純圖片的節會被判成零頁。
+   * "Content" covers text and replaced elements (images, video) — looking only at text
+   * would judge an image-only section such as the one in
+   * `empty-and-image-only-sections` to have zero pages.
    *
-   * ## 文件順序的最後一個文字節點不一定畫得出來
+   * ## The last text node in document order is not necessarily drawable
    *
-   * 這是實際的書上量到的一個病症（`hidden-trailing-notes`）：書把註腳放在正文
-   * **後面**、用 `display: none` 藏起來，讀者點上標才看到，是很常見的做法；整份
-   * `nav.xhtml` 被藏起來也是。那些節點在文件順序上是最後幾個，但它們一個矩形都
-   * 量不到。
+   * This is an ailment measured on real books (`hidden-trailing-notes`): books putting
+   * footnotes **after** the body text and hiding them with `display: none`, so the reader
+   * only sees them on tapping a marker, is a very common practice; so is hiding the entire
+   * `nav.xhtml`. Those nodes are the last few in document order, and not one rectangle can
+   * be measured for them.
    *
-   * 拿那種節點當內容的終點，`getBoundingClientRect()` 給的是**全零**——於是
-   * `axisEndOf` 算出 0、`pageContaining` 算出第 0 頁，整節的頁數被壓成 1。
-   * 症狀是讀者只讀得到一章的第一頁，其餘全部翻不過去，而且**不會有任何錯誤**：
-   * 頁數看起來是一個正常的數字。樣本裡最嚴重的一節有 8778 個畫得出來的字元，
-   * 全書只報得出 1 頁。
+   * Taking such a node as the end of the content, `getBoundingClientRect()` gives **all
+   * zeros** — so `axisEndOf` computes 0, `pageContaining` computes page 0, and the whole
+   * section's page count is squashed to 1. The symptom is the reader being able to read
+   * only the first page of a chapter and unable to turn past it, **with no error at all**:
+   * the page count looks like a perfectly normal number. The worst section in the sample
+   * has 8778 drawable characters and reports 1 page for the whole book.
    *
-   * 所以要從後往前找**第一個量得到矩形的**文字節點，而不是取最後一個。走訪的
-   * 長度就是尾巴上藏起來的節點數，正常的書是零步。
+   * So this searches backwards for the first text node **that does have a measurable
+   * rectangle**, rather than taking the last one. The length of that walk is the number of
+   * hidden nodes on the tail, which is zero steps for a normal book.
    */
   private lastPageWithContent(): number | undefined {
     let end: number | undefined;
@@ -389,11 +417,12 @@ export class SectionView {
 
     if (end === undefined) return undefined;
 
-    // 減一個像素，讓剛好填滿一頁的內容不會因為容差而被算進下一頁。
+    // Subtract one pixel so that content filling a page exactly is not counted onto the
+    // next page by the tolerance.
     return pageContaining(this.metrics, Math.max(0, end - 1));
   }
 
-  /** 一個矩形在分頁軸上的遠端，已加回捲動量。 */
+  /** A rectangle's far edge along the pagination axis, with the scroll offset added back. */
   private axisEndOf(rect: DOMRect): number {
     const root = this.document.documentElement;
     return this.metrics.axis === "y"
@@ -419,10 +448,11 @@ export class SectionView {
 
   private attachHooks(hooks: SectionViewHooks): void {
     this.document.addEventListener("click", (event) => {
-      // **不能用 `instanceof Element`。** 這支模組跑在外層頁面的 realm，而事件的
-      // target 來自 iframe 的 realm——兩個 realm 有各自的 `Element` 建構子，所以
-      // `instanceof` 一律是 false。症狀是連結事件完全不送，而且不會有任何錯誤
-      // 訊息，看起來就像「這個 listener 沒有掛上」。
+      // **`instanceof Element` must not be used.** This module runs in the outer page's
+      // realm while the event's target comes from the iframe's realm — the two realms have
+      // their own `Element` constructors, so `instanceof` is always false. The symptom is
+      // link events never being delivered, with no error message at all, looking exactly
+      // like "this listener was never attached".
       const target = event.target as Node | null;
       if (target === null) return;
 
@@ -430,8 +460,9 @@ export class SectionView {
       const anchor = element?.closest("a[href]") ?? null;
       if (anchor === null) return;
 
-      // 擋下預設行為是必要的：讓 iframe 自己導航過去會把整個渲染狀態丟掉，而
-      // 那之後 frond 手上的 document 參考指向一份已經不在畫面上的文件。
+      // Preventing the default is necessary: letting the iframe navigate there would throw
+      // away the whole rendering state, after which frond's document reference points at a
+      // document that is no longer on screen.
       event.preventDefault();
       hooks.onLinkActivate(anchor.getAttribute("href") ?? "");
     });
@@ -440,9 +471,10 @@ export class SectionView {
       hooks.onSelectionChange();
     });
 
-    // 一律 `passive`：frond 不對指標與按鍵做任何決定，也就沒有要擋的預設行為。
-    // 非 passive 的 touch listener 會讓瀏覽器每一次都等 listener 跑完才決定要不要
-    // 捲動，而那正是選字與捲動在手機上變頓的原因。
+    // Always `passive`: frond makes no decision about pointers or keys, and so has no
+    // default behaviour to prevent. A non-passive touch listener makes the browser wait for
+    // the listener to finish before deciding whether to scroll, every time, and that is
+    // exactly why selecting text and scrolling feel sluggish on phones.
     for (const kind of ["pointerdown", "pointerup"] as const) {
       this.document.addEventListener(
         kind,
@@ -465,19 +497,22 @@ export class SectionView {
   }
 
   /**
-   * 一次指標事件在容器座標系裡的位置與當下的兩個 DOM 條件。
+   * A pointer event's position in the container's coordinate system, plus the two DOM
+   * conditions at that instant.
    *
-   * iframe 的內容自己捲，而 iframe 本身只有一個 viewport 那麼大——所以事件的
-   * `clientX`／`clientY` 已經是相對於可視區域的，**不必再加回捲動量**。要加的
-   * 只有 iframe 在容器裡被推移的那一段，也就是讀者設定的邊界。這與 `rectsFor()`
-   * 的換算是同一條，兩者因此回同一個座標系。
+   * The iframe's content scrolls itself, and the iframe is only one viewport large — so the
+   * event's `clientX`/`clientY` are already relative to the visible area, and **the scroll
+   * offset must not be added back**. All that has to be added is how far the iframe is
+   * offset within the container, which is the reader's margin. This is the same conversion
+   * as `rectsFor()`, so both return the same coordinate system.
    *
-   * （spine 在 epub.js 上要減掉 `scrollLeft`，是因為那邊的 iframe 撐滿整個已捲動
-   * 的節。frond 的 iframe 不是那個形狀，照抄那一步會讓座標整頁偏掉。）
+   * (spine has to subtract `scrollLeft` on epub.js because the iframe there spans the whole
+   * scrolled section. frond's iframe is not that shape, and copying that step would shift
+   * the coordinates by a whole page.)
    */
   private describePointer(event: PointerFacts): RendererPointerEvent {
-    // **不能用 `instanceof Element`**——target 來自 iframe 的 realm，理由與上面
-    // 那個 click listener 相同。
+    // **`instanceof Element` must not be used** — the target comes from the iframe's realm,
+    // for the same reason as the click listener above.
     const target = event.target as Node | null;
     const element = target === null ? null : isElement(target) ? target : target.parentElement;
 
@@ -491,7 +526,7 @@ export class SectionView {
     };
   }
 
-  /** 第一個起點在 `target` 之後（含）的文字節點的索引。 */
+  /** The index of the first text node whose end is at or after `target`. */
   private firstNodeAtOrAfter(target: number): number {
     let low = 0;
     let high = this.textNodes.length;
@@ -506,7 +541,7 @@ export class SectionView {
     return low;
   }
 
-  /** 這個節點裡第一個落在 `target` 之後（含）的字元。 */
+  /** The first character in this node that falls at or after `target`. */
   private firstCharacterAtOrAfter(node: Text, target: number): number {
     let low = 0;
     let high = node.length;
@@ -520,7 +555,7 @@ export class SectionView {
     return Math.min(low, Math.max(0, node.length - 1));
   }
 
-  /** 一個節點結尾在分頁軸上的位置。 */
+  /** Where a node's end falls along the pagination axis. */
   private endOffsetOfNode(node: Text): number {
     const range = this.document.createRange();
     range.selectNodeContents(node);
@@ -532,7 +567,7 @@ export class SectionView {
       : rect.right + this.document.documentElement.scrollLeft;
   }
 
-  /** 一個字元在分頁軸上的位置。 */
+  /** Where a character falls along the pagination axis. */
   private offsetOfCharacter(node: Text, offset: number): number {
     const range = this.document.createRange();
     range.setStart(node, offset);
@@ -542,12 +577,14 @@ export class SectionView {
 }
 
 /**
- * iframe 在容器裡縮進讀者設定的邊界。
+ * Insets the iframe within its container by the reader's margin.
  *
- * 定位用實體的 `left`／`top` 而不是邏輯的 `inset-inline-start`／`inset-block-start`。
- * 那兩個邏輯屬性解析的是**容器**的書寫方向，也就是消費端 app 的方向，與書的方向
- * 無關——消費端頁面是 rtl 的時候，`inset-inline-start` 會變成右邊，而 `rectsFor()`
- * 加回去的是 `rect.left`。兩邊用不同的參考系，highlight 會整片偏移。
+ * Positioning uses the physical `left`/`top` rather than the logical
+ * `inset-inline-start`/`inset-block-start`. Those two logical properties resolve against
+ * the **container's** writing mode, which is the consuming app's direction and has nothing
+ * to do with the book's — when the consumer's page is rtl, `inset-inline-start` becomes the
+ * right side, while `rectsFor()` adds back `rect.left`. With the two sides using different
+ * frames of reference, every highlight would be displaced.
  */
 function sizeFrame(frame: HTMLIFrameElement, host: HTMLElement, insets: Insets): void {
   const width = Math.max(1, Math.floor(host.clientWidth - insets.left - insets.right));
@@ -560,11 +597,12 @@ function sizeFrame(frame: HTMLIFrameElement, host: HTMLElement, insets: Insets):
 }
 
 /**
- * 指標事件裡 frond 讀的那幾格。
+ * The few fields frond reads from a pointer event.
  *
- * 寫成一個窄介面而不是用 `PointerEvent`：事件來自 iframe 的 realm，型別上是外層
- * realm 的建構子，實際上不是同一個——只讀資料欄位是安全的，而窄介面讓「只讀資料
- * 欄位」這件事變成型別擋得住的東西。
+ * Written as a narrow interface rather than using `PointerEvent`: the event comes from the
+ * iframe's realm, and its type is the outer realm's constructor while in fact it is not the
+ * same one — reading data fields only is safe, and a narrow interface turns "reads data
+ * fields only" into something the type system enforces.
  */
 interface PointerFacts {
   readonly clientX: number;
@@ -608,45 +646,50 @@ function metricsFor(
     writingMode,
     viewport,
     columns: resolveColumns(writingMode, settings.columns, viewport),
-    // 欄距同時是相鄰兩頁之間那條看不見的縫，讀者看不到它——所以它不需要是一個
-    // 設定，取一個固定值就好。取 0 也可以，取一個正值是為了讓雙欄時兩欄之間
-    // 有實際的間隔。
+    // The column gap is also the invisible gutter between two adjacent pages, which the
+    // reader never sees — so it need not be a setting, and a fixed value will do. 0 would
+    // work too; a positive value is chosen so that two columns have a real separation
+    // between them.
     gap: COLUMN_GAP,
   });
 }
 
 /**
- * 欄距。
+ * The column gap.
  *
- * 單欄時它完全落在畫面外（兩頁之間），雙欄時它是頁內那條分隔。取 40px 是因為
- * 雙欄的兩段文字靠太近會讀錯行，而這個值同時決定了單欄時兩頁之間的距離——那一段
- * 讀者永遠看不到，所以它多大都不影響版面。
+ * With one column it falls entirely off screen (between two pages); with two it is the
+ * separator inside the page. 40px is chosen because two columns of text too close together
+ * make the eye jump lines, and this value simultaneously sets the distance between two
+ * pages in single-column mode — a stretch the reader never sees, so its size does not
+ * affect the layout at all.
  */
 const COLUMN_GAP = 40;
 
 /**
- * 有內容但沒有文字的元素。判斷「這一頁是不是空的」時要算它們。
+ * Elements with content but no text. They have to count when deciding "is this page empty".
  *
- * 不含 `<iframe>` / `<object>` / `<embed>`：那三個在文件還是文字的時候就已經
- * 整個拿掉了（`document-source.ts` 的 `stripScriptedContent`），寫在這裡只會讓
- * 讀的人以為它們會出現。
+ * `<iframe>` / `<object>` / `<embed>` are not included: all three were removed entirely
+ * while the document was still text (`document-source.ts`'s `stripScriptedContent`), and
+ * listing them here would only make a reader think they can appear.
  */
 const REPLACED_ELEMENTS = "img, svg, video, canvas";
 
 /**
- * 一段範圍的第一個**有面積**的矩形。
+ * A range's first rectangle **with any area**.
  *
- * 三條實測到的坑都由這一個函式擋住（`docs/browser-quirks.md` 的 foliate 補丁表）：
+ * Three measured pitfalls are all blocked by this one function (the foliate patch table in
+ * `docs/browser-quirks.md`):
  *
- * - collapsed 的 range 有時候一個 client rect 都不回（表二 #7）。CFI 的定位大量
- *   產生 collapsed range，所以這一格一定會踩到。
- * - Firefox 的 `getBoundingClientRect()` 會漏掉寬為零、高不為零的 rect（表一 #5，
- *   本專案的探針沒有踩到那個前提，所以狀態是未知而不是「Firefox 沒這個 bug」）。
- * - range 的起點緊接在前一欄的連字號之後時，那一欄會多出一個零寬的 rect（表二
- *   #12）。取第一個有面積的就跳過它了。
+ * - A collapsed range sometimes returns no client rect at all (table 2, #7). CFI
+ *   positioning produces collapsed ranges constantly, so this case is guaranteed to come up.
+ * - Firefox's `getBoundingClientRect()` misses rects with zero width and non-zero height
+ *   (table 1, #5; this project's probe did not hit that precondition, so the status is
+ *   unknown rather than "Firefox does not have this bug").
+ * - When a range's start immediately follows a hyphen in the previous column, that column
+ *   gains an extra zero-width rect (table 2, #12). Taking the first one with area skips it.
  *
- * 所以這裡一律走 `getClientRects()` 並濾掉沒有面積的，而不是用
- * `getBoundingClientRect()`。
+ * So this always goes through `getClientRects()` and filters out the ones with no area,
+ * rather than using `getBoundingClientRect()`.
  */
 function firstVisibleRect(range: Range): DOMRect | undefined {
   for (const candidate of measurable(range)) {
@@ -658,19 +701,23 @@ function firstVisibleRect(range: Range): DOMRect | undefined {
 }
 
 /**
- * 一個 range 該拿哪些形式去量，依序。
+ * Which forms of a range to measure, in order.
  *
- * **長度為零的 range 一律先撐開一個字元再量，而不是先問它自己的矩形。** 這不是
- * 效能考量，是正確性：長度為零的位置落在欄的邊界上時，瀏覽器把游標畫在**上一欄
- * 的結尾**而不是這一欄的開頭（文字游標的 affinity——同一個位置在換行處有兩個
- * 合理的畫法）。於是「這一頁最前面那個字元」量出來會落在上一頁。
+ * **A zero-length range is always expanded by one character before measuring, rather than
+ * being asked for its own rectangles first.** This is not a performance consideration, it
+ * is correctness: when a zero-length position falls on a column boundary, the browser draws
+ * the caret at **the end of the previous column** rather than the start of this one (the
+ * text caret's affinity — one position at a line break has two reasonable renderings). So
+ * "the first character on this page" measures out on the previous page.
  *
- * 症狀特別難查：它只在位置剛好是換頁點時發生，而那正是 frond 每一次回報位置時
- * 都會碰到的情況。表現出來是「用 CFI 跳回剛才那一頁，落到了上一頁」，而且只有
- * 部分頁面會這樣。
+ * The symptom is particularly hard to trace: it only happens when the position is exactly a
+ * page break, and that is precisely the situation frond meets every time it reports a
+ * position. It presents as "jumping back to that page with a CFI lands on the previous
+ * page", and only on some pages.
  *
- * 撐開之後量到的是那個字元自己的框，沒有 affinity 的餘地。撐不開時（節點結尾、
- * 空節點）才退回原本的 range。
+ * After expansion what is measured is that character's own box, leaving no room for
+ * affinity. Only when it cannot be expanded (the end of a node, an empty node) does it fall
+ * back to the original range.
  */
 function measurable(range: Range): readonly Range[] {
   if (!range.collapsed) return [range];
@@ -680,18 +727,20 @@ function measurable(range: Range): readonly Range[] {
 }
 
 /**
- * 一個範圍**實際畫出來**的最後一個矩形。畫不出來時是 `undefined`。
+ * A range's last **actually drawn** rectangle. `undefined` when it is not drawn.
  *
- * 與 `lastVisibleRect` 的差別只有畫不出來那一格，而那一格的兩種處置服務兩個不同
- * 的問題，所以是兩支函式而不是一個旗標：
+ * The only difference from `lastVisibleRect` is the not-drawn case, and the two handlings
+ * of that case serve two different problems, which is why they are two functions rather
+ * than one flag:
  *
- * | | 問的是 | 量不到時要什麼 |
+ * | | Asks | What it wants when unmeasurable |
  * | --- | --- | --- |
- * | `renderedRect` | 內容延伸到哪裡（頁數） | **`undefined`**——藏起來的內容不佔頁 |
- * | `lastVisibleRect` | 這個位置在畫面的哪裡（CFI） | 一個大概的位置，見下 |
+ * | `renderedRect` | how far the content extends (page count) | **`undefined`** — hidden content occupies no pages |
+ * | `lastVisibleRect` | where this position is on screen (CFI) | an approximate position, see below |
  *
- * 混用的代價是實際踩過的：頁數那一側拿到全零的矩形，整節就被壓成一頁
- * （`lastPageWithContent`）。
+ * The cost of conflating them has actually been paid: the page count side receives an
+ * all-zero rectangle, and the whole section is squashed to one page
+ * (`lastPageWithContent`).
  */
 function renderedRect(range: Range): DOMRect | undefined {
   for (const candidate of measurable(range)) {
@@ -709,14 +758,16 @@ function lastVisibleRect(range: Range): DOMRect | undefined {
   const rendered = renderedRect(range);
   if (rendered !== undefined) return rendered;
 
-  // 一個矩形都量不到。空白節點那一格已經在 `text-index.ts` 濾掉了，剩下的是
-  // `display: none` 之類的內容——退回它所在的元素，讓位置至少落在對的區域。
-  // 回 `undefined` 的話二分搜尋會拿到 0，而 0 在任何一頁都成立，搜尋就失去方向。
+  // Not one rectangle can be measured. The whitespace-node case is already filtered out in
+  // `text-index.ts`, so what is left is content such as `display: none` — fall back to the
+  // element it sits in, so the position at least lands in the right region. Returning
+  // `undefined` would give the binary search 0, and 0 holds on every page, so the search
+  // would lose its direction.
   const element = range.startContainer.parentElement;
   return element?.getBoundingClientRect();
 }
 
-/** 把一個長度為零的 range 撐成一個字元寬。撐不開時回 `undefined`。 */
+/** Expands a zero-length range to one character wide. Returns `undefined` when it cannot be expanded. */
 function uncollapse(range: Range): Range | undefined {
   if (!range.collapsed) return undefined;
 
