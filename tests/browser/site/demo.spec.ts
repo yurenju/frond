@@ -3,6 +3,7 @@ import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type Page, expect, test } from "@playwright/test";
 import { buildDemoBook } from "../../../packages/frond/src/test-fixtures/demo-book.ts";
+import { collectPageErrors } from "../support/page-errors.js";
 
 /**
  * The demo page (`site/`) really does run.
@@ -79,11 +80,7 @@ const DEMO_EPUB = {
 };
 
 test("the demo page opens a vertical Traditional Chinese book", async ({ page }) => {
-  const failures: string[] = [];
-  page.on("pageerror", (error) => failures.push(String(error)));
-  page.on("console", (message) => {
-    if (message.type() === "error") failures.push(message.text());
-  });
+  const failures = collectPageErrors(page);
 
   await serveSite(page);
 
