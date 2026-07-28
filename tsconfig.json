@@ -11,16 +11,53 @@
     "esModuleInterop": true,
     "types": ["node"],
 
-    // src/ 與 scripts/ 底下一律以 .ts 副檔名互相 import。理由是那些檔案要能
-    // 被 `node` 直接執行（Node 的型別剝離），而剝離器不會把 ./x.js 對應回
-    // ./x.ts——它就照字面去找 x.js，然後失敗。tests/browser 沿用既有的 .js
+    // packages/*/src 與 scripts/ 底下一律以 .ts 副檔名互相 import。理由是那些
+    // 檔案要能被 `node` 直接執行（Node 的型別剝離），而剝離器不會把 ./x.js 對應
+    // 回 ./x.ts——它就照字面去找 x.js，然後失敗。tests/browser 沿用既有的 .js
     // 寫法，bundler resolution 兩種都吃。
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+
+    // frond-react 的原始碼是 .tsx。這一格對其他每一個套件都是 no-op——沒有 JSX
+    // 的檔案不受影響——所以寫在共用的這一份而不是各自複製一次。
+    //
+    // `react-jsx` 而不是 `react`：前者 emit 的是 `react/jsx-runtime` 的呼叫，
+    // 消費端不必在每個檔案頂端 import React。
+    "jsx": "react-jsx",
+
+    // **這一格只服務「在這個 repo 裡工作」，出貨的建置設定會把它關掉。**
+    //
+    // frond-react 以 `@yurenju/frond/renderer` 這個 bare specifier 消費 frond，
+    // 而那條路（package.json 的 `exports`）指向 `packages/frond/dist/`。沒有這
+    // 個對應的話，一棵剛 clone 下來、還沒 build 的樹連 `npm run typecheck` 都跑
+    // 不起來——而那個錯誤訊息（找不到模組）完全看不出真正的原因是「還沒 build」。
+    //
+    // 對應到 `src/` 也讓「改 frond、看 frond-react 有沒有跟著壞」變成即時的事，
+    // 不必中間插一次建置。
+    //
+    // 代價是這條路**繞過了出貨的 `.d.ts`**，所以它證明不了消費端拿到的型別是好
+    // 的。那件事由兩個地方守：`packages/frond-react/tsconfig.build.json` 把
+    // `paths` 清空，於是建置走的是真正的 node_modules 解析；以及 `release.yml`
+    // 在 repo 外面用一個假的消費端、開著 `skipLibCheck: false` 再驗一次。
+    "paths": {
+      "@yurenju/frond/epub": ["./packages/frond/src/epub/index.ts"],
+      "@yurenju/frond/renderer": ["./packages/frond/src/renderer/index.ts"],
+      "@yurenju/frond-react": ["./packages/frond-react/src/index.ts"]
+    }
   },
   "include": [
-    "src/**/*.ts",
+    "packages/*/src/**/*.ts",
+    "packages/*/src/**/*.tsx",
     "scripts/**/*.ts",
     "tests/**/*.ts",
+    "tests/**/*.tsx",
+    // 展示站的 React 那一頁。它是 .tsx 而不是像 `site/app.js` 那樣的純
+    // JavaScript——那一頁反正需要打包器（見 scripts/bundle-site-react.ts），所以
+    // 順便讓 typecheck 蓋得到它。它同時是 frond-react 的使用範例，而一份型別沒被
+    // 檢查過的範例會在某次 API 變動之後靜靜地變成錯的。
+    //
+    // `site/app.js` 仍然刻意不在這裡：那一頁的價值就是「純 JavaScript、沒有任何
+    // 建置步驟」，收進來會需要 allowJs 而且守不住任何東西。
+    "site/react/**/*.tsx",
     "playwright.config.ts",
     "vitest.config.ts"
   ]

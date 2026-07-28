@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { openEpub, type EpubArchive } from "../support/epub-archive.ts";
-import { buildFixture, syntheticFixtures } from "../../../src/test-fixtures/index.ts";
+import { buildFixture, syntheticFixtures } from "../../../packages/frond/src/test-fixtures/index.ts";
 
 /**
  * 「一個 fixture 只帶一個病症，其餘部分保持健康」——這條紀律的執行者。

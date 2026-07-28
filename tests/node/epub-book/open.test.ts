@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { describe, expect, test } from "vitest";
-import { EpubBook } from "../../../src/epub/index.ts";
+import { EpubBook } from "../../../packages/frond/src/epub/index.ts";
 import { readFixture } from "../support/fixtures.ts";
 
 /**
@@ -83,7 +83,7 @@ describe("公開的進入點", () => {
     // '@yurenju/frond'`——那個訊息把人指向 `exports` 設定，而真正的原因是「還沒
     // build」。先自己說清楚。
     expect(
-      existsSync(new URL("../../../dist/epub/index.js", import.meta.url)),
+      existsSync(new URL("../../../packages/frond/dist/epub/index.js", import.meta.url)),
       "dist/ 不存在。這條測試走的是出貨產物，先跑 `npm run build`",
     ).toBe(true);
 

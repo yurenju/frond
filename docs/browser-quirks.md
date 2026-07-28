@@ -86,7 +86,7 @@ foliate-js 的 `paginator.js` 不注入任何 `font-feature-settings`，所以�
 
 歸類的問題（「內容讀不到」還是根本不算介入）也一併決定了：**兩者都不是，它是第三類**——`syntax-translation`，與「Firefox 不認前綴的 `writing-mode`」同一格。`writing-mode: vertical-rl` 本身就蘊含了「標點要換成直排字符」這件事，兩家瀏覽器自動照做，WebKit 沒有；注入等於把書已經表達過的意圖講給沒有照做的那一家聽，不是新增書沒有要求的效果。
 
-不帶 `!important` 是這個歸類的直接後果：書自己宣告 `font-feature-settings` 時仍然是書贏。四種介入理由的分法見 `src/renderer/interventions.ts`。
+不帶 `!important` 是這個歸類的直接後果：書自己宣告 `font-feature-settings` 時仍然是書贏。四種介入理由的分法見 `packages/frond/src/renderer/interventions.ts`。
 
 **哪個測試會抓到**
 
@@ -381,7 +381,7 @@ frond 以 foliate-js 為參考實作，取用它的**瀏覽器 quirk 知識**，
 | # | 瀏覽器 | 症狀（foliate 的說法） | foliate 的繞法 | 探針結果 | frond 是否需要 | 哪個測試會抓到 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | WebKit | iframe 的 `sandbox` 少了 `allow-scripts` 就收不到事件（[bug 218086](https://bugs.webkit.org/show_bug.cgi?id=218086)）。`paginator.js` L242–244 | 永遠帶 `allow-scripts` | **已重現，WebKit 限定** | 需要——ADR-0006 已據此決定開 `allow-scripts` 並不支援 scripted content，這次是那個決定的實證 | `tests/browser/renderer/rendering.spec.ts`（iframe 載得起來、內容進得去） |
-| 2 | Firefox | iframe `display: none` 時讀不到 computed style。L260–264 | 讀之前把 iframe 切成 `display: block`，讀完切回 `none` | **已重現，Firefox 限定** | **不需要，但要防禦**——frond 不預載隱藏的 iframe，讀書寫方向時那一份文件已經在畫面上，所以前提不出現 | 尚無（前提在 frond 的設計裡不出現）。防禦在 `src/renderer/writing-mode.ts`：讀到空字串時回 `unreadable` 而不是當成橫排，由 `section-view.ts` 丟 `WritingModeUnreadableError` |
+| 2 | Firefox | iframe `display: none` 時讀不到 computed style。L260–264 | 讀之前把 iframe 切成 `display: block`，讀完切回 `none` | **已重現，Firefox 限定** | **不需要，但要防禦**——frond 不預載隱藏的 iframe，讀書寫方向時那一份文件已經在畫面上，所以前提不出現 | 尚無（前提在 frond 的設計裡不出現）。防禦在 `packages/frond/src/renderer/writing-mode.ts`：讀到空字串時回 `unreadable` 而不是當成橫排，由 `section-view.ts` 丟 `WritingModeUnreadableError` |
 | 3 | Firefox | `body` 上的 `ResizeObserver` 不會觸發（[bugzilla 1832939](https://bugzilla.mozilla.org/show_bug.cgi?id=1832939)）。L275–278、L1115–1116 | 改掛 `doc.fonts.ready.then(() => expand())` | **未重現**（Firefox 151 的回呼有觸發） | **不適用**——frond 觀察的是外層文件裡的**容器元素**，不是 iframe 的 `body`。`doc.fonts.ready` 照樣有等，理由是「分頁是字型的函數」，與 `ResizeObserver` 可不可靠無關 | 尚無直接測試（前提不出現）。等字型那一步在 `section-view.ts` 的 `mount` |
 | 4 | Chromium | `setStyles()` 之後要隔一個 frame 才讀得到新的背景色。L1111–1113 | 讀之前包一層 `requestAnimationFrame` | **未重現** | **不適用**——frond 換讀者設定時整節重建（改寫發生在文件還是文字的時候），不在既有文件上改樣式再讀回來 | `tests/browser/renderer/reader-settings.spec.ts` 的主題那一組會間接踩到：它在 `applySettings` 之後立刻讀 computed 的顏色 |
 | 5 | Firefox | `getBoundingClientRect()` 漏掉零寬非零高的 rect，使可見範圍在欄邊界多含一個空白。L79–92 | 自己用 `getClientRects()` 的聯集算 bounding rect | **前提未出現**——三家一次都沒產生零寬非零高的 rect，探針等於沒踩到 | **未知**，不可當成「Firefox 沒這個 bug」。frond 一律走 `getClientRects()` 並濾掉沒有面積的，從不叫 `getBoundingClientRect()` 量位置，所以這一格繞過去了 | 尚無針對這個症狀的測試（前提未出現）。走的那條路徑由 `invariants.spec.ts` 的位置不變量覆蓋 |
@@ -396,7 +396,7 @@ frond 以 foliate-js 為參考實作，取用它的**瀏覽器 quirk 知識**，
 | 7 | 未指名 | collapsed range「有時候（還是每次？）」不回傳 client rect。L39–53 | `uncollapse()`：把 collapsed range 換成非 collapsed 的 range 或元素 | **需要，已做**——但踩到的是另一個症狀：矩形有回傳，只是回傳了**上一欄結尾**的那一個（見本檔〈長度為零的 range 在欄邊界上〉）。兩者剛好共用同一個繞法 | `tests/browser/renderer/invariants.spec.ts` 的「CFI → 跳過去 → CFI 是 identity，每一頁都是」 |
 | 8 | WebKit | 字符被行框裁切。L330–331 | 無條件寫 `-webkit-line-box-contain: block glyphs replaced` | **frond 沒有採用這條繞法**（#32）。理由見下方〈這條繞法本身有代價〉：它讓 WebKit 的行框比另外兩家寬 12.5%，是 foliate 自己製造出來的跨瀏覽器分歧，而它要修的症狀本專案一次都沒有量到 | 尚無——**這一格仍然是開著的**：要採用它之前得先量「不加它的時候 WebKit 到底裁掉了什麼」 |
 | 9 | WebKit | `focusin` 之後立刻捲到 anchor 會失敗。L617–619 | 包一層 `requestAnimationFrame` | v1 未定——鍵盤焦點導覽不在 #1 的 user story 內 | 尚無 |
-| 10 | 三家 | `page-break-*` 在分欄版面下無效。L659–663 | 改寫書的 CSS：`page-break-*` → `-webkit-column-break-*`、`break-*: page` → `break-*: column` | 需要，已做。對照過 ADR-0003 的門檻之後歸在 `syntax-translation`——補一條等價宣告、不動原本那條，書的意圖沒有被改變（`src/renderer/interventions.ts` 的 `column-break`） | `tests/node/renderer/css.test.ts` 的〈page-break-*〉那一組。**症狀本身仍未驗證**：本專案沒有量過「不補的話書要求換頁的地方會不會真的接著排下去」 |
+| 10 | 三家 | `page-break-*` 在分欄版面下無效。L659–663 | 改寫書的 CSS：`page-break-*` → `-webkit-column-break-*`、`break-*: page` → `break-*: column` | 需要，已做。對照過 ADR-0003 的門檻之後歸在 `syntax-translation`——補一條等價宣告、不動原本那條，書的意圖沒有被改變（`packages/frond/src/renderer/interventions.ts` 的 `column-break`） | `tests/node/renderer/css.test.ts` 的〈page-break-*〉那一組。**症狀本身仍未驗證**：本專案沒有量過「不補的話書要求換頁的地方會不會真的接著排下去」 |
 | 11 | Firefox | `visualViewport.scale`「有時候」回報 1。L857–863 | 包 `requestAnimationFrame`，並只在 `scale === 1` 時才 snap | 不需要——捏合縮放與 snap 屬於手勢，ADR-0002 明列在消費端 | 不適用 |
 | 12 | 未指名 | range 起點緊接在前一欄的連字號之後時，那一欄會多出一個零寬 rect。L926–929 | 取第一個寬高皆非零的 rect | 未定——CJK 不斷字，橫排的西文書會踩到。frond 一律取第一個有面積的 rect（`section-view.ts` 的 `firstVisibleRect`），所以就算踩到也已經繞過去了 | 尚無針對這個症狀的測試——合成 fixture 全是 CJK，前提不出現 |
 
@@ -552,7 +552,7 @@ spine 踩過的「直排欄寬必須剛好等於一個 viewer 高」就是第二
 
 **frond 是否需要處理**
 
-不是「處理」，是**建立在它上面**。`src/renderer/geometry.ts` 每一條公式都以這張表為前提。
+不是「處理」，是**建立在它上面**。`packages/frond/src/renderer/geometry.ts` 每一條公式都以這張表為前提。
 
 **哪個測試會抓到**
 
@@ -592,7 +592,7 @@ foliate 的 `paginator.js` 有一個 `uncollapse()`（本檔表二 #7），但�
 
 **frond 是否需要處理**
 
-需要，已處理。`src/renderer/section-view.ts` 的 `measurable()`：長度為零的 range 一律先撐開一個字元再量，三家共用同一條路徑，不分支。
+需要，已處理。`packages/frond/src/renderer/section-view.ts` 的 `measurable()`：長度為零的 range 一律先撐開一個字元再量，三家共用同一條路徑，不分支。
 
 **哪個測試會抓到**
 
@@ -626,7 +626,7 @@ foliate 的 `paginator.js` 有一個 `uncollapse()`（本檔表二 #7），但�
 
 **frond 是否需要處理**
 
-需要，已處理。`src/renderer/section-view.ts` 的 `pageCount`。
+需要，已處理。`packages/frond/src/renderer/section-view.ts` 的 `pageCount`。
 
 空白頁是封閉缺陷清單裡的一項（`docs/agents/pull-requests.md`），所以這一格不是可以留著的小瑕疵。
 
@@ -679,7 +679,7 @@ WebKit 那一格值得看一眼：`break-inside: avoid` 在那裡**幫不上忙*
 
 **frond 是否需要處理**
 
-需要，已處理。`src/renderer/layout.ts`。這不是新增一項介入——`cap-overflowing-boxes` 早就在封閉清單上了，改的是讓它真的生效。
+需要，已處理。`packages/frond/src/renderer/layout.ts`。這不是新增一項介入——`cap-overflowing-boxes` 早就在封閉清單上了，改的是讓它真的生效。
 
 **哪個測試會抓到**
 
@@ -731,7 +731,7 @@ frond 的介入清單裡有一項是給溢出的盒子加 `max-block-size` 上�
 
 **frond 是否需要處理**
 
-**尚未處理**，登記成缺口（`src/renderer/interventions.ts` 的〈已知的缺口〉第 3 項）。理由不是「沒量到」——樣本裡三本書共九節是這個形狀，最嚴重的一節裁掉 2563px——而是上面那個權衡需要一張票去決定，不該在一次修 bug 的過程裡順手挑一邊。
+**尚未處理**，登記成缺口（`packages/frond/src/renderer/interventions.ts` 的〈已知的缺口〉第 3 項）。理由不是「沒量到」——樣本裡三本書共九節是這個形狀，最嚴重的一節裁掉 2563px——而是上面那個權衡需要一張票去決定，不該在一次修 bug 的過程裡順手挑一邊。
 
 **哪個測試會抓到**
 

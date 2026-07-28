@@ -7,7 +7,7 @@ import {
   normalisePrefixedWritingMode,
   relativiseFontSizes,
   rewriteUrls,
-} from "../../../src/renderer/css.ts";
+} from "../../../packages/frond/src/renderer/css.ts";
 
 /**
  * 對書的樣式表做的每一次改寫。

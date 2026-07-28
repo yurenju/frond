@@ -5,7 +5,7 @@ import {
   readerStylesheet,
   withSettings,
   type ReaderSettings,
-} from "../../../src/renderer/settings.ts";
+} from "../../../packages/frond/src/renderer/settings.ts";
 
 /**
  * 讀者設定那一層。

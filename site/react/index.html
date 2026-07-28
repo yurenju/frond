@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>frond-react — unstyled React components for EPUB</title>
+    <meta
+      name="description"
+      content="@yurenju/frond-react 是 frond 的 unstyled React 元件層。外觀完全由你的 CSS 決定，預設樣式可以完全不用。"
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%8C%BF%3C/text%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="../style.css" />
+
+    <!--
+      frond-react 的預設樣式。
+
+      **它掛在這裡而不是被 import 進 bundle，是刻意的。** 頁面上那個「預設樣式」
+      開關切的就是這個 <link> 的 `disabled`——關掉之後零件回到瀏覽器原生的樣子。
+      import 進 bundle 的話它會變成「一定會生效」，而這一頁要示範的正好是相反的
+      那件事。
+
+      消費端不會這樣寫。他們寫的是一行
+      `import "@yurenju/frond-react/styles.css"`，或者根本不寫。
+    -->
+    <link id="frond-react-styles" rel="stylesheet" href="./frond-react.css" />
+  </head>
+  <body>
+    <header class="masthead">
+      <h1>frond-react</h1>
+      <p class="tagline">
+        frond 的 <strong>unstyled</strong> React 元件層。像 Radix 或 Base UI
+        一樣，零件不帶任何樣式——外觀的每一個決定都在你的 CSS 裡。
+      </p>
+      <nav class="masthead-links">
+        <a href="../">frond 本體的展示頁</a>
+        <a href="https://github.com/yurenju/frond">GitHub</a>
+        <a
+          href="https://github.com/yurenju/frond/blob/main/docs/adr/0011-monorepo-and-frond-react.md"
+          >設計決策（ADR-0011）</a
+        >
+      </nav>
+    </header>
+
+    <main>
+      <!-- 開書之前與之後都由 React 接管這一格。 -->
+      <section id="app" class="react-app"></section>
+
+      <!-- 說明。開書之後仍然留在下面，因為它是這一頁的另一半內容。 -->
+      <section class="guide">
+        <div class="intro-columns">
+          <section>
+            <h2>怎麼裝</h2>
+            <pre><code>npm install @yurenju/frond @yurenju/frond-react react</code></pre>
+            <p class="note">
+              <code>@yurenju/frond</code> 與 <code>react</code> 都是
+              <strong>peer 相依</strong>——frond-react 自己一個執行期相依都沒有，
+              也不會偷偷幫你裝第二份 frond。
+            </p>
+
+            <h2>怎麼用</h2>
+            <pre><code>import * as Reader from "@yurenju/frond-react";
+import { EpubBook } from "@yurenju/frond/epub";
+
+const book = await EpubBook.open(await file.arrayBuffer());
+
+&lt;Reader.Root book={book} settings={{ fontSize: 20 }}&gt;
+  &lt;Reader.PreviousTrigger&gt;‹&lt;/Reader.PreviousTrigger&gt;
+  &lt;Reader.Viewport className="reader-viewport" /&gt;
+  &lt;Reader.NextTrigger&gt;›&lt;/Reader.NextTrigger&gt;
+  &lt;Reader.Progress className="reader-progress" /&gt;
+&lt;/Reader.Root&gt;</code></pre>
+            <p class="note">
+              沒有 <code>useEffect</code>、沒有 ref、沒有一行清理程式碼。iframe
+              的建立與銷毀、換書的重掛、換設定的重排、視窗改變後的重新分頁，全部
+              在 <code>Root</code> 裡面。上面那個 reader 就是這段程式碼跑起來的
+              樣子——完整版在
+              <a href="https://github.com/yurenju/frond/blob/main/site/react/app.tsx"
+                >app.tsx</a
+              >。
+            </p>
+          </section>
+
+          <section>
+            <h2>外觀完全是你的</h2>
+            <p>
+              每個零件都掛著 <code>data-frond-part</code>，狀態也是屬性——
+              <code>data-state</code>、<code>data-writing-mode</code>、
+              <code>data-disabled</code>、<code>data-at-start</code>。
+              <code>className</code> 一路傳到底層元素。
+            </p>
+            <pre><code>[data-frond-part="viewport"] { block-size: 70dvh; }
+[data-frond-part="viewport"][data-writing-mode="vertical-rl"] { … }
+[data-frond-part="next-trigger"][data-disabled] { opacity: 0.4; }</code></pre>
+            <p class="note">
+              上面那個「<strong>預設樣式</strong>」開關切的是
+              <code>@yurenju/frond-react/styles.css</code>。它整份包在
+              <code>:where()</code> 裡，優先權是 0——你自己一條 class
+              規則就蓋得過去，不必 <code>!important</code>，也不必在意載入順序。
+              關掉它，零件回到瀏覽器原生的樣子。
+            </p>
+
+            <h2>書裡面不走 CSS</h2>
+            <p class="note">
+              書渲染在 iframe 內，<strong>外面的 CSS 進不去</strong>。字級、行高、
+              邊界、單欄雙欄、主題一律走 <code>&lt;Root settings={…}&gt;</code>，
+              那條路上壓著 frond 的權威順序：讀者設定 &gt; frond 修正 &gt;
+              書的宣告。所以 <code>Viewport</code> 是一個<strong>盒子</strong>，
+              不是一張紙。
+            </p>
+
+            <h2>手勢是你決定的</h2>
+            <p class="note">
+              上面那個「<strong>鍵盤與滑動翻頁</strong>」開關切的是要不要叫
+              <code>useKeyboardPaging()</code> 與 <code>useSwipePaging()</code>。
+              不叫的話一個手勢都不吃——「往左滑等於下一頁」是產品決策，不是 frond
+              的事實。兩個 hook 都短到可以整段抄走改。
+            </p>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <footer class="colophon">
+      <p>
+        MIT · <a href="https://github.com/yurenju/frond">yurenju/frond</a> ·
+        這一頁由 esbuild 打包，載入的是 <code>npm install</code>
+        之後會拿到的那份產物。
+      </p>
+    </footer>
+
+    <script type="module" src="./bundle.js"></script>
+  </body>
+</html>

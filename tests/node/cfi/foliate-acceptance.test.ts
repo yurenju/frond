@@ -4,7 +4,7 @@ import {
   parseCfi,
   serializeCfi,
   type CfiComparison,
-} from "../../../src/epub/index.ts";
+} from "../../../packages/frond/src/epub/index.ts";
 
 /**
  * foliate-js 的 `tests/epubcfi-tests.js`（280 行，上游唯一的測試）當**驗收表**

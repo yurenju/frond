@@ -1,12 +1,15 @@
 # 散佈方式與授權
 
-公開 repo、MIT 授權。**發佈到 npm，套件名 `@yurenju/frond`。**
+公開 repo、MIT 授權。**發佈到 npm。** repo 本身是一個 workspace，出兩個套件（ADR-0011）：
 
 ```
-npm install @yurenju/frond
+npm install @yurenju/frond          # 核心，零相依
+npm install @yurenju/frond-react    # React 元件，peer 相依上面那個與 react
 ```
 
 **明確拒絕併入 spine 的 monorepo。** frond 的整個設計前提是「它不只服務 spine」（ADR-0002 拒收手勢即為此）。放進同一個 monorepo 會讓這個前提在第一個 sprint 就被侵蝕，因為抄近路會變得太容易。
+
+這與 ADR-0011 那個 workspace 不衝突，因為兩者收的東西不同：**spine 是消費端，frond-react 是出貨面**。前者有自己的領域、自己的正確性標準、自己的發版節奏；後者沒有，它每一次改動都是為了把 frond 已經有的能力接到 React 上。
 
 ## 從 git dependency 改成發 npm
 
@@ -34,25 +37,39 @@ frond 會動、並且跟著一起動的專案。對它而言「API 變了」不�
 
 ### 出貨面
 
-出貨產物是 `dist/`（ES module 加 `.d.ts`），`exports` 只開 `./epub` 與 `./renderer`
-兩個 subpath，不開根路徑：那強迫消費端選一層，而那正是 ADR-0005 那一刀的意思。
-`./test-fixtures` 不在出貨面上——它相依 `node:fs`，是我們產合成 fixture 的工具，不
-是消費端的東西。
+兩個套件的出貨產物都是各自的 `dist/`（ES module 加 `.d.ts`）。
 
-`src/` 也進 tarball，但**不在 `exports` 上**，所以它不是 API 的一部分。它在那裡只
-為了一件事：`.js.map` 與 `.d.ts.map` 裡的 `sources` 指著 `../../src/*.ts`，那些檔
+`@yurenju/frond` 的 `exports` 只開 `./epub` 與 `./renderer` 兩個 subpath，不開根路
+徑：那強迫消費端選一層，而那正是 ADR-0005 那一刀的意思。`./test-fixtures` 不在出貨
+面上——它相依 `node:fs`，是我們產合成 fixture 的工具，不是消費端的東西。
+
+`@yurenju/frond-react` 相反，開的是根路徑（`import * as Reader from "@yurenju/frond-react"`）
+加上一個 `./styles.css`。它沒有需要強迫消費端做的選擇——ADR-0005 那一刀已經在下面
+那一層做過了。
+
+`src/` 也進兩個 tarball，但**不在 `exports` 上**，所以它不是 API 的一部分。它在那裡
+只為了一件事：`.js.map` 與 `.d.ts.map` 裡的 `sources` 指著 `../../src/*.ts`，那些檔
 案不在包裡的話，消費端「跳到定義」會落在一個不存在的路徑上。git dependency 的年代
 `src/` 本來就在，所以這個洞是發 npm 才會開的（`src/test-fixtures` 以 `files` 的
 `!` 樣式排除掉，理由同上）。
 
-版本號從 `0.1.0` 起算，每次發布打一個 `vX.Y.Z` 的 git tag——tag 留著，它是「這個版
-本對應哪一段歷史」的答案，只是不再是消費端的安裝座標。
+`THIRD-PARTY-NOTICES.md` **不進任何一個 tarball**（改成 monorepo 之前它在 frond 的
+`files` 裡）。npm 的 `files` 搆不到套件目錄以外的東西，而那份文件描述的是整個
+repository；每個套件放一份複本的話，會多出一份要跟正本同步的文件。它自己的開頭說明
+了為什麼那不是損失：裡面唯一實際取用的材料（foliate 的 CFI 驗收表）是**測試材料**，
+本來就不在出貨面上。`LICENSE` 則相反，每個套件目錄各有一份——npm 只從套件目錄收它。
+
+版本號從 `0.1.0` 起算，**兩個套件同版號一起發**，每次發布打一個 `vX.Y.Z` 的 git
+tag。同版號不是為了整齊：frond-react 沒有獨立的 API 演進，它每一版都是為了接上
+frond 的某一版，而讓兩個號碼可以錯開，等於製造一個「哪一組版本可以搭」的表格，然後
+要求每一個消費端去查它。發版時 frond-react 對 frond 的 peer 相依範圍會被一併改寫成
+剛發出去的那一版。
 
 發布由 `.github/workflows/release.yml` 做，認證走 npm 的 trusted publishing
-（OIDC），所以 repo 裡不存任何 npm token。**只有第一版例外**：trusted publisher 要
-掛在一個已經存在的套件上，而 npm 不接受對尚未存在的套件預先設定（npm/cli#8544），
-所以 `@yurenju/frond` 的第一版得在本機用一顆臨時 token 手動發一次。細節寫在那份
-workflow 的註解裡。
+（OIDC），所以 repo 裡不存任何 npm token。**每個套件的第一版都是例外**：trusted
+publisher 要掛在一個已經存在的套件上，而 npm 不接受對尚未存在的套件預先設定
+（npm/cli#8544），所以每個新套件的第一版得在本機用一顆臨時 token 手動發一次。細節
+寫在那份 workflow 的註解裡。
 
 ## 原本為什麼不發
 
@@ -71,9 +88,14 @@ workflow 的註解裡。
 > 安裝時由 `prepare` 跑 `npm run build`——npm 為 git dependency 安裝
 > devDependencies，所以消費端不需要自己有 TypeScript。
 
-`prepare` 那一格留著沒動，因為 `npm install github:yurenju/frond#<tag>` 這條路仍然
-走得通（`npm pack` 與 `npm publish` 也會經過它，所以發出去的 tarball 一定是建置過
-的）。差別只在它不再是**建議**的安裝方式。
+**那條 git dependency 的路在 ADR-0011 之後不通了。** repo 根目錄現在是一個
+`private: true` 的 workspace 容器，`npm install github:yurenju/frond#<tag>` 裝到的是
+它，而它沒有 `exports`、沒有 `dist/`，也不該有。npm 成了唯一的安裝方式。
+
+代價可以接受，因為上面那次修訂已經把 git dependency 從「建議的安裝方式」降級成「還
+走得通的舊路」。`prepare` 也跟著搬家：它現在在根 package.json 上，服務的是「clone
+下來之後 `npm install` 就有兩份 `dist/`」這件開發者體驗，不再是任何消費端的安裝路
+徑。發版時的建置由 `release.yml` 顯式跑一次，不靠生命週期腳本。
 
 ## 展示站
 
@@ -88,9 +110,22 @@ EPUB 版本、頁面推進方向、TOC 讀自哪一份導覽文件、封面用�
 哪幾項其實不在包裡。那是「拿自己的書評估一個函式庫」時最先想知道的東西，而它剛好
 不需要渲染。
 
-站本身沒有建置步驟——`<script type="module">` 直接 import `tsc` emit 出來的檔案。
+首頁沒有建置步驟——`<script type="module">` 直接 import `tsc` emit 出來的檔案。
 **這是出貨相依為零的直接後果，也因此站每次部署都在驗證那件事**（`npm run site` 內
 含的 `scripts/finish-build.ts` 會在產物出現 bare specifier 時紅燈）。
+
+### 第二頁：frond-react
+
+`site/react/` 展示 `@yurenju/frond-react`，**而且刻意用另一種方式建**：esbuild，零
+設定，解析走 node_modules。
+
+兩頁的建置方式不同不是不一致，是它們證明的事不同。frond-react 必然相依 react，於是
+它的消費端一定有打包器——所以對它該問的不是「能不能不打包」，是「出貨的那包東西被一
+個一般的打包器吃下去跑不跑得動」。把它塞進首頁會讓首頁那句宣稱不再檢查任何東西（頁
+面反正已經被打包過了），所以兩頁分開。細節見 ADR-0011 與 `scripts/build-site.sh` 的
+檔頭。
+
+兩頁都有「怎麼裝、怎麼用」的說明，也互相連得過去。
 
 ## 授權
 

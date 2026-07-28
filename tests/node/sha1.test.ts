@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, test } from "vitest";
-import { sha1 } from "../../src/sha1.ts";
+import { sha1 } from "../../packages/frond/src/sha1.ts";
 
 /**
  * 手寫的 SHA-1 對 `node:crypto` 逐筆比對。

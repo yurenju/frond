@@ -2,5 +2,13 @@
 node_modules
 test-results
 playwright-report
-dist
+# `**/` 是必要的：.dockerignore 用的是 Go 的 filepath.Match，光寫 `dist` 只擋得掉
+# 根目錄那一個，而現在每個套件底下各有一份（packages/frond/dist、…）。漏掉的話
+# 本機建置過的產物會跟著進 build context，然後被映像裡的 build 蓋掉——沒有壞處，
+# 但每一次都白傳一次。
+**/dist
+# 展示站的產物，同上：映像裡的 `npm run site` 會重新生一份。
 site/frond
+site/react/bundle.js
+site/react/bundle.js.map
+site/react/frond-react.css

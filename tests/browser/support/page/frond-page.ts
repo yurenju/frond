@@ -1,12 +1,12 @@
-import { parseCfi } from "../../../../src/epub/cfi.ts";
-import { rangeForCfi } from "../../../../src/renderer/cfi-dom.ts";
+import { parseCfi } from "../../../../packages/frond/src/epub/cfi.ts";
+import { rangeForCfi } from "../../../../packages/frond/src/renderer/cfi-dom.ts";
 import {
   MemoryBook,
   Renderer,
   type ReaderSettings,
   type RenderableBook,
-} from "../../../../src/renderer/index.ts";
-import { textNodesIn } from "../../../../src/renderer/text-index.ts";
+} from "../../../../packages/frond/src/renderer/index.ts";
+import { textNodesIn } from "../../../../packages/frond/src/renderer/text-index.ts";
 import type {
   EventRecord,
   FrondHarness,

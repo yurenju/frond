@@ -4,6 +4,8 @@ How the engineering skills should consume this repo's domain documentation when 
 
 This repo is **single-context**: one `CONTEXT.md` and one `docs/adr/` at the root.
 
+It is also an npm workspace (`packages/frond`, `packages/frond-react` — ADR-0011), but that changes nothing here. A workspace is a packaging boundary, not a context boundary: both packages speak the same language about books, pagination and writing modes, and they share the one glossary. Don't create a per-package `CONTEXT.md`.
+
 ## Before exploring, read these
 
 - **`CONTEXT.md`** at the repo root, or

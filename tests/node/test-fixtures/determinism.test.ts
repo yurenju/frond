@@ -7,7 +7,7 @@ import {
   buildFixture,
   syntheticFixtures,
   writeFixtures,
-} from "../../../src/test-fixtures/index.ts";
+} from "../../../packages/frond/src/test-fixtures/index.ts";
 
 /**
  * 決定性是硬需求，不是可重現性衛生。

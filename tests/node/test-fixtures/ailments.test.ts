@@ -5,11 +5,11 @@ import {
   type EpubArchive,
   type TocNode,
 } from "../support/epub-archive.ts";
-import { buildEpub } from "../../../src/test-fixtures/epub.ts";
+import { buildEpub } from "../../../packages/frond/src/test-fixtures/epub.ts";
 import {
   buildFixture,
   type AilmentName,
-} from "../../../src/test-fixtures/index.ts";
+} from "../../../packages/frond/src/test-fixtures/index.ts";
 
 /**
  * 每個 fixture 到底有沒有帶著它名字上的那個病。

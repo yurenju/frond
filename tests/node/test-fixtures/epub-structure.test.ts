@@ -8,7 +8,7 @@ import {
   buildFixture,
   syntheticFixtures,
   type AilmentName,
-} from "../../../src/test-fixtures/index.ts";
+} from "../../../packages/frond/src/test-fixtures/index.ts";
 
 /**
  * 產生器的驗收不能只是「腳本沒丟例外」。這一組把「產出物是一本合規的書」拆成

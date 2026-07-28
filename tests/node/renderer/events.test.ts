@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { Emitter } from "../../../src/renderer/events.ts";
+import { Emitter } from "../../../packages/frond/src/renderer/events.ts";
 
 interface TestEvents {
   ping: { readonly value: number };

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { ProgressIndex } from "../../../src/renderer/progress.ts";
+import { ProgressIndex } from "../../../packages/frond/src/renderer/progress.ts";
 
 describe("整書索引", () => {
   const index = ProgressIndex.of([100, 300, 100]);

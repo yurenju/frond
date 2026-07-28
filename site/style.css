@@ -545,3 +545,201 @@ body:has(#workspace:not([hidden])) .colophon {
 .colophon p {
   margin: 0;
 }
+
+/* --- React 展示頁（site/react/） ------------------------------------------ */
+/*
+ * 兩頁共用這一份樣式表，因為它們共用同一套外觀語彙（顏色、間距、按鈕、`pre`）。
+ * 下面這一段只服務第二頁。
+ *
+ * ## 這一段要注意的事
+ *
+ * 它同時是 **frond-react 的 unstyled 主張的示範**。頁面上那個「預設樣式」開關關
+ * 掉之後，零件身上就只剩下面這幾條規則——所以這裡刻意只寫版面（誰多大、誰在哪
+ * 裡），不寫任何一條「讓它看起來像個按鈕」的宣告。那些留給
+ * `@yurenju/frond-react/styles.css` 去給，開關才切得出差別。
+ */
+
+.react-app {
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem;
+  gap: 0.75rem;
+}
+
+/* 開書之後 padding 收掉——書自己有框。 */
+.react-app:has(.reader-stage) {
+  padding: 0;
+  gap: 0;
+}
+
+.react-app > .dropzone {
+  margin: 0 auto;
+  width: min(100%, 44rem);
+}
+
+/*
+ * 書與兩顆翻頁按鈕排成一列。
+ *
+ * `1fr` 中間、兩側 auto：按鈕多寬由它自己的內容決定，書吃掉剩下的。這是這一頁
+ * 唯一替 `Viewport` 做的版面決定，而它是消費端該做的那一種——frond-react 自己
+ * 一格尺寸都不設（見 viewport.tsx 的檔頭）。
+ */
+.reader-stage {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: stretch;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+
+  /*
+   * **高度寫在這裡，而不是靠 flex 從祖先繼承下來。**
+   *
+   * 這一頁與首頁的形狀不同：首頁是一個吃滿視窗的 app，這一頁是一份「文件裡嵌了
+   * 一個 reader」——底下那一整段說明要讀得到，所以整頁是會捲的。在會捲的頁面上
+   * 用 `flex: 1` 去要高度，拿到的是「扣掉說明之後剩下的」，而說明很長，於是書框
+   * 塌成幾十像素。第一版就是這樣（截圖上一眼看得出來）。
+   *
+   * `dvh` 而不是 `vh`：手機的網址列會收合，`vh` 在收合前後量到的值不同，症狀是
+   * 捲動時書的高度跳一下、頁數跟著重算。
+   *
+   * 這一格同時是這一頁在示範的東西之一：**尺寸是消費端的決定**。frond-react 自己
+   * 一格都不設（見 viewport.tsx 的檔頭），因為 grid item、`aspect-ratio`、
+   * `100dvh` 減工具列每一種都合理，替人挑一種就是在做版面決定。
+   */
+  block-size: clamp(360px, 68dvh, 720px);
+}
+
+.reader-viewport {
+  /*
+   * `min-height: 0` 在 grid item 上是必要的：預設的 `auto` 最小尺寸會讓它撐開而
+   * 不是被容器卡住，於是書框比可用高度還高，狀態列被推出畫面。
+   */
+  min-height: 0;
+
+  /*
+   * **這一行不是裝飾，而且這一頁特別需要它。**
+   *
+   * iframe 是絕對定位的，所以容器必須是它的定位脈絡。`Renderer` 會在容器還是
+   * `static` 的時候自己補上這一格（然後在 `destroy()` 還原），但**那個判斷只在
+   * attach 的那一刻做一次**。
+   *
+   * 這一頁上那個「預設樣式」開關剛好會踩到：開著的時候
+   * `@yurenju/frond-react/styles.css` 已經給了 `position: relative`，於是 frond
+   * 看到的不是 `static`、不補；等到開關被關掉，那份樣式整份失效，容器變回
+   * `static`，而 frond 不會再檢查一次——iframe 就跳出框、蓋在整頁上面。第一版就是
+   * 這樣（`docs/evidence/` 的截圖上一眼看得出來）。
+   *
+   * 所以定位脈絡由這一頁自己宣告，不靠任何一份可能被關掉的樣式表。這也是消費端
+   * 該做的事：`Viewport` 是你的盒子，它的定位屬於你的版面。
+   */
+  position: relative;
+
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.page-turn {
+  /*
+   * 只給版面，不給外觀。開關關掉預設樣式之後這顆按鈕會變回瀏覽器原生的樣子，
+   * 而那正是要看到的東西。
+   */
+  align-self: center;
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.reader-progress {
+  margin: 0 0.75rem;
+}
+
+.reader-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.1rem;
+  align-items: baseline;
+  margin: 0;
+  padding: 0.5rem 0.9rem;
+  border-top: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+}
+
+.reader-status code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* React 那一頁的工具列比首頁的簡單，共用 `.workspace-bar` 的框但自己排。 */
+.react-app .workspace-bar {
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+}
+
+.react-app .workspace-bar > label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--ink-soft);
+}
+
+.react-app .workspace-bar input[type="range"] {
+  width: 6.5rem;
+}
+
+.react-app .book-title {
+  flex: 0 1 auto;
+  padding-left: 0;
+  border-left: none;
+}
+
+/*
+ * 兩個切設計主張的開關。給一點視覺重量，因為它們是這一頁真正要人按的東西。
+ */
+.switch {
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.switch:has(input:checked) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.toc {
+  max-width: 14rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: inherit;
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+/* 說明區塊在書下面。開書之前它是這一頁的主要內容。 */
+.guide {
+  padding: 1.5rem;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 48rem) {
+  .reader-stage {
+    padding: 0.4rem 0.5rem;
+    gap: 0.25rem;
+  }
+
+  .page-turn {
+    font-size: 1.3rem;
+  }
+
+  .guide {
+    padding: 1rem;
+  }
+}

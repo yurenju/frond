@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { parseCfi } from "../../../src/epub/cfi.ts";
+import { parseCfi } from "../../../packages/frond/src/epub/cfi.ts";
 import { mountFixture, openHarness, type EventRecord } from "../support/harness.js";
 
 /**

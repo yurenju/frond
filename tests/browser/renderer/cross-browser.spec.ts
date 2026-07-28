@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 // 直接取產生 fixture 的那份散文，而不是走 `test-fixtures/index.ts` 的公開面：
 // 這裡要的是**產生器的輸入**，那正是獨立 oracle 的來源。公開面給的是產出的
 // 位元組，從它反推字元數等於再實作一次渲染端的走訪。
-import { PROSE } from "../../../src/test-fixtures/prose.ts";
+import { PROSE } from "../../../packages/frond/src/test-fixtures/prose.ts";
 import { mountFixture, openHarness } from "../support/harness.js";
 
 /**

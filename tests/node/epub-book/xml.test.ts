@@ -1,9 +1,9 @@
 import { XMLValidator } from "fast-xml-parser";
 import { unzipSync } from "fflate";
 import { describe, expect, test } from "vitest";
-import { EpubOpenError } from "../../../src/epub/errors.ts";
-import { parseXml, type XmlElement } from "../../../src/epub/xml.ts";
-import { buildFixture, syntheticFixtures } from "../../../src/test-fixtures/index.ts";
+import { EpubOpenError } from "../../../packages/frond/src/epub/errors.ts";
+import { parseXml, type XmlElement } from "../../../packages/frond/src/epub/xml.ts";
+import { buildFixture, syntheticFixtures } from "../../../packages/frond/src/test-fixtures/index.ts";
 
 /**
  * 手寫的 XML 解析器：良構性的判定對 `fast-xml-parser` 比對，樹的行為自己斷言。

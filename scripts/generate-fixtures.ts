@@ -13,7 +13,7 @@
 
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve } from "node:path";
-import { writeFixtures } from "../src/test-fixtures/index.ts";
+import { writeFixtures } from "../packages/frond/src/test-fixtures/index.ts";
 
 const REPOSITORY_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_OUTPUT = join(REPOSITORY_ROOT, "tests", "fixtures");

@@ -1,0 +1,160 @@
+/*
+ * @yurenju/frond-react 的預設樣式。**完全可選。**
+ *
+ *     import "@yurenju/frond-react/styles.css";
+ *
+ * 不 import 的話這個檔案裡的每一條規則都不存在，零件回到它們本來的樣子：一個
+ * `<div>`、兩個 `<button>`，沒有任何宣告。這不是「預設主題」，是「不必從零開始」。
+ *
+ * ## 每一條規則都包在 :where() 裡
+ *
+ * `:where()` 的優先權是 0，所以**你寫的任何一條規則都蓋得過這裡的每一條**——一個
+ * class、一個標籤選擇器、甚至另一個 :where() 加上一點特異性都夠。不必比對選擇器
+ * 有多長，不必 `!important`，也不必在意 stylesheet 的載入順序（同優先權時後者勝，
+ * 而這裡的優先權是 0，永遠不會走到那個比較）。
+ *
+ * 這件事是這份檔案能夠「可選」的技術條件。優先權不是 0 的預設樣式，實際上是一份
+ * 你得先對付掉才能開始的東西——而那就不叫可選了。
+ *
+ * ## 這裡不碰書裡面
+ *
+ * 書渲染在 iframe 內（ADR-0006），下面沒有一條規則進得去，也不該有。字級、行高、
+ * 邊界、主題走 `<Root settings={…}>`。
+ *
+ * ## 可以只調變數
+ *
+ * 下面每一個看得出是「選擇」的數字都是 custom property。要微調而不是重寫的話，設
+ * 它們就夠：
+ *
+ *     :root {
+ *       --frond-viewport-min-height: 80dvh;
+ *       --frond-progress-thickness: 2px;
+ *     }
+ */
+
+:where(:root) {
+  /*
+   * viewport 的高度。
+   *
+   * 這是整份檔案裡最有用的一條：`Renderer` 量的是元素的 box，而一個沒有高度的
+   * div 量出來是 0——畫面全白，而且沒有任何錯誤訊息。那是接這個套件時最常見的
+   * 第一個問題，所以預設值給了一個「至少看得到東西」的數字。
+   *
+   * `dvh` 而不是 `vh`：手機瀏覽器的網址列會收合，`vh` 在收合前後量到的值不同，
+   * 症狀是捲動的時候書的高度跳一下、頁數跟著重算。
+   */
+  --frond-viewport-min-height: 60dvh;
+  --frond-progress-thickness: 3px;
+  --frond-progress-track: color-mix(in oklab, currentColor 15%, transparent);
+  --frond-progress-fill: currentColor;
+  --frond-focus-ring: 2px solid currentColor;
+}
+
+/* --- viewport ------------------------------------------------------------ */
+
+:where([data-frond-part="viewport"]) {
+  min-height: var(--frond-viewport-min-height);
+
+  /*
+   * iframe 是絕對定位的，容器必須是它的定位參考。
+   *
+   * `Renderer` 的建構子在容器還是 `static` 的時候會自己補上 `position: relative`
+   * （然後在 `destroy()` 還原），所以多數情況下這一行看起來是多餘的。**它不是**，
+   * 而理由值得寫清楚：那個判斷只在 attach 的那一刻做一次。容器的定位在那之後才
+   * 變回 `static`（換 class、換主題、把某一份樣式表關掉），frond 不會再檢查一次,
+   * 而 iframe 會跳出框蓋在整頁上面。
+   *
+   * 也就是說：**如果你的容器是靠 CSS 拿到定位脈絡的，那條 CSS 就不能是可以被關掉
+   * 的那一份。** 這份預設樣式本身正是「可以被關掉的那一份」，所以真正安全的做法是
+   * 你自己的樣式也宣告一次——展示站就是這樣做的（`site/style.css` 的
+   * `.reader-viewport`）。
+   */
+  position: relative;
+  overflow: hidden;
+}
+
+/*
+ * 還沒掛好的時候不要顯示一個空盒子在那裡閃。
+ *
+ * 只調 `color-scheme` 與游標，不畫轉圈圖示——那是內容，而內容屬於消費端（要不要
+ * 有骨架屏、要不要有文案、要不要根本不顯示，每一個答案都合理）。
+ */
+:where([data-frond-part="viewport"][data-state="loading"]) {
+  cursor: progress;
+}
+
+/* --- 翻頁按鈕 ------------------------------------------------------------- */
+
+:where([data-frond-part="next-trigger"], [data-frond-part="previous-trigger"]) {
+  /*
+   * 清掉瀏覽器預設的按鈕外觀。這是「unstyled」在按鈕上真正的意思——原生的
+   * `<button>` 自帶邊框、背景與字型，那些是瀏覽器的選擇而不是我們的，留著會讓
+   * 「我什麼都沒設」看起來像「這個套件替我設了灰色按鈕」。
+   */
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+
+  /* 一個沒有樣式的按鈕仍然該有觸控打得到的命中區。 */
+  min-inline-size: 44px;
+  min-block-size: 44px;
+}
+
+:where([data-frond-part="next-trigger"], [data-frond-part="previous-trigger"]):focus-visible {
+  outline: var(--frond-focus-ring);
+  outline-offset: 2px;
+}
+
+/*
+ * 到底了。**不用 `display: none`**：按鈕消失會讓工具列的版面跳一下，而且螢幕閱讀
+ * 器的使用者會失去「這裡本來有一顆按鈕」這個資訊。`disabled` 屬性本身已經擋掉互
+ * 動，這裡只負責讓它看起來也是那樣。
+ */
+:where([data-frond-part="next-trigger"][data-disabled], [data-frond-part="previous-trigger"][data-disabled]) {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* --- 進度 ---------------------------------------------------------------- */
+
+:where([data-frond-part="progress"]) {
+  block-size: var(--frond-progress-thickness);
+  inline-size: 100%;
+  background: var(--frond-progress-track);
+  border-radius: calc(var(--frond-progress-thickness) / 2);
+  overflow: hidden;
+}
+
+/*
+ * 進度本身。`--frond-progress` 由零件在 inline style 上設成 0–1 的數字。
+ *
+ * 用 `::after` 而不是動元素自己的寬度，是為了讓「軌道」與「填滿」變成兩個獨立的
+ * 東西——消費端要換成圓弧、要換成從右往左長、要在上面疊一個章節刻度，都還有一個
+ * 空的元素可以用。
+ */
+:where([data-frond-part="progress"])::after {
+  content: "";
+  display: block;
+  block-size: 100%;
+  inline-size: calc(var(--frond-progress, 0) * 100%);
+  background: var(--frond-progress-fill);
+}
+
+/*
+ * 整書索引還沒建好，沒有進度可言。畫成 0 的話讀者看到的是「我在書的最前面」，而
+ * 那是一句假話——所以這一格什麼都不畫，只留軌道。
+ */
+:where([data-frond-part="progress"][data-state="indeterminate"])::after {
+  inline-size: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :where([data-frond-part="progress"])::after {
+    transition: inline-size 120ms ease-out;
+  }
+}

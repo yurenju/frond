@@ -33,17 +33,19 @@ jobs:
           node-version: 24
           cache: npm
 
-      # `--ignore-scripts` 擋掉 `prepare`。那支 script 跑 `npm run build`，而下面
-      # 的 `npm run site` 會再跑一次——重複一次沒有壞處，但這裡擋掉之後，站建不
-      # 起來時紅的是 `npm run site` 那一步，訊息指得準。
+      # `--ignore-scripts` 擋掉根 package.json 的 `prepare`。那支 script 跑
+      # `npm run build`，而下面的 `npm run site` 會再建一次 frond——重複一次沒有壞
+      # 處，但這裡擋掉之後，站建不起來時紅的是 `npm run site` 那一步，訊息指得準。
       - run: npm ci --ignore-scripts
 
       # 型別要通過才值得部署。站上那段範例程式碼示範的是 frond 的 API，而 API
       # 錯了的話站是綠的、消費端是紅的。
       - run: npm run typecheck
 
-      # 建出貨產物並複製進 site/frond/。這一步同時證明「不需要打包器」——它是
-      # 一次 tsc 加一次 cp，沒有第三個工具。
+      # 建兩個套件並把站組起來。站有兩頁，而**兩頁的建置方式刻意不同**：首頁是
+      # 一次 cp（證明 frond 的產物瀏覽器直接 import 得動），React 那頁走 esbuild
+      # （證明 frond-react 出貨的那包東西被一般打包器吃得下去）。理由完整寫在
+      # `scripts/build-site.sh` 的檔頭。
       - run: npm run site
 
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
