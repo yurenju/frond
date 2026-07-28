@@ -2,24 +2,28 @@ import { expect, test } from "@playwright/test";
 import { loadDefaultStyles, mount, openReactHarness } from "./support/harness.ts";
 
 /**
- * 預設樣式的兩個性質。它們一起才構成「完全可選」這句話：
+ * The default styles' two properties. Together they are what "entirely optional" means:
  *
- *   1. **不 import 就完全不存在。** 零件本身一條宣告都不帶。
- *   2. **import 了也蓋得過去。** 整份包在 `:where()` 裡，優先權是 0。
+ *   1. **Without the import they do not exist at all.** The parts carry no declaration of
+ *      their own.
+ *   2. **With the import they are still overridable.** The whole sheet is wrapped in
+ *      `:where()`, so its specificity is 0.
  *
- * 第二點特別值得測。一份「可選」但優先權很高的預設樣式，實際上是一份你得先對付掉
- * 才能開始的東西——而優先權是靠選擇器寫法維持的，改一條規則就可能悄悄破功，CSS
- * 不會為此報任何錯。
+ * The second is especially worth testing. A default stylesheet that is "optional" but
+ * high-specificity is in practice something you have to fight before you can begin — and
+ * the specificity is maintained by how the selectors are written, so editing one rule can
+ * quietly break it, with CSS raising no error at all.
  */
 
 test.beforeEach(async ({ page }) => {
   await openReactHarness(page);
 });
 
-test("不 import 樣式的話，按鈕維持瀏覽器原生的樣子", async ({ page }) => {
+test("without importing the styles, the buttons keep the browser's native look", async ({ page }) => {
   await mount(page, { book: "one" });
 
-  // 原生 `<button>` 自帶邊框。預設樣式會把它清掉——這裡沒 import，所以它還在。
+  // A native `<button>` comes with a border. The default styles clear it — nothing is
+  // imported here, so it is still there.
   const border = await page
     .getByTestId("next")
     .evaluate((element) => getComputedStyle(element).borderTopStyle);
@@ -27,7 +31,7 @@ test("不 import 樣式的話，按鈕維持瀏覽器原生的樣子", async ({ 
   expect(border).not.toBe("none");
 });
 
-test("import 之後按鈕的原生外觀被清掉", async ({ page }) => {
+test("after the import, the buttons' native appearance is cleared", async ({ page }) => {
   await loadDefaultStyles(page);
   await mount(page, { book: "one" });
 
@@ -40,14 +44,14 @@ test("import 之後按鈕的原生外觀被清掉", async ({ page }) => {
   expect(styles.cursor).toBe("pointer");
 });
 
-test("消費端一條 class 規則就蓋得過預設樣式", async ({ page }) => {
+test("one consumer class rule is enough to override the default styles", async ({ page }) => {
   await loadDefaultStyles(page);
   await page.addStyleTag({ content: ".viewport { min-height: 123px; }" });
   await mount(page, { book: "one" });
 
-  // 預設樣式對 viewport 設了 `min-height: var(--frond-viewport-min-height)`，而它
-  // 包在 `:where()` 裡，優先權 0。消費端最普通的一條 class 規則就該贏——不必
-  // `!important`，也不必在意兩份 stylesheet 誰先載入。
+  // The default styles set `min-height: var(--frond-viewport-min-height)` on the viewport,
+  // wrapped in `:where()` at specificity 0. The most ordinary consumer class rule should
+  // win — no `!important` needed, and no need to care which stylesheet loaded first.
   const minHeight = await page
     .getByTestId("viewport")
     .evaluate((element) => getComputedStyle(element).minHeight);
@@ -55,7 +59,7 @@ test("消費端一條 class 規則就蓋得過預設樣式", async ({ page }) =>
   expect(minHeight).toBe("123px");
 });
 
-test("只設 custom property 也能微調，不必重寫規則", async ({ page }) => {
+test("setting a custom property alone is enough to adjust, without rewriting rules", async ({ page }) => {
   await loadDefaultStyles(page);
   await page.addStyleTag({ content: ":root { --frond-progress-thickness: 9px; }" });
   await mount(page, { book: "one" });

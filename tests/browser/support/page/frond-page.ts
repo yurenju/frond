@@ -18,16 +18,18 @@ import type {
 } from "../harness.ts";
 
 /**
- * 瀏覽器那一側的操作面。
+ * The browser side's operating surface.
  *
- * 它跑在頁面裡，所以它看得到 `Renderer` 實際的物件；spec 那一側只拿得到可序列化
- * 的快照。這個分工是刻意的——把 `Renderer` 的實例往 `page.evaluate` 的邊界外送
- * 是不可能的，而每支 spec 各自寫一段 `page.evaluate` 去戳它，會讓「怎麼量」散在
- * 十幾個地方，然後彼此漂開。
+ * It runs inside the page, so it can see `Renderer`'s actual objects; the spec side only
+ * gets serializable snapshots. That division is deliberate — sending a `Renderer`
+ * instance across `page.evaluate`'s boundary is impossible, and letting each spec write
+ * its own `page.evaluate` to poke at it would scatter "how to measure" across a dozen
+ * places, which then drift apart.
  *
- * 這裡除了公開面（`src/renderer/index.ts`）之外也 import 了兩支內部模組
- * （`cfi-dom.ts`、`text-index.ts`）。那是量測用的，不是產品用的：它們回答「這個
- * CFI 指到的文字是什麼」，而那個問題不該為了測試而變成公開 API。
+ * Beyond the public surface (`src/renderer/index.ts`), this also imports two internal
+ * modules (`cfi-dom.ts`, `text-index.ts`). Those are for measurement, not for product:
+ * they answer "what text does this CFI point at", and that question should not become a
+ * public API for the tests' sake.
  */
 
 const VIEWPORT_ID = "viewport";
@@ -89,8 +91,9 @@ const harness: FrondHarness = {
   },
 
   /**
-   * **刻意不逐次 await。** 全部發出去之後才一起等，因為要測的正是「前一次還沒
-   * 落地就來了下一次」——逐次 await 的話佇列裡永遠只有一個人。
+   * **Deliberately not awaited one at a time.** They are all fired first and awaited
+   * together, because what is being measured is precisely "the next one arrives before the
+   * previous has landed" — awaiting each in turn leaves the queue with a single occupant.
    */
   async rapidNext(times): Promise<Snapshot> {
     const renderer = active();
@@ -125,7 +128,7 @@ const harness: FrondHarness = {
 
   async resize(width, height): Promise<Snapshot> {
     const container = document.getElementById(VIEWPORT_ID);
-    if (container === null) throw new Error("外殼頁面沒有容器元素");
+    if (container === null) throw new Error("the shell page has no container element");
 
     container.style.width = `${width}px`;
     container.style.height = `${height}px`;
@@ -136,7 +139,7 @@ const harness: FrondHarness = {
   snapshot,
 
   async waitForIndex(): Promise<number> {
-    if (indexed === undefined) throw new Error("還沒掛任何一本書");
+    if (indexed === undefined) throw new Error("no book has been mounted yet");
     return indexed;
   },
 
@@ -234,13 +237,13 @@ const harness: FrondHarness = {
 
 Object.defineProperty(window, "frond", { value: harness, configurable: true });
 
-/** 掛一本書。`mount` 與 `mountInline` 共用——差別只在書從哪裡來。 */
+/** Mounts a book. Shared by `mount` and `mountInline` — they differ only in where the book comes from. */
 async function attach(book: RenderableBook, options: MountOptions): Promise<Snapshot> {
   renderer?.destroy();
   recorded = [];
 
   const container = document.getElementById(VIEWPORT_ID);
-  if (container === null) throw new Error("外殼頁面沒有容器元素");
+  if (container === null) throw new Error("the shell page has no container element");
 
   if (options.viewport !== undefined) {
     container.style.width = `${options.viewport.width}px`;
@@ -258,8 +261,9 @@ async function attach(book: RenderableBook, options: MountOptions): Promise<Snap
       recorded.push({ name, payload: JSON.parse(JSON.stringify(payload)) });
     };
 
-  // 從 `options.on` 掛而不是 attach 之後再 `on()`：第一節的 load 與 relocate
-  // 是在 attach 裡面送的，事後掛就收不到了。
+  // Hooked up through `options.on` rather than `on()` after attaching: the first section's
+  // load and relocate are emitted inside attach, and a listener added afterwards misses
+  // them.
   renderer = await Renderer.attach(book, container, {
     settings: toSettings(options.settings),
     start: options.start,
@@ -284,7 +288,7 @@ async function attach(book: RenderableBook, options: MountOptions): Promise<Snap
 }
 
 function active(): Renderer {
-  if (renderer === undefined) throw new Error("還沒掛任何一本書");
+  if (renderer === undefined) throw new Error("no book has been mounted yet");
   return renderer;
 }
 
@@ -312,22 +316,24 @@ function contentDocument(): Document | undefined {
 }
 
 /**
- * spec 送過來的純物件就是一份局部設定，原樣往下傳。
+ * The plain object the spec sends over is already a partial setting, passed straight
+ * down.
  *
- * **不要在這裡補成完整的設定**：`applySettings` 的語意是「只換提到的那幾項」，
- * 補完之後沒提到的欄位會被打回預設值，於是 spec 裡連續兩次 `applySettings` 的
- * 第二次會靜默地取消第一次。
+ * **Do not fill it out into a complete setting here**: `applySettings` means "replace
+ * only the fields mentioned", and filling it out would reset the unmentioned fields to
+ * their defaults — so in a spec with two `applySettings` calls in a row, the second would
+ * silently undo the first.
  */
 function toSettings(patch: SettingsPatch | undefined): Partial<ReaderSettings> {
   return patch === undefined ? {} : (patch as Partial<ReaderSettings>);
 }
 
 /**
- * 從 harness 的路由把一本書逐檔取回來，組成 `MemoryBook`。
+ * Fetches a book file by file from the harness's routes and assembles a `MemoryBook`.
  *
- * 書在 Node 那一側用 `EpubBook` 開好，所以這裡拿到的是**實際的書經過實際的解析層
- * 之後**的內容——混淆字型已經還原、href 已經正規化——而瀏覽器這一側不需要解壓
- * 與 XML 解析。
+ * The book was opened with `EpubBook` on the Node side, so what arrives here is **a real
+ * book after a real parsing layer** — obfuscated fonts already restored, hrefs already
+ * normalized — while this browser side needs no decompression and no XML parsing.
  */
 async function loadBook(fixture: string): Promise<RenderableBook> {
   const manifest = (await (await fetch(`/book/${fixture}/manifest.json`)).json()) as {

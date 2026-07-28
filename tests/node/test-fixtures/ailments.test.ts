@@ -12,40 +12,43 @@ import {
 } from "../../../packages/frond/src/test-fixtures/index.ts";
 
 /**
- * 每個 fixture 到底有沒有帶著它名字上的那個病。
+ * Whether each fixture actually carries the ailment its name claims.
  *
- * 這一組與 `single-ailment.test.ts` 是一體兩面：這裡問「病在不在」，那裡問
- * 「病有沒有溢出到別的檔案」。兩條都要，只有前者的話一個把所有病症寫進同一份
- * 樣式表的產生器也會全綠。
+ * This group and `single-ailment.test.ts` are two sides of one thing: this one asks "is
+ * the ailment there", that one asks "has the ailment spilled into other files". Both
+ * are needed — with only the former, a generator writing every ailment into one
+ * stylesheet would also come out green.
  */
 
 function open(name: AilmentName): EpubArchive {
   return openEpub(buildFixture(name));
 }
 
-describe("樣式表裡的病症", () => {
-  test("writing-mode-on-body：直排宣告在 body 而不是 html", () => {
+describe("ailments in the stylesheet", () => {
+  test("writing-mode-on-body: the vertical declaration is on body rather than html", () => {
     const book = open("writing-mode-on-body");
 
     expect(book.stylesheet).toMatch(/body\s*\{[^}]*writing-mode:\s*vertical-rl/);
     expect(book.stylesheet).not.toMatch(/html\s*\{[^}]*writing-mode/);
   });
 
-  test("writing-mode-prefixed-only：只有帶前綴的屬性名，無前綴的一次都沒有", () => {
+  test("writing-mode-prefixed-only: only prefixed property names, the unprefixed one not once", () => {
     const book = open("writing-mode-prefixed-only");
 
     expect(book.stylesheet).toMatch(/-epub-writing-mode:\s*vertical-rl/);
     expect(book.stylesheet).toMatch(/-webkit-writing-mode:\s*vertical-rl/);
 
-    // 「無前綴的一次都沒有」是這份 fixture 的全部價值：只要補上一條無前綴的
-    // 宣告，Firefox 就正常了，而這本書要演的正是那條不存在的情況。
+    // "The unprefixed one not once" is this fixture's entire value: adding a single
+    // unprefixed declaration makes Firefox behave, and what this book plays is precisely
+    // the case where that declaration does not exist.
     expect(book.stylesheet).not.toMatch(/[^-\w]writing-mode:/);
   });
 
-  test("writing-mode-prefixed-only 與 writing-mode-on-body 病的不是同一件事", () => {
-    // 對照組成立的條件：兩份都宣告在 <body> 上、都是 vertical-rl，差別只在
-    // 屬性名。差別若不只這一項，「Firefox 為什麼一本橫排一本直排」就不再只有
-    // 前綴這一個解釋。
+  test("writing-mode-prefixed-only and writing-mode-on-body are not ill with the same thing", () => {
+    // What makes the pairing hold: both declare on <body>, both use vertical-rl, and the
+    // only difference is the property name. If they differed in more than that, "why is
+    // one book horizontal and the other vertical in Firefox" would no longer have the
+    // prefix as its only explanation.
     const prefixed = open("writing-mode-prefixed-only");
     const unprefixed = open("writing-mode-on-body");
 
@@ -55,28 +58,29 @@ describe("樣式表裡的病症", () => {
     expect(unprefixed.stylesheet).not.toMatch(/-epub-|-webkit-/);
   });
 
-  test("vertical-japanese：直排宣告在 html——這是對照組", () => {
+  test("vertical-japanese: the vertical declaration is on html — this is the control", () => {
     const book = open("vertical-japanese");
 
     expect(book.stylesheet).toMatch(/html\s*\{[^}]*writing-mode:\s*vertical-rl/);
     expect(book.stylesheet).not.toMatch(/body\s*\{[^}]*writing-mode/);
   });
 
-  test("writing-mode-behind-import：<link> 到的樣式表只有一行 @import 字串", () => {
+  test("writing-mode-behind-import: the <link>ed stylesheet is a single @import string", () => {
     const book = open("writing-mode-behind-import");
 
-    // 引號寫法而不是 `url()`——樣本量到的是這一種，而只認 `url()` 的實作正是在
-    // 這一格輸掉的。
+    // The quoted spelling rather than `url()` — that is the one measured in the sample,
+    // and an implementation recognizing only `url()` is exactly what loses in this slot.
     expect(book.stylesheet).toMatch(/@import\s*"book-style\.css"\s*;/);
     expect(book.stylesheet).not.toContain("url(");
 
-    // 排版意圖一條都不在這個檔案裡。留下任何一條的話，「樣式表整份消失」這個
-    // 症狀就會被那幾條擋掉一部分，fixture 也就不再是乾淨的一格。
+    // Not one layout intention is in this file. Leaving any behind would have those
+    // declarations absorb part of the "the whole stylesheet disappears" symptom, and the
+    // fixture would no longer be a clean slot.
     expect(book.stylesheet).not.toMatch(/writing-mode/);
     expect(book.stylesheet).not.toMatch(/font-family/);
   });
 
-  test("writing-mode-behind-import：直排的宣告在被 import 的那一份裡", () => {
+  test("writing-mode-behind-import: the vertical declaration is in the imported file", () => {
     const book = open("writing-mode-behind-import");
     const imported = book.manifest.find((item) => item.href === "book-style.css");
 
@@ -86,10 +90,11 @@ describe("樣式表裡的病症", () => {
     );
   });
 
-  test("writing-mode-behind-import 與 vertical-japanese 只差宣告放在哪個檔案", () => {
-    // 這一對成立的條件：宣告的內容逐字元相同，唯一的差別是那些位元組在哪一個
-    // 檔案裡。差別若不只這一項，「為什麼一本直排一本橫排」就不再只有 @import
-    // 這一個解釋。
+  test("writing-mode-behind-import and vertical-japanese differ only in which file holds the declaration", () => {
+    // What makes this pair hold: the declarations are identical character for character,
+    // and the only difference is which file those bytes live in. If they differed in more
+    // than that, "why is one book vertical and the other horizontal" would no longer have
+    // the @import as its only explanation.
     const behindImport = open("writing-mode-behind-import");
     const inline = open("vertical-japanese");
     const imported = behindImport.manifest.find(
@@ -99,19 +104,19 @@ describe("樣式表裡的病症", () => {
     expect(behindImport.text(imported.archivePath)).toBe(inline.stylesheet);
   });
 
-  test("font-size-important：書用 !important 蓋掉讀者的字級", () => {
+  test("font-size-important: the book overrides the reader's size with !important", () => {
     const book = open("font-size-important");
 
     expect(book.stylesheet).toMatch(/font-size:\s*12px\s*!important/);
   });
 
-  test("fixed-width-800：固定寬度讓小螢幕的內容被裁掉", () => {
+  test("fixed-width-800: a fixed width clips the content on small screens", () => {
     const book = open("fixed-width-800");
 
     expect(book.stylesheet).toMatch(/width:\s*800px/);
   });
 
-  test("hardcoded-colors：寫死前景與背景，夜間模式失效", () => {
+  test("hardcoded-colors: foreground and background pinned, defeating night mode", () => {
     const book = open("hardcoded-colors");
 
     expect(book.stylesheet).toMatch(/color:\s*#000000/);
@@ -119,15 +124,16 @@ describe("樣式表裡的病症", () => {
   });
 });
 
-describe("TOC href 裡的病症", () => {
-  test("toc-href-percent-comma：nav 的逗號被編碼成 %2c，manifest 沒有", () => {
+describe("ailments in TOC hrefs", () => {
+  test("toc-href-percent-comma: the nav encodes its comma as %2c and the manifest does not", () => {
     const book = open("toc-href-percent-comma");
 
     const encoded = book.toc.filter((entry) => entry.href.includes("%2c"));
     expect(encoded.length).toBe(1);
 
-    // 病症的形狀是 nav 與 manifest 對同一個檔名有兩種寫法。兩邊都編碼的話
-    // 字串比對就會直接成功，這個 fixture 也就測不到東西了。
+    // The ailment's shape is nav and manifest spelling one filename two ways. Were both
+    // encoded, a string comparison would simply succeed and this fixture would measure
+    // nothing.
     const section = book.readingOrder.find(
       (item) => item.archivePath === encoded[0]!.archivePath,
     );
@@ -135,29 +141,32 @@ describe("TOC href 裡的病症", () => {
     expect(section?.href).not.toContain("%2c");
   });
 
-  test("toc-href-parent-prefix：導覽文件在子目錄，href 帶 ../ 前綴", () => {
+  test("toc-href-parent-prefix: the navigation document is in a subdirectory and hrefs carry a ../ prefix", () => {
     const book = open("toc-href-parent-prefix");
 
     expect(book.navigationPath).toBe("EPUB/nav/nav.xhtml");
     for (const entry of book.toc) {
       expect(entry.href).toMatch(/^\.\.\//);
     }
-    // 「解析得到 Section」由 epub-structure.test.ts 蓋住——這裡只釘住病症的
-    // 形狀。href 若不是相對於導覽文件而是相對於封裝文件去解析，那條會紅。
+    // "Resolves to a Section" is covered by epub-structure.test.ts — this only pins the
+    // ailment's shape. If an href were resolved against the package document rather than
+    // the navigation document, that test would go red.
   });
 
-  test("toc-href-percent-comma-epub2：同一個病症長在 NCX 的 content src 上", () => {
+  test("toc-href-percent-comma-epub2: the same ailment living on the NCX's content src", () => {
     const book = open("toc-href-percent-comma-epub2");
 
-    // 載體必須真的是 NCX——這一份存在的理由就是「實測的壞 TOC 出現在這個載體
-    // 上」，落回 nav 的話它與 EPUB 3 那一份就是同一個檔案了。
+    // The vehicle really has to be the NCX — this fixture exists because "the bad TOCs
+    // measured in the wild appear on this vehicle", and falling back to the nav would make
+    // it the same file as the EPUB 3 one.
     expect(book.navigationVehicle).toBe("ncx");
 
     const encoded = book.toc.filter((entry) => entry.href.includes("%2c"));
     expect(encoded.length).toBe(1);
 
-    // 只有 NCX 這一側編碼：manifest 與壓縮檔的項目名都是字面的逗號。樣本裡那
-    // 本書逐項核對過的正是這三者的關係。
+    // Only the NCX side encodes: both the manifest and the archive entry name use a
+    // literal comma. What was checked entry by entry on that book in the sample is exactly
+    // the relationship between those three.
     const section = book.readingOrder.find(
       (item) => item.archivePath === encoded[0]!.archivePath,
     );
@@ -166,9 +175,10 @@ describe("TOC href 裡的病症", () => {
     expect(book.entryPaths).toContain(encoded[0]!.archivePath);
   });
 
-  test("toc-href-percent-comma 的兩個載體版本，病症形狀一致", () => {
-    // 兩份 fixture 共用同一個 afflict，這條把「共用」變成可以變紅的斷言：
-    // 同一個字元、同樣小寫、同樣只有一側編碼（#23 的驗收原文）。
+  test("toc-href-percent-comma's two vehicle versions carry the ailment in the same shape", () => {
+    // The two fixtures share one afflict, and this turns "shared" into an assertion that
+    // can go red: the same character, the same lowercase, the same one-sided encoding
+    // (#23's acceptance criterion, verbatim).
     const nav = open("toc-href-percent-comma");
     const ncx = open("toc-href-percent-comma-epub2");
 
@@ -179,7 +189,7 @@ describe("TOC href 裡的病症", () => {
     expect(encodedHrefs(nav)).toEqual(["section-2%2ccontinued.xhtml"]);
   });
 
-  test("toc-href-parent-prefix-epub2：NCX 在子目錄，content src 帶 ../ 前綴", () => {
+  test("toc-href-parent-prefix-epub2: the NCX is in a subdirectory and content src carries a ../ prefix", () => {
     const book = open("toc-href-parent-prefix-epub2");
 
     expect(book.navigationVehicle).toBe("ncx");
@@ -190,21 +200,22 @@ describe("TOC href 裡的病症", () => {
   });
 });
 
-describe("manifest href 裡的形狀", () => {
-  test("manifest-href-parent-prefix：../ 走到封裝根，而目標確實存在", () => {
+describe("shapes in manifest hrefs", () => {
+  test("manifest-href-parent-prefix: ../ walks to the package root, and the target really is there", () => {
     const book = open("manifest-href-parent-prefix");
     const script = book.manifest.find((item) => item.href.startsWith("../"));
 
     expect(script?.href).toBe("../js/reader.js");
-    // 解析後落在**封裝根**，不在內容目錄底下——這是這份 fixture 的重點。把
-    // href 當字串接在內容目錄後面的實作會去找 `EPUB/../js/reader.js`，找不到，
-    // 然後把這本好書判成「OPF 指向不存在的檔案」（#8 的 comment）。
+    // It resolves to the **package root**, not below the content directory — that is this
+    // fixture's point. An implementation concatenating the href onto the content directory
+    // as a string looks for `EPUB/../js/reader.js`, fails to find it, and judges this good
+    // book to be "an OPF pointing at a file that does not exist" (a comment on #8).
     expect(script?.archivePath).toBe("js/reader.js");
     expect(book.has(script!.archivePath)).toBe(true);
     expect(book.entryPaths).not.toContain("EPUB/../js/reader.js");
   });
 
-  test("manifest-href-parent-prefix 是好書：解析後仍落在封裝內", () => {
+  test("manifest-href-parent-prefix is a good book: everything still resolves inside the package", () => {
     const book = open("manifest-href-parent-prefix");
 
     for (const item of book.manifest) {
@@ -213,10 +224,11 @@ describe("manifest href 裡的形狀", () => {
     }
   });
 
-  test("走出封裝根的 href 被擋下來，不靜默修正", () => {
-    // 「`../` 是合規的」與「`../` 一律放行」是兩件事：多一層 `..` 就跳出封裝，
-    // 那才是真的不合規。ADR-0007 要求不合法的組合在產生器裡丟錯——靜默收斂成
-    // 封裝根的話，這種 spec 會產出一本看起來正常的書。
+  test("an href escaping the package root is blocked rather than silently corrected", () => {
+    // "`../` is conforming" and "`../` always passes" are two different things: one more
+    // `..` steps outside the package, and that really is non-conforming. ADR-0007 requires
+    // illegal combinations to throw inside the generator — silently clamping to the
+    // package root would let this spec produce a book that looks perfectly normal.
     expect(() =>
       buildEpub({
         title: "frond fixture",
@@ -239,15 +251,16 @@ describe("manifest href 裡的形狀", () => {
 });
 
 /**
- * 巢狀 TOC——兩種載體各一份，同一棵樹。
+ * A nested TOC — one per vehicle, the same tree.
  *
- * 形狀照樣本裡那本 EPUB 2（Sigil → calibre）縮小：深度 2、不是每個頂層都有子
- * 項目、`content src` 帶 fragment 與不帶的在同一份文件裡混用。
+ * The shape is scaled down from the EPUB 2 in the sample (Sigil → calibre): depth 2, not
+ * every top-level entry having children, and `content src` values with and without
+ * fragments mixed in one document.
  */
-describe("巢狀的 TOC", () => {
+describe("a nested TOC", () => {
   const NESTED = ["nested-toc", "nested-toc-epub2"] as const;
 
-  test.for(NESTED)("%s 的 TOC 有兩層", (name: AilmentName) => {
+  test.for(NESTED)("%s's TOC has two levels", (name: AilmentName) => {
     const book = open(name);
 
     expect(book.tocTree.length).toBe(3);
@@ -257,75 +270,81 @@ describe("巢狀的 TOC", () => {
   });
 
   test.for(NESTED)(
-    "%s 的同一份導覽文件裡混用帶 fragment 與不帶的 href",
+    "%s mixes hrefs with and without fragments in one navigation document",
     (name: AilmentName) => {
       const book = open(name);
       const children = book.tocTree.flatMap((node) => node.children);
 
-      // 頂層都不帶、第二層都帶——樣本那本書「同一份 NCX 裡兩種 content src
-      // 混用」的形狀。混用是**整份文件**的性質，不必靠某一層自己再混一次。
+      // The top level has none and the second level all have one — the shape of that
+      // book's "two kinds of content src mixed in one NCX". The mixing is a property of
+      // **the whole document**; no single level has to mix again within itself.
       expect(book.tocTree.every((node) => !node.href.includes("#"))).toBe(true);
       expect(children.length).toBe(4);
       expect(children.every((child) => child.href.includes("#"))).toBe(true);
     },
   );
 
-  test.for(NESTED)("%s 的每一項 TOC 都指向不同的位置", (name: AilmentName) => {
+  test.for(NESTED)("every TOC entry in %s points somewhere different", (name: AilmentName) => {
     const book = open(name);
     const hrefs = book.toc.map((entry) => entry.href);
 
-    // 子項目若省略 fragment，它的 href 會與父項目一字不差——而「父子同一個
-    // 目標」是票沒有要求的額外性質。會去重的實作把那一項吃掉之後，這份
-    // fixture 就靜默地少了一個第二層項目。
+    // A child omitting its fragment would have an href identical to its parent's — and
+    // "parent and child share one target" is an extra property the ticket never asked for.
+    // Once a deduplicating implementation swallows that entry, this fixture silently loses
+    // a second-level item.
     expect(new Set(hrefs).size).toBe(hrefs.length);
   });
 
-  test.for(NESTED)("%s 帶 fragment 的第二層指得到真的錨點", (name: AilmentName) => {
+  test.for(NESTED)("%s's fragment-carrying second level points at real anchors", (name: AilmentName) => {
     const book = open(name);
     const withFragment = book.toc.filter((entry) => entry.href.includes("#"));
 
     expect(withFragment.length).toBeGreaterThan(0);
     for (const entry of withFragment) {
       const fragment = entry.href.slice(entry.href.indexOf("#") + 1);
-      // 指不到的話這份 fixture 除了「TOC 有兩層」之外還多帶一個病症，而
-      // single-ailment 那一組看不出來——它問的是症狀有沒有溢出到別的檔案。
+      // Pointing nowhere would give this fixture a second ailment beyond "the TOC has two
+      // levels", and the single-ailment group cannot see that — it asks whether a symptom
+      // has spilled into other files.
       expect(book.text(entry.archivePath), entry.href).toContain(
         `id="${fragment}"`,
       );
     }
   });
 
-  test("nested-toc：子清單是 <ol> 套在 <li> 裡面", () => {
+  test("nested-toc: the sub-list is an <ol> nested inside the <li>", () => {
     const book = open("nested-toc");
     const navigation = book.text(book.navigationPath);
 
     expect(book.navigationVehicle).toBe("nav");
-    // 子清單放成 <li> 的兄弟時 XHTML 一樣良構、瀏覽器一樣畫得出來，但那棵樹是
-    // 平的。位置寫錯正是這個載體最典型的錯法。
+    // A sub-list placed as a sibling of the <li> is equally well-formed XHTML and browsers
+    // draw it just the same, but that tree is flat. Getting the position wrong is this
+    // vehicle's most typical mistake.
     expect(navigation).toMatch(/<li><a [^>]*>[^<]*<\/a>\n\s*<ol>/);
   });
 
-  test("nested-toc-epub2：子項目是 navPoint 套 navPoint，playOrder 跨層連續", () => {
+  test("nested-toc-epub2: children are navPoints inside navPoints, with playOrder continuous across levels", () => {
     const book = open("nested-toc-epub2");
     const ncx = book.text(book.navigationPath);
 
     expect(book.navigationVehicle).toBe("ncx");
     expect(ncx).toMatch(/<content src="[^"]*"\/>\n\s*<navPoint /);
 
-    // playOrder 是整棵樹拉平後的序號，不是每一層各自從 1 重數——樣本裡那本
-    // 平的 NCX 是 1..48 連續，巢狀那本同樣連續。
+    // playOrder numbers the whole tree flattened, rather than restarting from 1 at each
+    // level — the flat NCX in the sample runs 1..48 continuously, and the nested one is
+    // continuous too.
     const order = [...ncx.matchAll(/playOrder="(\d+)"/g)].map((match) =>
       Number(match[1]),
     );
     expect(order).toEqual([1, 2, 3, 4, 5, 6, 7]);
 
-    // NCX 自己宣告的深度要與實際的層數一致。寫死成 1 的話，只讀這個欄位決定
-    // 要不要往下走的實作會看不到第二層。
+    // The depth the NCX declares has to match the actual number of levels. Pinned at 1, an
+    // implementation deciding whether to descend from this field alone never sees the
+    // second level.
     expect(ncx).toContain('<meta name="dtb:depth" content="2"/>');
   });
 
-  test("平的 TOC 仍然宣告 dtb:depth=1", () => {
-    // 深度是算出來的，不是跟著巢狀那份一起改掉的常數。
+  test("a flat TOC still declares dtb:depth=1", () => {
+    // The depth is computed, not a constant edited along with the nested fixture.
     expect(open("healthy-epub2").text("EPUB/toc.ncx")).toContain(
       '<meta name="dtb:depth" content="1"/>',
     );
@@ -333,9 +352,10 @@ describe("巢狀的 TOC", () => {
 });
 
 /**
- * 樹有幾層。`epub.ts` 的 `tocDepth` 是同一個 reduce，**刻意各寫一次**：拿被測
- * 程式自己算出來的深度去驗它寫進 `dtb:depth` 的深度，兩邊會一起錯而測試照樣
- * 全綠。
+ * How many levels the tree has. `epub.ts`'s `tocDepth` is the same reduce, **written out
+ * twice deliberately**: checking the depth the code under test writes into `dtb:depth`
+ * against the depth that same code computed would have both sides wrong together and the
+ * tests still green.
  */
 function depthOf(nodes: readonly TocNode[]): number {
   return nodes.reduce(
@@ -344,25 +364,26 @@ function depthOf(nodes: readonly TocNode[]): number {
   );
 }
 
-describe("readingOrder 的方向", () => {
-  test("ppd-rtl-vertical：直排且 page-progression-direction=rtl", () => {
+describe("the readingOrder's direction", () => {
+  test("ppd-rtl-vertical: vertical, with page-progression-direction=rtl", () => {
     const book = open("ppd-rtl-vertical");
 
     expect(book.pageProgressionDirection).toBe("rtl");
     expect(book.stylesheet).toMatch(/html\s*\{[^}]*writing-mode:\s*vertical-rl/);
   });
 
-  test("對照組不宣告 page-progression-direction", () => {
-    // 「沒宣告」與「宣告成 ltr」在規格上同義但在位元組上不同。對照組取前者，
-    // 才能讓 ppd-rtl-vertical 與它之間只差那一個屬性。
+  test("the control declares no page-progression-direction", () => {
+    // "Undeclared" and "declared ltr" are synonymous in the spec but different in the
+    // bytes. The control takes the former, so that ppd-rtl-vertical differs from it in
+    // that one attribute alone.
     expect(open("vertical-japanese").pageProgressionDirection).toBeUndefined();
   });
 });
 
 const PNG_SIGNATURE = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
-describe("readingOrder 形狀上的病症", () => {
-  test("huge-single-section：單一巨大的 Section", () => {
+describe("ailments in the readingOrder's shape", () => {
+  test("huge-single-section: one enormous Section", () => {
     const book = open("huge-single-section");
 
     expect(book.readingOrder.length).toBe(1);
@@ -371,7 +392,7 @@ describe("readingOrder 形狀上的病症", () => {
     );
   });
 
-  test("empty-and-image-only-sections：一個空的、一個只有圖片的", () => {
+  test("empty-and-image-only-sections: one empty, one holding only an image", () => {
     const book = open("empty-and-image-only-sections");
     const bodies = book.readingOrder.map((section) =>
       bodyOf(book.text(section.archivePath)),
@@ -385,7 +406,7 @@ describe("readingOrder 形狀上的病症", () => {
     expect(imageOnly.length).toBe(1);
   });
 
-  test("empty-and-image-only-sections：圖片是真的 PNG 且被 manifest 宣告", () => {
+  test("empty-and-image-only-sections: the image is a real PNG and is declared in the manifest", () => {
     const book = open("empty-and-image-only-sections");
     const image = book.manifest.find((item) => item.mediaType === "image/png");
 
@@ -393,47 +414,50 @@ describe("readingOrder 形狀上的病症", () => {
     const bytes = book.bytes(image!.archivePath);
     expect(bytes.subarray(0, 8)).toEqual(PNG_SIGNATURE);
 
-    // 用 pngjs 真的解一次。只比對簽章的話，一份 IDAT 壞掉、CRC 算錯或 adler32
-    // 寫反的 PNG 照樣會過——而那種圖在瀏覽器裡是一個破圖 icon，不是圖版。
+    // Really decode it with pngjs. Matching only the signature would pass a PNG with a
+    // broken IDAT, a miscomputed CRC or a reversed adler32 — and that image is a broken
+    // image icon in the browser, not a plate.
     const decoded = PNG.sync.read(Buffer.from(bytes));
     expect(decoded.width).toBe(96);
     expect(decoded.height).toBe(128);
   });
 });
 
-describe("比一頁還高的圖版", () => {
-  test("plate-taller-than-page：圖包在一層沒有宣告高度的 div 裡", () => {
+describe("a plate taller than a page", () => {
+  test("plate-taller-than-page: the image is wrapped in a div that declares no height", () => {
     const book = open("plate-taller-than-page");
     const body = bodyOf(book.text(book.readingOrder.at(-1)!.archivePath));
 
     expect(body).toContain('<div class="plate"><img src="images/tall-plate.png"');
 
-    // 包裝那一層**不能有高度宣告**——這份 fixture 的機制全在「包含塊的高度不確
-    // 定」上，一旦那層有了確定的高度，`max-block-size: 100%` 就解析得出來，
-    // fixture 也就不再帶病。
+    // The wrapper **must declare no height** — this fixture's whole mechanism rests on
+    // "the containing block's height is indefinite", and the moment that layer has a
+    // definite height, `max-block-size: 100%` resolves and the fixture is no longer ill.
     expect(book.stylesheet).toMatch(/\.plate\s*\{[^}]*\}/);
     expect(/\.plate\s*\{([^}]*)\}/.exec(book.stylesheet)?.[1]).not.toMatch(
       /height|block-size/,
     );
   });
 
-  test("plate-taller-than-page：圖真的比一頁還高", () => {
+  test("plate-taller-than-page: the image really is taller than a page", () => {
     const book = open("plate-taller-than-page");
     const image = book.manifest.find((item) => item.mediaType === "image/png");
     const decoded = PNG.sync.read(Buffer.from(book.bytes(image!.archivePath)));
 
-    // 800x600 的 viewport 扣掉讀者邊界之後，一欄在區塊軸上大約 552px。圖必須
-    // 明顯超過它，否則這份 fixture 什麼都證明不了。
+    // In an 800x600 viewport, after the reader margins, a column is about 552px along the
+    // block axis. The image has to exceed that clearly, or this fixture proves nothing.
     expect(decoded.height).toBeGreaterThan(600);
-    // 窄長的比例：行內軸放得下、區塊軸放不下——書自己的 max-width 因此是無害的，
-    // 溢出只可能來自區塊軸那一側。
+    // A tall, narrow ratio: it fits along the inline axis and does not along the block
+    // axis — so the book's own max-width is harmless here, and any overflow can only come
+    // from the block axis side.
     expect(decoded.width).toBeLessThan(decoded.height / 5);
   });
 
-  test("plate-taller-than-page：書自己只管了行內軸", () => {
+  test("plate-taller-than-page: the book itself only constrains the inline axis", () => {
     const book = open("plate-taller-than-page");
 
-    // 這是實際的書的形狀：`max-width: 100%`（行內軸）有，區塊軸沒有上限。
+    // The shape of real books: `max-width: 100%` (the inline axis) is there, and the block
+    // axis has no bound.
     expect(book.stylesheet).toMatch(/\.plate img\s*\{[^}]*max-inline-size:\s*100%/);
     expect(/\.plate img\s*\{([^}]*)\}/.exec(book.stylesheet)?.[1]).not.toMatch(
       /max-block-size|max-height/,
@@ -441,39 +465,40 @@ describe("比一頁還高的圖版", () => {
   });
 });
 
-describe("內容文件裡藏起來的內容", () => {
-  test("hidden-trailing-notes：註腳在正文之後，而且是最後的東西", () => {
+describe("content hidden inside a content document", () => {
+  test("hidden-trailing-notes: the notes come after the body text, and are the last thing there", () => {
     const book = open("hidden-trailing-notes");
     const body = bodyOf(book.text(book.readingOrder.at(-1)!.archivePath));
 
-    // 位置就是這個病症的全部。註腳若不在最後，文件順序的最後一個文字節點就是
-    // 看得見的正文，而那本書是健康的。
+    // Position is the whole of this ailment. Were the notes not last, the final text node
+    // in document order would be visible body text — and that book is healthy.
     const firstNote = body.indexOf('<div class="note"');
     expect(firstNote).toBeGreaterThan(0);
     expect(
       body.slice(firstNote).replaceAll(/<div class="note"[\s\S]*?<\/div>/g, "").trim(),
-      "註腳之後不該還有任何東西——那會讓最後一個文字節點又變成看得見的。",
+      "Nothing should follow the notes — that would make the last text node visible again.",
     ).toBe("");
 
     expect(book.stylesheet).toMatch(/\.note\s*\{[^}]*display:\s*none/);
   });
 
-  test("hidden-trailing-notes：正文長得足以排出好幾頁", () => {
+  test("hidden-trailing-notes: the body text is long enough to lay out over several pages", () => {
     const book = open("hidden-trailing-notes");
     const body = bodyOf(book.text(book.readingOrder.at(-1)!.archivePath));
     const paragraphs = [...body.matchAll(/<p>/g)].length;
 
-    // 長度不是第二個病症，是**症狀成立的前提**：只有一頁的節，「頁數被壓成 1」
-    // 與正確答案是同一個數字，這份 fixture 就什麼也證明不了（ailments.ts）。
+    // The length is not a second ailment but **the precondition for the symptom**: in a
+    // one-page section, "the page count collapses to 1" is the same number as the right
+    // answer, and the fixture would prove nothing (ailments.ts).
     expect(paragraphs).toBeGreaterThan(40);
   });
 
-  test("hidden-trailing-notes：只動最後一節，前面幾節保持健康", () => {
+  test("hidden-trailing-notes: only the last section is touched; the earlier ones stay healthy", () => {
     const book = open("hidden-trailing-notes");
     const healthy = open("vertical-japanese");
 
-    // readingOrder 的長度不動——「readingOrder 只有一個 Section」是
-    // huge-single-section 那個病症，兩份在探針上必須分得開。
+    // The readingOrder's length does not change — "the readingOrder has only one Section"
+    // is huge-single-section's ailment, and the two must stay separable under a probe.
     expect(book.readingOrder.length).toBe(healthy.readingOrder.length);
     for (const [index, section] of book.readingOrder.slice(0, -1).entries()) {
       expect(book.text(section.archivePath)).toBe(

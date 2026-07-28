@@ -10,17 +10,19 @@ import {
 } from "./support/handmade.ts";
 
 /**
- * 封面圖——書櫃的縮圖來源。
+ * The cover image — where a bookshelf's thumbnails come from.
  *
- * 兩種宣告寫法都要走得通，而且**不按版本分派**（ADR-0010）：樣本裡有一本 EPUB 3
- * 的封面只有 `<meta name="cover">`，按版本分派的實作會讓那本書沒有封面。規則是
- * 先找 `properties="cover-image"`，找不到才找 `<meta name="cover">`。
+ * Both forms of declaration have to work, and **without dispatching on version**
+ * (ADR-0010): one EPUB 3 in the sample declares its cover only with
+ * `<meta name="cover">`, and a version-dispatching implementation would leave that book
+ * with no cover. The rule is to look for `properties="cover-image"` first, and only
+ * then for `<meta name="cover">`.
  */
 
 const PNG_SIGNATURE = Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);
 
-describe("兩條宣告的路", () => {
-  test("EPUB 3 的 properties=\"cover-image\"", async () => {
+describe("the two routes to a declaration", () => {
+  test("EPUB 3's properties=\"cover-image\"", async () => {
     const book = await EpubBook.open(await readFixture("cover-image-property.epub"));
 
     expect(book.cover?.foundBy).toBe("cover-image-property");
@@ -28,7 +30,7 @@ describe("兩條宣告的路", () => {
     expect(book.cover?.mediaType).toBe("image/png");
   });
 
-  test("EPUB 2 的 <meta name=\"cover\">", async () => {
+  test("EPUB 2's <meta name=\"cover\">", async () => {
     const book = await EpubBook.open(await readFixture("cover-meta-name-epub2.epub"));
 
     expect(book.cover?.foundBy).toBe("meta-name");
@@ -36,9 +38,10 @@ describe("兩條宣告的路", () => {
     expect(book.cover?.mediaType).toBe("image/png");
   });
 
-  test("EPUB 3 只用舊寫法宣告封面時也找得到", async () => {
-    // ADR-0010 的實證：樣本裡有一本 EPUB 3 的封面只有 <meta name="cover">。
-    // 這個形狀目前沒有 committed fixture，所以在這裡手工組一本。
+  test("an EPUB 3 declaring its cover only the old way is still found", async () => {
+    // ADR-0010's evidence: one EPUB 3 in the sample has only <meta name="cover"> for its
+    // cover. There is no committed fixture for this shape yet, so one is assembled by
+    // hand here.
     const book = await EpubBook.open(
       handmadeBook({
         packageDocument: packageDocument({
@@ -62,11 +65,12 @@ describe("兩條宣告的路", () => {
   });
 });
 
-describe("找到一個宣告不等於拿得到那張圖", () => {
-  test("properties 指到遠端時退回 <meta name=\"cover\">", async () => {
-    // ADR-0010 的規則是「先找 A，找不到就找 B」。把「找到一個指向遠端的宣告」
-    // 當成「找到封面」，會讓一本兩種寫法都寫了的書沒有封面——而它的舊寫法指的
-    // 正是封裝內那張圖。
+describe("finding a declaration is not the same as getting the image", () => {
+  test("falls back to <meta name=\"cover\"> when properties points at a remote resource", async () => {
+    // ADR-0010's rule is "look for A, and if that fails, look for B". Treating "found a
+    // declaration pointing at a remote resource" as "found the cover" would leave a book
+    // that wrote both forms with no cover — even though its old form points at exactly
+    // the image inside the package.
     const book = await EpubBook.open(
       handmadeBook({
         packageDocument: packageDocument({
@@ -90,13 +94,14 @@ describe("找到一個宣告不等於拿得到那張圖", () => {
   });
 });
 
-describe("拿得到封面的位元組", () => {
+describe("the cover's bytes are reachable", () => {
   test.for(["cover-image-property.epub", "cover-meta-name-epub2.epub"])(
-    "%s 的封面是真的 PNG",
+    "%s's cover is a real PNG",
     async (fileName: string) => {
-      // 書櫃要的是圖本身，不是一個路徑——路徑對消費端沒有用，它手上只有這本書
-      // 的位元組。尺寸來自 fixture 產生器的封面（100×160 的直立長方形），拿它
-      // 當期望值可以擋掉「抓到內文圖版」那種錯（圖版是 96×128）。
+      // A bookshelf wants the image itself, not a path — a path is useless to the
+      // consumer, which only has this book's bytes. The dimensions come from the fixture
+      // generator's cover (a 100×160 upright rectangle), and using them as the expected
+      // value catches the "grabbed a body plate instead" mistake (plates are 96×128).
       const book = await EpubBook.open(await readFixture(fileName));
       const decoded = PNG.sync.read(Buffer.from(book.cover!.bytes));
 
@@ -106,16 +111,18 @@ describe("拿得到封面的位元組", () => {
   );
 });
 
-describe("沒有封面不是錯誤", () => {
-  test("兩種寫法都沒有的書回報「沒有封面」", async () => {
+describe("having no cover is not an error", () => {
+  test("a book with neither form reports \"no cover\"", async () => {
     const book = await EpubBook.open(await readFixture("vertical-japanese.epub"));
 
     expect(book.cover).toBeUndefined();
   });
 
-  test("<meta name=\"cover\"> 指到不存在的 id 也只是沒有封面", async () => {
-    // 書的封裝宣告與內容不一致是常態（ADR-0010），而讀者要的是書打得開。
-    // 一本指壞了封面的書仍然讀得完，所以這裡回報「沒有封面」而不是丟錯。
+  test("a <meta name=\"cover\"> pointing at a missing id is also just no cover", async () => {
+    // A book whose packaging declaration and contents disagree is the norm (ADR-0010),
+    // and what the reader wants is for the book to open. A book that mis-points its
+    // cover is still readable end to end, so this reports "no cover" rather than
+    // throwing.
     const book = await EpubBook.open(
       handmadeBook({
         packageDocument: packageDocument({

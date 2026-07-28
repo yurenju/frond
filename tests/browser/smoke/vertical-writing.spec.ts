@@ -4,37 +4,40 @@ import { screenshotGlyph } from "../support/glyph.js";
 import { analyseInk, type InkAnalysis } from "../support/ink.js";
 
 /**
- * 這個環境到底排不排得出直排。
+ * Whether this environment can lay out vertically at all.
  *
- * 冒煙測試的用意不是測 frond——frond 還沒有任何程式碼——而是證明「三家瀏覽器
- * 都能在這個容器裡正確排出直排」這個前提成立。前提不成立的話，後面所有的
- * 不變量與跨瀏覽器差分都建立在流沙上。
+ * A smoke test's purpose is not to test frond — frond had no code yet — but to prove the
+ * premise that "all three browsers can lay out vertically, correctly, inside this
+ * container". Without that premise, every invariant and cross-browser diff that follows is
+ * built on sand.
  */
 
-/** 日文的句點。在直排下應由 vert / vrt2 換成位於右上的字符。 */
+/** The Japanese full stop. When vertical, vert / vrt2 should swap it for the glyph at the top right. */
 const IDEOGRAPHIC_FULL_STOP = "。";
 
 /**
- * 冒煙測試一律指名字面，不用 generic family。
+ * Smoke tests always name a face, never a generic family.
  *
- * 因為三家瀏覽器對 generic family 的 CJK 解析並不一致（見 #4），用 serif 的話
- * 這裡量到的會是「瀏覽器挑了哪套字型」而不是「這套字型的直排字符對不對」。
- * 指名之後變因只剩一個。
+ * The three browsers do not resolve generic families to CJK faces consistently (see #4),
+ * so with serif what gets measured here would be "which font the browser picked" rather
+ * than "whether this font's vertical glyphs are right". Naming the face leaves one
+ * variable.
  *
- * 這是測試環境的選擇，不是 frond 的規則——frond 仍然尊重書自己的宣告
- * （ADR-0003）。
+ * This is a choice about the test environment, not a rule of frond's — frond still
+ * respects the book's own declarations (ADR-0003).
  */
 const JAPANESE_FACE = '"Noto Serif CJK JP"';
 
-test.describe("直排渲染", () => {
-  test("行進軸是縱向：後續字元排在前一個字元下方，而不是右方", async ({
+test.describe("vertical rendering", () => {
+  test("the advance axis is vertical: the next character sits below the previous one, not to its right", async ({
     page,
   }) => {
     await page.setContent(
       documentWith(`
         <style>
-          /* 字型名帶引號，所以樣式走 <style> 而不是 style="..." 屬性——
-             內層雙引號會把 HTML 屬性截斷，整條宣告連同尺寸一起消失。 */
+          /* The font name is quoted, so the styles go through <style> rather than a
+             style="..." attribute — the inner double quote would truncate the HTML attribute,
+             and the whole declaration would disappear along with the dimensions. */
           #text {
             writing-mode: vertical-rl;
             font-family: ${JAPANESE_FACE};
@@ -51,7 +54,7 @@ test.describe("直排渲染", () => {
 
     const rects = await page.evaluate(() => {
       const textNode = document.getElementById("text")?.firstChild;
-      if (!textNode) throw new Error("找不到測試用的文字節點");
+      if (!textNode) throw new Error("the test's text node was not found");
 
       const rectOf = (index: number) => {
         const range = document.createRange();
@@ -64,44 +67,49 @@ test.describe("直排渲染", () => {
       return { first: rectOf(0), second: rectOf(1) };
     });
 
-    // 刻意用幾何而不是 computed style。computed style 會老實回報
-    // vertical-rl，但畫出來的像素仍可能是橫的——那正是這條斷言要抓的。
+    // Geometry rather than computed style, deliberately. The computed style reports
+    // vertical-rl honestly while the drawn pixels may still be horizontal — which is exactly
+    // what this assertion is here to catch.
     expect(rects.second.top).toBeGreaterThanOrEqual(
       rects.first.top + rects.first.height * 0.5,
     );
 
-    // 兩個字在同一行上，水平位置一致。
+    // The two characters are on one line, so their horizontal positions match.
     expect(Math.abs(rects.second.left - rects.first.left)).toBeLessThan(1);
   });
 
-  test("標點取到直排字符：句點在直排下位於右上，橫排下位於左下", async ({
+  test("punctuation picks up its vertical glyph: the full stop is at the top right when vertical and the bottom left when horizontal", async ({
     page,
   }) => {
     const horizontal = await inkOfFullStop(page, "horizontal-tb");
     const vertical = await inkOfFullStop(page, "vertical-rl");
 
-    // 橫排：句點在字面方框的左下。
+    // Horizontal: the full stop sits at the em box's bottom left.
     expect(horizontal.x).toBeLessThan(0.5);
     expect(horizontal.y).toBeGreaterThan(0.5);
 
-    // 直排：vert / vrt2 把句點搬到右上。
+    // Vertical: vert / vrt2 moves the full stop to the top right.
     //
-    // 這條斷言是整個測試環境最重要的一條。它擋掉的是最惡劣的失敗模式：裝了
-    // 一套沒有直排字符的 CJK 字型，於是 computed style 回報 vertical-rl、
-    // 內容也確實被切成 N 頁且無重複遺失、幾何不變量全數通過，但畫面上的直排
-    // 標點是錯的。那種缺陷原本只有抽樣的視覺判讀那層抓得到——等於漏網。
+    // This is the most important assertion in the whole test environment. What it blocks is
+    // the nastiest failure mode: a CJK font without vertical glyphs is installed, so the
+    // computed style reports vertical-rl, the content really is split into N pages with
+    // nothing lost or duplicated, every geometric invariant passes, and the vertical
+    // punctuation on screen is wrong. That defect would otherwise only be caught by sampled
+    // visual review — which is to say, it would slip through.
     //
-    // 沒有直排字符時，句點會留在左下，下面兩條就會紅。
+    // Without vertical glyphs the full stop stays at the bottom left and the two assertions
+    // below go red.
     expect(vertical.x).toBeGreaterThan(0.5);
     expect(vertical.y).toBeLessThan(0.5);
   });
 });
 
 /**
- * 句點的墨水重心，正規化到字面方框內的 [0, 1]。
+ * The full stop's ink centroid, normalized to [0, 1] within the em box.
  *
- * 沒有墨水時直接丟——那代表字根本沒渲染出來，而不是「重心在某處」。讓它成為
- * 錯誤而不是一個假的座標，可以避免下游的象限斷言把空白誤判成通過。
+ * With no ink it throws outright — that means the character never rendered at all, not
+ * that "the centroid is somewhere". Making it an error rather than a fake coordinate stops
+ * the downstream quadrant assertions from mistaking blankness for a pass.
  */
 async function inkOfFullStop(
   page: Page,
@@ -113,23 +121,26 @@ async function inkOfFullStop(
       lang: "ja",
       fontFamily: JAPANESE_FACE,
       writingMode,
-      // 顯式要求直排字符。Chromium 與 Firefox 在 writing-mode: vertical-rl
-      // 下會自動套用 vert，WebKit 不會——實測它把句點留在左下，強制之後才
-      // 移到右上（見 docs/browser-quirks.md）。
+      // Request the vertical glyphs explicitly. Chromium and Firefox apply vert
+      // automatically under writing-mode: vertical-rl and WebKit does not — measured, it
+      // leaves the full stop at the bottom left and only moves it to the top right once
+      // forced (see docs/browser-quirks.md).
       //
-      // 這裡強制並不會讓斷言失去意義：問的是「這套字型有沒有直排字符、畫得
-      // 出來嗎」，那是環境的性質。裝了一套沒有 vert 的字型時，強制也不會有
-      // 任何效果，斷言照樣紅。
+      // Forcing it does not rob the assertion of meaning: the question is "does this font
+      // have vertical glyphs, and can it draw them", which is a property of the environment.
+      // With a font lacking vert installed, forcing has no effect at all and the assertions
+      // still go red.
       //
-      // 至於「瀏覽器會不會自動套用」則是瀏覽器的行為而非環境的性質，屬於
-      // Renderer 要處理的 quirk，登記在 browser-quirks.md。
+      // Whether the browser applies them automatically is the browser's behaviour rather
+      // than a property of the environment — a quirk for Renderer to handle, registered in
+      // browser-quirks.md.
       fontFeatureSettings: writingMode === "vertical-rl" ? '"vert" 1' : "normal",
     }),
   );
 
   if (!ink.centroid) {
     throw new Error(
-      `${writingMode} 下的字面方框沒有任何墨水——句點沒有渲染出來`,
+      `the em box has no ink at all under ${writingMode} — the full stop never rendered`,
     );
   }
 

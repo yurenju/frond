@@ -5,29 +5,32 @@ import { type Page, expect, test } from "@playwright/test";
 import { buildDemoBook } from "../../../packages/frond/src/test-fixtures/demo-book.ts";
 
 /**
- * 展示站的 React 那一頁（`site/react/`）真的跑得起來。
+ * The demo site's React page (`site/react/`) really does run.
  *
- * ## 它蓋的東西與 `tests/browser/react/` 不同
+ * ## What it covers differs from `tests/browser/react/`
  *
- * 那一批對著**原始碼**跑（harness 用 esbuild 的 alias 把套件名指回各自的 `src/`），
- * 所以它們抓不到只在出貨產物上成立的錯：`exports` 的路徑打錯、`files` 漏了東西、
- * emit 出來的 `.js` 少一個副檔名。那幾種在消費端是致命的，而在這個 repo 裡怎麼跑
- * 都是綠的。
+ * Those run against **the source** (the harness uses esbuild aliases to point the package
+ * names back at their own `src/`), so they cannot catch the errors that only exist in the
+ * shipped artifact: a mistyped `exports` path, something missing from `files`, an emitted
+ * `.js` short an extension. Those are fatal for a consumer and green no matter how they
+ * are run inside this repo.
  *
- * 這一支相反：它載入的是 `npm run site` 打包出來的 `bundle.js`，而那一次打包走的
- * 是 node_modules 解析，也就是**消費端 `npm install` 之後拿到的那些檔案**
- * （`scripts/bundle-site-react.ts`）。所以它是 frond-react 版的「消費端那條路」。
+ * This one is the reverse: it loads the `bundle.js` that `npm run site` produces, and that
+ * bundle goes through node_modules resolution — that is, **the files a consumer gets after
+ * `npm install`** (`scripts/bundle-site-react.ts`). So it is frond-react's version of "the
+ * consumer's route".
  *
- * ## 它也守著頁面上那兩個開關
+ * ## It also guards the two switches on that page
  *
- * 「預設樣式可以完全不用」與「政策要顯式打開」是 frond-react 最容易被當成客套話
- * 的兩個主張，而那一頁把它們做成了開關。開關壞掉的話，那一頁會變成在展示兩句沒有
- * 兌現的話——所以它們在這裡有斷言。
+ * "The default styles can be skipped entirely" and "policy has to be turned on explicitly"
+ * are frond-react's two claims most easily taken as platitudes, and that page turns them
+ * into switches. With the switches broken, the page would be demonstrating two unkept
+ * promises — so they are asserted here.
  *
- * ## 這支測試依賴 `site/react/bundle.js` 存在
+ * ## This test depends on `site/react/bundle.js` existing
  *
- * 也就是要 `npm run site` 跑過。容器裡由 `Dockerfile` 負責，所以
- * `npm run test:container` 直接就有。
+ * That is, it needs `npm run site` to have run. In the container the `Dockerfile` handles
+ * it, so `npm run test:container` simply has it.
  */
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -43,7 +46,7 @@ const CONTENT_TYPES: Record<string, string> = {
 
 test.use({ viewport: { width: 1180, height: 780 } });
 
-/** 把 `site/` 供給這個分頁。路由攔截，理由見 `site/demo.spec.ts` 的檔頭。 */
+/** Serves `site/` to this tab. Route interception; the reasoning is in `site/demo.spec.ts`'s header comment. */
 async function serveSite(page: Page): Promise<void> {
   await page.route(`${ORIGIN}/**`, async (route) => {
     const url = new URL(route.request().url());
@@ -69,7 +72,7 @@ const DEMO_EPUB = {
   },
 };
 
-/** 開書並等到第一頁排好。 */
+/** Opens the book and waits for the first page to lay out. */
 async function openDemoBook(page: Page): Promise<void> {
   await serveSite(page);
   await page.goto(`${ORIGIN}/react/`);
@@ -77,7 +80,7 @@ async function openDemoBook(page: Page): Promise<void> {
   await expect(page.getByTestId("viewport")).toHaveAttribute("data-state", "ready");
 }
 
-test("React 展示頁開得起一本繁中直排書", async ({ page }) => {
+test("the React demo page opens a vertical Traditional Chinese book", async ({ page }) => {
   const failures: string[] = [];
   page.on("pageerror", (error) => failures.push(String(error)));
   page.on("console", (message) => {
@@ -87,7 +90,7 @@ test("React 展示頁開得起一本繁中直排書", async ({ page }) => {
   await serveSite(page);
   await page.goto(`${ORIGIN}/react/`);
 
-  // 開書之前：拖曳區在，reader 不在。
+  // Before opening a book: the dropzone is there and the reader is not.
   await expect(page.getByTestId("dropzone")).toBeVisible();
   await expect(page.getByTestId("viewport")).toHaveCount(0);
 
@@ -99,18 +102,18 @@ test("React 展示頁開得起一本繁中直排書", async ({ page }) => {
   await expect(page.getByTestId("status-writing-mode")).toHaveText("Vertical");
   await expect(page.getByTestId("status-cfi")).toContainText("epubcfi(");
 
-  // 整書索引建好之後 fraction 才有值（user story 25）。
+  // fraction only has a value once the whole-book index is built (user story 25).
   await expect(page.getByTestId("status-fraction")).toContainText("Book progress");
   await expect(page.getByTestId("progress")).toHaveAttribute("data-state", "loaded");
 
-  // StrictMode 開著（`app.tsx` 最後那一段），所以這一條同時在守「effect 跑兩次不
-  // 會留下第二個 iframe」——而且是對著**出貨產物**守的。
+  // StrictMode is on (the last part of `app.tsx`), so this also guards "an effect running
+  // twice does not leave a second iframe" — and guards it against **the shipped artifact**.
   await expect(page.getByTestId("viewport").locator("iframe")).toHaveCount(1);
 
   expect(failures).toEqual([]);
 });
 
-test("翻頁按鈕走得動，開頭時往回是 disabled", async ({ page }) => {
+test("the paging buttons work, and going back is disabled at the start", async ({ page }) => {
   await openDemoBook(page);
 
   const previous = page.getByTestId("previous");
@@ -126,7 +129,7 @@ test("翻頁按鈕走得動，開頭時往回是 disabled", async ({ page }) => 
   await expect(page.getByTestId("status-cfi")).toHaveText(first ?? "");
 });
 
-test("字級是受控的 prop：拉了就重排，不會把讀者丟回第一頁", async ({ page }) => {
+test("the font size is a controlled prop: dragging it relayouts without throwing the reader back to page one", async ({ page }) => {
   await openDemoBook(page);
 
   const viewport = page.getByTestId("viewport");
@@ -137,68 +140,76 @@ test("字級是受控的 prop：拉了就重排，不會把讀者丟回第一頁
 
   await page.getByTestId("font-size").fill("34");
 
-  // 排版真的換過了。
+  // The layout really did change.
   await expect(page.getByTestId("status-cfi")).toContainText("epubcfi(");
 
-  // 而讀者**還在原來的地方**——換設定走的是 `applySettings()`，不是重新
-  // `attach()`。重掛的話讀者會被丟回開頭，而那在拖滑桿時是每一格都發生一次。
+  // And the reader is **still where they were** — changing settings goes through
+  // `applySettings()`, not another `attach()`. A remount would throw the reader back to the
+  // start, and that happens at every notch while dragging a slider.
   //
-  // 斷言用 `data-at-start` 而不是頁碼：頁碼會隨字級整批改變，那正是這個設定在做
-  // 的事（CONTEXT.md：頁是版面的產物）。
+  // The assertion is on `data-at-start` rather than a page number: page numbers change
+  // wholesale with the font size, which is exactly what this setting does (CONTEXT.md: a
+  // page is a product of the layout).
   await expect(viewport).not.toHaveAttribute("data-at-start", "");
   await expect(viewport.locator("iframe")).toHaveCount(1);
 });
 
-test("預設樣式關得掉，關掉之後零件回到瀏覽器原生的樣子", async ({ page }) => {
+test("the default styles can be turned off, and the parts return to the browser's native look", async ({ page }) => {
   await openDemoBook(page);
 
   const next = page.getByTestId("next");
   const borderOf = () =>
     next.evaluate((element) => getComputedStyle(element).borderTopStyle);
 
-  // 開著：預設樣式把原生按鈕的邊框清掉了。
+  // On: the default styles cleared the native button's border.
   await expect(page.getByTestId("toggle-styles")).toBeChecked();
   expect(await borderOf()).toBe("none");
 
   await page.getByTestId("toggle-styles").uncheck();
 
-  // 關掉：`<link disabled>`，於是那份樣式表整份不生效，邊框回來了。
+  // Off: `<link disabled>`, so the whole stylesheet stops taking effect and the border
+  // returns.
   //
-  // 這一條看起來很小，但它守的是「預設樣式完全可選」這句話——那句話一旦不成立，
-  // 頁面上那個開關就是在展示一個沒有兌現的主張。
+  // This looks small, but what it guards is the sentence "the default styles are entirely
+  // optional" — and the moment that stops holding, the switch on the page is demonstrating
+  // an unkept promise.
   expect(await borderOf()).not.toBe("none");
 
-  // 書還在，而且沒有被重掛。樣式與 Renderer 是兩件無關的事。
+  // The book is still there and was not remounted. The styles and the Renderer are unrelated
+  // things.
   await expect(page.getByTestId("viewport")).toHaveAttribute("data-state", "ready");
   await expect(page.getByTestId("viewport").locator("iframe")).toHaveCount(1);
 });
 
 /**
- * 這本 demo 書是直排，所以「往前」的橫向箭頭是 **ArrowLeft** 而不是 ArrowRight。
+ * This demo book is vertical, so the horizontal arrow for "forward" is **ArrowLeft**
+ * rather than ArrowRight.
  *
- * `useKeyboardPaging()` 沒有拿到頁面推進方向時會從書寫方向推：`vertical-rl` 一律
- * 當成 `rtl`（`paging.ts` 的檔頭）。這條測試因此順便釘住了那個推論——寫成
- * ArrowRight 的話它會靜靜地什麼都不做，而那正是這個推論壞掉時的症狀。
+ * When `useKeyboardPaging()` is not given a page progression direction it infers one from
+ * the writing mode: `vertical-rl` is always taken as `rtl` (`paging.ts`'s header comment).
+ * So this test also pins that inference — written as ArrowRight it would quietly do
+ * nothing, which is exactly the symptom of that inference breaking.
  */
 const FORWARD_KEY = "ArrowLeft";
 
 /**
- * 位置一律看 CFI，不看頁碼。
+ * Position is always read from the CFI, never from a page number.
  *
- * **頁是版面的產物，不是書的性質**（CONTEXT.md）——同一節在 780 高的視窗裡是兩頁，
- * 在 900 高的裡可能是一頁。斷言寫成「翻到第 3 頁」的測試因此會在改一行 CSS 之後
- * 紅掉，而紅的原因與它要守的東西無關。第一版就是這樣寫的，然後在調整書框高度之後
- * 全紅。
+ * **A page is a product of the layout, not a property of the book** (CONTEXT.md) — one
+ * section is two pages in a 780-tall window and may be one in a 900-tall one. A test
+ * asserting "turned to page 3" therefore goes red after a one-line CSS change, for reasons
+ * unrelated to what it guards. The first version was written that way, and went entirely
+ * red after the viewer frame's height was adjusted.
  */
 async function cfiOf(page: Page): Promise<string> {
   return (await page.getByTestId("status-cfi").textContent()) ?? "";
 }
 
-test("政策關得掉：關掉之後方向鍵不翻頁，按鈕還是能翻", async ({ page }) => {
+test("policy can be turned off: with it off the arrow keys do not turn pages and the buttons still do", async ({ page }) => {
   await openDemoBook(page);
   const start = await cfiOf(page);
 
-  // 開著：方向鍵翻得動。
+  // On: the arrow keys turn pages.
   await page.keyboard.press(FORWARD_KEY);
   await expect(page.getByTestId("status-cfi")).not.toHaveText(start);
   const afterKey = await cfiOf(page);
@@ -208,33 +219,34 @@ test("政策關得掉：關掉之後方向鍵不翻頁，按鈕還是能翻", as
   await page.keyboard.press(FORWARD_KEY);
   await page.waitForTimeout(300);
 
-  // 關掉之後鍵盤沒有反應——ADR-0002 那條線在這一頁上是看得到的。
+  // With it off the keyboard does nothing — ADR-0002's line is visible on this page.
   await expect(page.getByTestId("status-cfi")).toHaveText(afterKey);
 
-  // 但按鈕仍然能翻：按鈕是動作，不是政策。
+  // But the buttons still turn pages: a button is an action, not policy.
   await page.getByTestId("next").click();
   await expect(page.getByTestId("status-cfi")).not.toHaveText(afterKey);
 });
 
-test("直排書的方向鍵跟著頁面推進方向走", async ({ page }) => {
+test("a vertical book's arrow keys follow the page progression direction", async ({ page }) => {
   await openDemoBook(page);
   const start = await cfiOf(page);
 
-  // 直排 ⇒ rtl ⇒ 往左是下一頁。
+  // Vertical ⇒ rtl ⇒ left is the next page.
   await page.keyboard.press("ArrowLeft");
   await expect(page.getByTestId("status-cfi")).not.toHaveText(start);
 
-  // 往右走得回來。
+  // Right comes back.
   await page.keyboard.press("ArrowRight");
   await expect(page.getByTestId("status-cfi")).toHaveText(start);
 
-  // `ArrowDown` 在兩種書寫方向下都是「下一頁」——那是所有捲動介面的慣例，讀者的
-  // 手指記得的是那個意思，不是排版方向（`paging.ts` 的註解）。
+  // `ArrowDown` is "next page" in both writing modes — that is the convention of every
+  // scrolling interface, and what the reader's fingers remember is that meaning, not the
+  // layout direction (`paging.ts`'s comments).
   await page.keyboard.press("ArrowDown");
   await expect(page.getByTestId("status-cfi")).not.toHaveText(start);
 });
 
-test("目錄跳得過去", async ({ page }) => {
+test("the table of contents navigates", async ({ page }) => {
   await openDemoBook(page);
 
   const toc = page.getByTestId("toc");

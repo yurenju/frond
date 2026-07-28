@@ -2,33 +2,37 @@ import { expect, test, type Page } from "@playwright/test";
 import { mountFixture, openHarness, type EventRecord } from "../support/harness.js";
 
 /**
- * iframe 裡的指標與按鍵事件的出口。
+ * The outlet for pointer and key events inside the iframe.
  *
- * ## 為什麼這一格非有不可
+ * ## Why this is indispensable
  *
- * 一節渲染在一個 iframe 裡（ADR-0006），而 iframe 的邊界擋住事件冒泡——消費端在
- * 容器上掛 listener 是收不到任何東西的。少了這個出口，滑動翻頁、點兩側翻頁、
- * 焦點在內文時的方向鍵**全部沒有反應**，而且不會有任何錯誤訊息。
+ * A section renders inside an iframe (ADR-0006), and an iframe's boundary blocks event
+ * bubbling — a consumer with a listener on the container receives nothing at all. Without
+ * this outlet, swipe-to-turn, tap-the-sides-to-turn and the arrow keys while the content
+ * has focus **all do nothing**, and with no error message.
  *
- * ## 為什麼 frond 只送這些
+ * ## Why frond sends only these
  *
- * 送的是事實：某一刻、容器座標的某一點、指標按下了，而且當下這兩個 DOM 條件成立。
- * 「往左滑等於下一頁」「點右側三分之一等於翻頁」是政策，屬於消費端（ADR-0002）。
- * 所以這裡沒有任何一條斷言長成「滑動之後翻到了下一頁」——那不是 frond 的行為。
+ * What it sends is facts: at this moment, at this point in container coordinates, a
+ * pointer went down, and these two DOM conditions held at the time. "Swiping left means
+ * next page" and "tapping the right third turns the page" are policy, and belong to the
+ * consumer (ADR-0002). So not one assertion here reads "after the swipe it turned to the
+ * next page" — that is not frond's behaviour.
  *
- * 用的是 Playwright 的真實滑鼠與鍵盤，不是合成事件：座標換算與焦點路由正是這一
- * 格最容易錯的兩件事，而合成事件會把兩者都繞過去。
+ * It uses Playwright's real mouse and keyboard rather than synthetic events: coordinate
+ * conversion and focus routing are the two things most easily got wrong in this slot, and
+ * synthetic events bypass both.
  */
 
-/** 外殼頁面的容器貼在 (0, 0)，所以頁面座標就是容器座標。 */
+/** The shell page's container sits at (0, 0), so page coordinates are container coordinates. */
 const CONTAINER = { width: 800, height: 600 };
 
 test.beforeEach(async ({ page }) => {
   await openHarness(page);
 });
 
-test.describe("指標事件", () => {
-  test("按下與放開各送一次，帶容器座標", async ({ page }) => {
+test.describe("pointer events", () => {
+  test("down and up are each sent once, with container coordinates", async ({ page }) => {
     await mountFixture(page, "vertical-japanese");
 
     await page.mouse.move(300, 200);
@@ -38,15 +42,16 @@ test.describe("指標事件", () => {
     const down = await waitForEvent(page, "pointerdown");
     const up = await waitForEvent(page, "pointerup");
 
-    // 事件的 clientX/clientY 是相對於 iframe 的可視區域，而 iframe 被邊界推移過。
-    // 加回那一段之後就落回容器座標——也就是滑鼠實際點的地方。
+    // The event's clientX/clientY are relative to the iframe's viewport, and the iframe was
+    // inset by the margin. Adding that back gives container coordinates — where the mouse
+    // actually clicked.
     expect(down.x).toBeCloseTo(300, 0);
     expect(down.y).toBeCloseTo(200, 0);
     expect(up.x).toBeCloseTo(300, 0);
     expect(up.y).toBeCloseTo(200, 0);
   });
 
-  test("帶容器尺寸——點擊分區要拿它算比例", async ({ page }) => {
+  test("carries the container's size — tap zones need it to compute proportions", async ({ page }) => {
     await mountFixture(page, "vertical-japanese");
 
     await page.mouse.click(400, 300);
@@ -57,20 +62,23 @@ test.describe("指標事件", () => {
   });
 
   /**
-   * 座標與 `rectsFor()` 必須同一個參考系。
+   * The coordinates and `rectsFor()` have to share one frame of reference.
    *
-   * 消費端把浮動工具列畫在容器上，位置同時來自這兩個地方（選取的矩形決定貼哪，
-   * 指標的位置決定要不要收起來）。兩者用不同的原點的話，症狀是工具列偏移一個
-   * 邊界的距離——而那個距離剛好等於讀者設定的 margin，所以調大邊界會讓偏移變大。
+   * A consumer draws a floating toolbar on the container, positioned from both of these at
+   * once (the selection's rectangles decide where to attach it, the pointer's position
+   * decides whether to dismiss it). With different origins, the symptom is the toolbar
+   * offset by one margin — and since that distance equals the reader's margin setting,
+   * increasing the margin increases the offset.
    */
-  test("座標與 rectsFor 同一個原點：邊界加大時兩者一起位移", async ({ page }) => {
+  test("coordinates and rectsFor share an origin: a larger margin shifts both together", async ({ page }) => {
     await mountFixture(page, "vertical-japanese", { settings: { margin: 80 } });
 
     const frame = await page.evaluate(() => window.frond.frameBox());
     expect(frame.x).toBe(80);
     expect(frame.y).toBe(80);
 
-    // 點在 iframe 內容區的左上角。容器座標應該就是邊界本身。
+    // Clicking the top-left corner of the iframe's content area. The container coordinate
+    // should be the margin itself.
     await page.mouse.click(frame.x + 1, frame.y + 1);
     const event = await waitForEvent(page, "pointerup");
 
@@ -78,7 +86,7 @@ test.describe("指標事件", () => {
     expect(event.y).toBeCloseTo(frame.y + 1, 0);
   });
 
-  test("點在內文上時 isLink 是 false", async ({ page }) => {
+  test("isLink is false when clicking body text", async ({ page }) => {
     await mountFixture(page, "vertical-japanese");
 
     await page.mouse.click(400, 300);
@@ -86,13 +94,13 @@ test.describe("指標事件", () => {
   });
 
   /**
-   * 連結那一格，以及 `pointerup` 與 `linkactivate` 的順序。
+   * The link slot, and the order of `pointerup` and `linkactivate`.
    *
-   * 消費端要讓「點連結」贏過「點右側翻頁」，就必須在 `pointerup` 的當下判斷得
-   * 出來——`isLink` 就是為了這一格存在的。順序反過來的話這個欄位沒有用途，所以
-   * 兩件事一起釘。
+   * For a consumer to make "tapped a link" beat "tapped the right side to turn the page",
+   * it has to be decidable at the moment of `pointerup` — which is what `isLink` exists
+   * for. Reversed, that field has no use, so both facts are pinned together.
    */
-  test("點在連結上：isLink 是 true，且 pointerup 排在 linkactivate 前面", async ({
+  test("clicking a link: isLink is true, and pointerup comes before linkactivate", async ({
     page,
   }) => {
     await mountFixture(page, "nested-toc");
@@ -110,7 +118,7 @@ test.describe("指標事件", () => {
     expect(up).toBeLessThan(activate);
   });
 
-  test("有選取時 hasSelection 是 true——選字中不翻頁靠它", async ({ page }) => {
+  test("hasSelection is true while text is selected — not turning the page mid-selection depends on it", async ({ page }) => {
     await mountFixture(page, "vertical-japanese");
     await page.evaluate(() => window.frond.selectText("p"));
 
@@ -121,13 +129,14 @@ test.describe("指標事件", () => {
   });
 });
 
-test.describe("按鍵事件", () => {
+test.describe("key events", () => {
   /**
-   * 焦點在 iframe 裡的時候，外層 document 的 keyup 收不到任何東西——這正是接上
-   * frond 之後方向鍵翻頁會失效的原因。所以這條測試先點一下內文把焦點送進去，
-   * 再按鍵：焦點在外層時能收到不代表這個出口有用。
+   * While focus is inside the iframe, the outer document's keyup receives nothing at all —
+   * which is exactly why arrow-key paging stops working once frond is wired up. So this
+   * test clicks the content first to send focus in, and only then presses a key: receiving
+   * events while focus is outside proves nothing about this outlet.
    */
-  test("焦點在 iframe 裡時，方向鍵仍然送得出來", async ({ page }) => {
+  test("arrow keys still get out while focus is inside the iframe", async ({ page }) => {
     await mountFixture(page, "vertical-japanese");
 
     await page.mouse.click(400, 300);
@@ -141,7 +150,7 @@ test.describe("按鍵事件", () => {
     expect(up.code).toBe("ArrowLeft");
   });
 
-  test("帶修飾鍵的狀態", async ({ page }) => {
+  test("carries the modifier key state", async ({ page }) => {
     await mountFixture(page, "vertical-japanese");
     await page.mouse.click(400, 300);
     await page.keyboard.press("Shift+ArrowRight");
@@ -153,14 +162,16 @@ test.describe("按鍵事件", () => {
   });
 });
 
-test.describe("frond 不對輸入做任何決定", () => {
+test.describe("frond makes no decisions about input", () => {
   /**
-   * 這一條守的是 ADR-0002 的界線本身：轉發事件**不等於**開始吃手勢。
+   * This guards ADR-0002's line itself: forwarding events **does not mean** starting to
+   * consume gestures.
    *
-   * 往左滑一段距離之後位置一格都不能動——「這是一次滑動，所以翻頁」是消費端的
-   * 決定。這條測試紅掉的時候，代表有人在 frond 裡加了一段手勢處理。
+   * After swiping some distance to the left, the position must not move at all — "this was
+   * a swipe, so turn the page" is the consumer's decision. When this test goes red, someone
+   * has added gesture handling inside frond.
    */
-  test("在內文上滑動不會翻頁", async ({ page }) => {
+  test("swiping over the content does not turn the page", async ({ page }) => {
     const before = await mountFixture(page, "vertical-japanese");
 
     await page.mouse.move(600, 300);
@@ -173,7 +184,7 @@ test.describe("frond 不對輸入做任何決定", () => {
     expect(after.sectionIndex).toBe(before.sectionIndex);
   });
 
-  test("方向鍵不會翻頁", async ({ page }) => {
+  test("arrow keys do not turn the page", async ({ page }) => {
     const before = await mountFixture(page, "vertical-japanese");
 
     await page.mouse.click(400, 300);
@@ -210,14 +221,16 @@ function events(page: Page): Promise<readonly EventRecord[]> {
 }
 
 /**
- * 在這一節的開頭插一個連結，回傳它在頁面座標系裡的位置。
+ * Inserts a link at the start of this section and returns its position in page
+ * coordinates.
  *
- * fixture 的內容文件本身沒有 `<a>`（`pagination.spec.ts` 的 linkactivate 那條也
- * 是自己插一個），而插在**開頭**是因為要點得到——插在結尾的話它會落在後面某一頁，
- * 不在畫面上。
+ * The fixture's content documents contain no `<a>` of their own (`pagination.spec.ts`'s
+ * linkactivate case inserts one too), and it goes at the **start** so that it can be
+ * clicked — at the end it would land on some later page, off screen.
  *
- * `createElementNS` 而不是 `createElement`：內容文件是 XML，`createElement` 造出
- * 來的元素沒有命名空間，於是它不是一個 XHTML 的 `<a>`，瀏覽器不把它當連結。
+ * `createElementNS` rather than `createElement`: the content document is XML, and an
+ * element `createElement` builds has no namespace, so it is not an XHTML `<a>` and the
+ * browser does not treat it as a link.
  */
 async function prependLink(page: Page): Promise<{ x: number; y: number }> {
   const at = await page.evaluate(() => {

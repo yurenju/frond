@@ -20,7 +20,7 @@ packages/frond-react/   @yurenju/frond-react   unstyled React 元件（ADR-0011�
 
 | | 語言 |
 | --- | --- |
-| 程式碼檔（`.ts` `.tsx` `.js` `.css` `.sh` `.html` `.json` `.yml` `.conf`、`Dockerfile`） | **英文** |
+| 程式碼檔（`.ts` `.tsx` `.js` `.css` `.sh` `.html` `.json` `.yml` `.conf`、`Dockerfile`、`.gitignore`、`.dockerignore`） | **英文** |
 | 文件（`docs/`、`CONTEXT.md`、`AGENTS.md`、`README.md`） | 中文 |
 
 程式碼檔裡**每一種文字**都算：檔頭註解、行內註解、識別字、錯誤訊息、`console`

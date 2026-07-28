@@ -6,15 +6,16 @@ import { INTERVENTIONS } from "../../../packages/frond/src/renderer/intervention
 import { readerStylesheet, withSettings, DEFAULT_SETTINGS } from "../../../packages/frond/src/renderer/settings.ts";
 
 /**
- * ADR-0003 那份**封閉清單**的守門人。
+ * The gatekeeper for ADR-0003's **closed list**.
  *
- * > 危險不在第一天而在第三十天：「反正已經覆寫 column-width 了，line-height 也
- * > 順手調一下吧」，然後半年後沒人記得為什麼書的排版跟原作者設計的不一樣。
+ * > The danger is not on day one but on day thirty: "we already override column-width,
+ * > so let us adjust line-height while we are here" — and six months later nobody
+ * > remembers why the book does not look the way its author designed it.
  *
- * 所以下面這份 `REQUIRED_BY_ADR_0003` 與 `INTERVENTIONS` 比的是**集合相等**，
- * 任一側多一項或少一項都會紅。加一項介入因此一定會經過改這支測試那一步，而改
- * 它的人會讀到這段話。這與 `single-ailment.test.ts` 守 ADR-0007 那張表是同一個
- * 形狀。
+ * So `REQUIRED_BY_ADR_0003` below is compared with `INTERVENTIONS` for **set equality**,
+ * and one entry too many or too few on either side goes red. Adding an intervention
+ * therefore always passes through editing this test, and whoever edits it reads this
+ * passage. It is the same shape as `single-ailment.test.ts` guarding ADR-0007's table.
  */
 const REQUIRED_BY_ADR_0003 = [
   "blob-urls",
@@ -31,18 +32,18 @@ const REQUIRED_BY_ADR_0003 = [
   "vertical-punctuation",
 ];
 
-describe("介入的封閉清單", () => {
-  test("清單與 ADR-0003 認可的那一份完全相同", () => {
+describe("the closed list of interventions", () => {
+  test("the list is exactly the one ADR-0003 sanctions", () => {
     expect(INTERVENTIONS.map((intervention) => intervention.id).sort()).toEqual(
       [...REQUIRED_BY_ADR_0003].sort(),
     );
   });
 
-  test("id 不重複", () => {
+  test("no duplicate ids", () => {
     expect(new Set(INTERVENTIONS.map((i) => i.id)).size).toBe(INTERVENTIONS.length);
   });
 
-  test("每一項都寫了理由與實作位置", () => {
+  test("every entry states its reason and where it is implemented", () => {
     for (const intervention of INTERVENTIONS) {
       expect(intervention.what.length, intervention.id).toBeGreaterThan(0);
       expect(intervention.why.length, intervention.id).toBeGreaterThan(0);
@@ -50,9 +51,10 @@ describe("介入的封閉清單", () => {
     }
   });
 
-  test("真的覆寫了書的那幾項，只有兩種理由——ADR-0003 正文的那兩種", () => {
-    // frond-own-layer 與 syntax-translation 不算覆寫（見 interventions.ts 的表）。
-    // 這條擋的是「新增一種聽起來很合理的理由」這個滑坡。
+  test("the entries that really override the book have only two reasons — the two in ADR-0003's body", () => {
+    // frond-own-layer and syntax-translation do not count as overriding (see the table in
+    // interventions.ts). This case blocks the slope of "add one more reason that sounds
+    // perfectly sensible".
     const overriding = INTERVENTIONS.filter(
       (intervention) =>
         intervention.reason === "content-unreadable" ||
@@ -68,8 +70,9 @@ describe("介入的封閉清單", () => {
     }
   });
 
-  test("reader-blocked 的每一項都只在讀者設過東西時才發生", () => {
-    // 這是 ADR-0003 門檻的機器版本：沒有讀者設定就沒有東西被擋住。
+  test("every reader-blocked entry happens only once the reader has set something", () => {
+    // The machine-readable form of ADR-0003's threshold: with no reader setting, nothing
+    // is being blocked.
     for (const intervention of INTERVENTIONS) {
       if (intervention.reason === "reader-blocked") {
         expect(intervention.onlyWhenReaderOverrides, intervention.id).toBe(true);
@@ -77,16 +80,19 @@ describe("介入的封閉清單", () => {
     }
   });
 
-  test("frond 實際注入的每一個 CSS 屬性，清單上都點得到名字", () => {
-    // **這一條才是這份清單真正的牙齒。** 上面那條集合相等只能證明「清單沒有被
-    // 偷改」，證明不了「程式碼沒有偷偷多寫一條宣告」——它比的是清單與清單的複本。
+  test("every CSS property frond actually injects is named somewhere on the list", () => {
+    // **This is where the list gets its teeth.** The set equality above can only prove
+    // "the list was not quietly edited"; it cannot prove "the code did not quietly add a
+    // declaration" — it compares the list against a copy of the list.
     //
-    // 這裡改成拿**實際產出的樣式表**去對清單：`layoutStylesheet` 與
-    // `readerStylesheet` 都是純函式，回傳的就是最後注入文件的那份文字。任何一條
-    // 新增的宣告，只要屬性名沒有出現在某一項介入的 `what` 裡，就會紅。
+    // This instead checks the **stylesheets actually produced** against the list:
+    // `layoutStylesheet` and `readerStylesheet` are both pure functions returning exactly
+    // the text injected into the document. Any newly added declaration goes red as soon as
+    // its property name is absent from some intervention's `what`.
     //
-    // 走 `mapStylesheet`（`css.ts` 的宣告定位器）而不是正規表示式：那支已經處理
-    // 過註解、字串與選擇器裡的冒號，而這裡要問的正是同一個問題。
+    // It goes through `mapStylesheet` (`css.ts`'s declaration locator) rather than a
+    // regular expression: that one already handles comments, strings and colons in
+    // selectors, and this asks the very same question.
     const declared = new Set<string>();
     const collect = (css: string): void => {
       mapStylesheet(css, (declaration) => {
@@ -124,13 +130,14 @@ describe("介入的封閉清單", () => {
 
     const registered = INTERVENTIONS.map((intervention) => intervention.what).join("\n");
     for (const property of declared) {
-      expect(registered, `${property} 沒有登記在任何一項介入裡`).toContain(property);
+      expect(registered, `${property} is not registered under any intervention`).toContain(property);
     }
   });
 
-  test("frond 自己那一層與語法翻譯不該綁在讀者設定上", () => {
-    // 綁上去的話，一本只寫前綴 writing-mode 的書會因為讀者沒調字級而在
-    // Firefox 上排成橫排——兩件事本來就沒有關係。
+  test("frond's own layer and syntax translation must not be tied to reader settings", () => {
+    // Tying them would make a book that writes only a prefixed writing-mode lay out
+    // horizontally in Firefox because the reader never adjusted the font size — two things
+    // that have nothing to do with each other.
     for (const intervention of INTERVENTIONS) {
       if (
         intervention.reason === "frond-own-layer" ||

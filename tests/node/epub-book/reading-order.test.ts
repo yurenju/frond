@@ -4,16 +4,19 @@ import { readFixture } from "../support/fixtures.ts";
 import { handmadeBook, packageDocument, sectionDocument } from "./support/handmade.ts";
 
 /**
- * readingOrder——一本書的閱讀順序，封裝格式裡的 `<spine>`（CONTEXT.md）。
+ * readingOrder — a book's reading order, the packaging format's `<spine>`
+ * (CONTEXT.md).
  *
- * 這一組守兩件事：**順序**與**每個 Section 指到壓縮檔內的哪一份檔案**。順序錯了
- * 讀者會跳章，路徑錯了那一格開不出內容——後者在合成 fixture 上很容易假綠，因為
- * fixture 的 href 與壓縮檔的路徑長得幾乎一樣（都在 `EPUB/` 底下）。所以這裡也
- * 餵路徑帶逗號的那一份，讓「原樣照抄 href」與「解析後查表」分得開來。
+ * This group guards two things: **the order**, and **which file inside the archive
+ * each Section points at**. Get the order wrong and the reader skips chapters; get the
+ * path wrong and that slot shows no content — and the latter goes falsely green very
+ * easily on synthetic fixtures, because a fixture's href and its archive path look
+ * almost identical (both under `EPUB/`). So the comma-in-the-path fixture is fed here
+ * too, to pull "copy the href verbatim" and "resolve, then look up" apart.
  */
 
-describe("順序", () => {
-  test("EPUB 3 的三個 Section 照封裝文件的順序排", async () => {
+describe("order", () => {
+  test("an EPUB 3's three Sections come in the package document's order", async () => {
     const book = await EpubBook.open(await readFixture("vertical-japanese.epub"));
 
     expect(book.readingOrder.map((section) => section.path)).toEqual([
@@ -23,8 +26,9 @@ describe("順序", () => {
     ]);
   });
 
-  test("EPUB 2 的 readingOrder 讀法與 EPUB 3 相同", async () => {
-    // 版本的差異在 metadata 與導覽載體上，readingOrder 兩版是同一個形狀。
+  test("EPUB 2's readingOrder is read the same way as EPUB 3's", async () => {
+    // The version differences are in the metadata and the navigation vehicle; the
+    // readingOrder has the same shape in both.
     const book = await EpubBook.open(await readFixture("healthy-epub2.epub"));
 
     expect(book.readingOrder.map((section) => section.path)).toEqual([
@@ -34,7 +38,7 @@ describe("順序", () => {
     ]);
   });
 
-  test("每個 Section 帶著 manifest 的 id 與 media type", async () => {
+  test("each Section carries the manifest's id and media type", async () => {
     const book = await EpubBook.open(await readFixture("vertical-japanese.epub"));
 
     expect(book.readingOrder[0]).toMatchObject({
@@ -44,9 +48,10 @@ describe("順序", () => {
     });
   });
 
-  test("導覽文件與樣式表不在 readingOrder 裡", async () => {
-    // manifest 列的是「這本書由哪些檔案組成」，readingOrder 只收 <itemref> 指到
-    // 的那些。把 manifest 整份當成閱讀順序是最典型的錯法。
+  test("the navigation document and the stylesheet are not in the readingOrder", async () => {
+    // The manifest lists "which files this book is made of"; the readingOrder takes only
+    // the ones an <itemref> points at. Treating the whole manifest as the reading order
+    // is the most typical way to get this wrong.
     const book = await EpubBook.open(await readFixture("healthy-epub2.epub"));
 
     expect(book.readingOrder.map((section) => section.mediaType)).toEqual([
@@ -57,11 +62,12 @@ describe("順序", () => {
   });
 });
 
-describe("Section 指到壓縮檔內的哪一份檔案", () => {
-  test("href 帶逗號時解析到字面的那個項目", async () => {
-    // toc-href-percent-comma 的第二個 Section 檔名帶逗號，manifest 用字面的
-    // 逗號寫。逗號在 URL 的 path 裡是合法字元，所以解析後仍是逗號——把 href
-    // 整份丟進 encodeURIComponent 的實作會在這裡找不到檔案。
+describe("which file inside the archive a Section points at", () => {
+  test("an href with a comma resolves to the literal entry", async () => {
+    // toc-href-percent-comma's second Section has a comma in its filename, and the
+    // manifest writes it as a literal comma. A comma is a legal character in a URL path,
+    // so it is still a comma after resolution — an implementation that pushes the whole
+    // href through encodeURIComponent finds no file here.
     const book = await EpubBook.open(await readFixture("toc-href-percent-comma.epub"));
 
     expect(book.readingOrder.map((section) => section.path)).toEqual([
@@ -73,9 +79,11 @@ describe("Section 指到壓縮檔內的哪一份檔案", () => {
 });
 
 describe("linear=\"no\"", () => {
-  test("留在 readingOrder 裡，但標記成不在線性進程上", async () => {
-    // 封面頁與版權頁常寫成 linear="no"：它們在書裡，但不該出現在翻頁的進程中。
-    // frond 給事實（ADR-0002）——把它們默默濾掉，消費端就再也拿不到那一格。
+  test("stays in the readingOrder, but marked as off the linear progression", async () => {
+    // Cover pages and copyright pages are often written linear="no": they are in the
+    // book, but should not appear in the page-turning progression. frond supplies facts
+    // (ADR-0002) — silently filtering them out would put that slot permanently out of the
+    // consumer's reach.
     const book = await EpubBook.open(
       handmadeBook({
         packageDocument: packageDocument({

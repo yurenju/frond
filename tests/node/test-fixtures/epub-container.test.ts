@@ -7,19 +7,21 @@ import {
 } from "../../../packages/frond/src/test-fixtures/index.ts";
 
 /**
- * 產生器的驗收：產出物必須是真的 EPUB，不是「腳本沒丟例外」。
+ * The generator's acceptance criterion: the output has to be a real EPUB, not "the
+ * script threw no exception".
  *
- * 解壓一律用 fflate 而不是自己那支 writer 的反向操作——用自己的 reader 讀
- * 自己的 writer，任何對 ZIP 格式的誤解都會在兩邊同時成立，測試照樣全綠。
+ * Decompression always goes through fflate rather than the inverse of our own writer —
+ * reading our own writer with our own reader would make any misunderstanding of the ZIP
+ * format hold on both sides at once, and the tests would stay green.
  */
 
 const ZIP_LOCAL_HEADER_SIZE = 30;
 const ZIP_LOCAL_HEADER_SIGNATURE = 0x04034b50;
 const ZIP_STORED = 0;
 
-describe("EPUB 封裝格式", () => {
+describe("the EPUB packaging format", () => {
   test.for(syntheticFixtures.map((fixture) => fixture.name))(
-    "%s 解得開，且是一份合規的 OCF 容器",
+    "%s decompresses, and is a conforming OCF container",
     (name: AilmentName) => {
       const archive = buildFixture(name);
       const entries = unzipSync(archive);
@@ -29,11 +31,12 @@ describe("EPUB 封裝格式", () => {
   );
 
   test.for(syntheticFixtures.map((fixture) => fixture.name))(
-    "%s 的第一個項目是未壓縮的 mimetype",
+    "%s's first entry is an uncompressed mimetype",
     (name: AilmentName) => {
-      // OCF 要求 mimetype 是壓縮檔的第一個項目、以 stored 存放、不帶 extra
-      // field。這條不是形式主義：閱讀器（與 `file(1)`）靠位元組 30 起的固定
-      // 位置嗅出這是不是 EPUB，項目一旦被壓縮或挪位就嗅不到了。
+      // OCF requires mimetype to be the archive's first entry, stored, with no extra
+      // field. This is not formalism: readers (and `file(1)`) sniff whether something is an
+      // EPUB from the fixed position at byte 30, and once the entry is compressed or moved
+      // the sniff fails.
       const archive = buildFixture(name);
       const view = new DataView(
         archive.buffer,

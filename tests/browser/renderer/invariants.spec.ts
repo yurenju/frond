@@ -3,18 +3,21 @@ import { compareCfi, parseCfi } from "../../../packages/frond/src/epub/cfi.ts";
 import { mountFixture, openHarness, type Snapshot } from "../support/harness.js";
 
 /**
- * 單一瀏覽器內的自我一致性不變量——ADR-0004 的 #7 修訂指名的那一格。
+ * Self-consistency invariants within one browser — the slot ADR-0004's #7 revision names.
  *
- * > 直排下，頁數、斷頁位置、以及任何由它們導出的量（頁碼、每頁字數）不列入跨
- * > 瀏覽器互比。這一格改由**單一瀏覽器內的自我一致性不變量**守：翻到底再翻回
- * > 位置不變、相鄰頁邊界字元在文件順序上相連、CFI → page → CFI 為 identity、
- * > 字級變動後用 CFI 回到同一段文字。
+ * > When vertical, page counts, break positions and anything derived from them (page
+ * > numbers, characters per page) are excluded from cross-browser comparison. That slot is
+ * > instead guarded by **self-consistency invariants within one browser**: turning to the
+ * > end and back leaves the position unchanged, adjacent pages' boundary characters are
+ * > contiguous in document order, CFI → page → CFI is the identity, and a CFI returns to
+ * > the same passage after a font-size change.
  *
- * 下面就是那四條。**每一條在各家各自成立，不需要三家給出同一個數字**——三家的
- * 分欄 fragmentation 本來就不一致（Chromium 排 4 頁、Firefox 與 WebKit 各排 3 頁，
- * 同一本 fixture、同一 viewport、同一組設定）。
+ * Those four follow. **Each holds in each engine on its own terms, with no need for the
+ * three to produce the same number** — the three engines' multicol fragmentation does not
+ * agree by construction (Chromium lays out 4 pages while Firefox and WebKit lay out 3
+ * each, on one fixture, one viewport and one set of settings).
  *
- * 這也是為什麼這支 spec 一條硬編的頁數都沒有。
+ * It is also why this spec contains not one hard-coded page count.
  */
 
 const LARGE = { fontSize: 64 };
@@ -23,7 +26,7 @@ test.beforeEach(async ({ page }) => {
   await openHarness(page);
 });
 
-test("翻到書末再翻回來，每一步都回到原本的位置", async ({ page }) => {
+test("turning to the book's end and back returns to the same position at every step", async ({ page }) => {
   await mountFixture(page, "vertical-japanese", { settings: LARGE });
 
   const forward: Snapshot[] = [await page.evaluate(() => window.frond.snapshot())];
@@ -34,20 +37,22 @@ test("翻到書末再翻回來，每一步都回到原本的位置", async ({ pa
   expect(forward.length).toBeGreaterThan(3);
   expect(forward[forward.length - 1]!.atEnd).toBe(true);
 
-  // 回程。每一步都要落回去程的同一個位置——連 CFI 都要一模一樣。
+  // The return trip. Every step has to land on the outbound trip's same position — right
+  // down to an identical CFI.
   for (let step = forward.length - 2; step >= 0; step -= 1) {
     const back = await page.evaluate(() => window.frond.previous());
 
-    expect(back.sectionIndex, `第 ${step} 步的節`).toBe(forward[step]!.sectionIndex);
-    expect(back.page, `第 ${step} 步的頁`).toBe(forward[step]!.page);
-    expect(back.cfi, `第 ${step} 步的 CFI`).toBe(forward[step]!.cfi);
+    expect(back.sectionIndex, `section at step ${step}`).toBe(forward[step]!.sectionIndex);
+    expect(back.page, `page at step ${step}`).toBe(forward[step]!.page);
+    expect(back.cfi, `CFI at step ${step}`).toBe(forward[step]!.cfi);
   }
 });
 
-test("相鄰兩頁的位置在書中嚴格遞增", async ({ page }) => {
-  // 「相鄰頁邊界字元在文件順序上相連」的可斷言版本：下一頁的起點必須排在這一頁
-  // 的起點之後。倒退表示分頁把內容重排過；相等表示有一頁沒有推進，也就是有內容
-  // 被跳過或重複。
+test("adjacent pages' positions are strictly increasing in the book", async ({ page }) => {
+  // The assertable form of "adjacent pages' boundary characters are contiguous in document
+  // order": the next page's start has to come after this page's. Going backwards means
+  // pagination reordered the content; being equal means a page did not advance, which means
+  // content was skipped or duplicated.
   await mountFixture(page, "huge-single-section", { settings: { columns: 1 } });
 
   let previous = await page.evaluate(() => window.frond.snapshot());
@@ -58,7 +63,7 @@ test("相鄰兩頁的位置在書中嚴格遞增", async ({ page }) => {
 
     expect(
       compareCfi(parseCfi(previous.cfi), parseCfi(current.cfi)),
-      `第 ${previous.page} 頁到第 ${current.page} 頁`,
+      `page ${previous.page} to page ${current.page}`,
     ).toBe("before");
 
     previous = current;
@@ -68,7 +73,7 @@ test("相鄰兩頁的位置在書中嚴格遞增", async ({ page }) => {
   expect(previous.page).toBeGreaterThan(3);
 });
 
-test("CFI → 跳過去 → CFI 是 identity，每一頁都是", async ({ page }) => {
+test("CFI → go there → CFI is the identity, on every page", async ({ page }) => {
   await mountFixture(page, "vertical-japanese", { settings: LARGE });
 
   const marks: Snapshot[] = [];
@@ -80,7 +85,7 @@ test("CFI → 跳過去 → CFI 是 identity，每一頁都是", async ({ page }
   marks.push(current);
 
   for (const mark of marks) {
-    // 先跳到別的地方，確保不是「本來就停在那裡」。
+    // Go somewhere else first, so this is not "it was already sitting there".
     await page.evaluate(() => window.frond.goToSection(0));
     const restored = await page.evaluate(
       (cfi) => window.frond.goToCfi(cfi as string),
@@ -93,7 +98,7 @@ test("CFI → 跳過去 → CFI 是 identity，每一頁都是", async ({ page }
   }
 });
 
-test("字級變動之後，用 CFI 回得到同一段文字", async ({ page }) => {
+test("after a font-size change, a CFI returns to the same passage", async ({ page }) => {
   await mountFixture(page, "vertical-japanese", { settings: LARGE });
   await page.evaluate(() => window.frond.next());
 
@@ -109,14 +114,16 @@ test("字級變動之後，用 CFI 回得到同一段文字", async ({ page }) =
     mark.cfi,
   );
 
-  // 同一個 CFI 在重排之後仍然指到同一段文字——**CFI 不是版面的函數**。
+  // The same CFI still points at the same passage after relayout — **a CFI is not a
+  // function of the layout**.
   expect(after).toBe(before);
   expect(after).not.toBeNull();
 });
 
-test("一節的頁數與實際翻得到的頁數相符", async ({ page }) => {
-  // 頁數不是拿來跨瀏覽器比的，但它在同一家裡必須說實話：回報 N 頁就要剛好翻得到
-  // 第 N−1 頁，而且第 N−1 頁之後就換節。
+test("a section's page count matches the pages that can actually be turned to", async ({ page }) => {
+  // The page count is not for comparing across browsers, but within one it has to tell the
+  // truth: reporting N pages means page N−1 is exactly reachable, and the section changes
+  // after page N−1.
   const start = await mountFixture(page, "huge-single-section", {
     settings: { columns: 1 },
   });

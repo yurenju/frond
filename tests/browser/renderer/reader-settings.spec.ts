@@ -2,40 +2,43 @@ import { expect, test } from "@playwright/test";
 import { mountFixture, openHarness } from "../support/harness.js";
 
 /**
- * 讀者設定，以及它與書的層疊之間那場架。
+ * Reader settings, and their fight with the book's cascade.
  *
- * ADR-0003 把權威順序訂成 `讀者設定 > frond 修正 > 書的宣告`，並且點名這件事
- * **不是免費的**：
+ * ADR-0003 sets the order of authority as `reader settings > frond's corrections > the
+ * book's declarations`, and names the fact that this **is not free**:
  *
- * > 書可以寫 `font-size: 12px !important`，而外部 stylesheet 打不贏 inline
- * > `!important`。frond 內部因此需要一套認真的 cascade 對抗機制，不是注入一段
- * > CSS 就結束——這是 frond 相對 foliate 真正要多做的工程之一。
+ * > A book may write `font-size: 12px !important`, and an external stylesheet cannot beat
+ * > an inline `!important`. frond therefore needs a serious cascade-fighting mechanism
+ * > internally, not just an injected block of CSS — this is one of the things frond
+ * > genuinely has to build beyond what foliate does.
  *
- * 這支 spec 的每一條都在量那套機制的結果。而**同樣重要的是反面**：讀者沒設的
- * 項目，書的宣告要一個字都不變（user story 45）。那幾條就是介入清單不會慢慢長大
- * 的守門人。
+ * Every case in this spec measures that mechanism's result. And **the reverse matters just
+ * as much**: for anything the reader has not set, the book's declarations must not change
+ * by one character (user story 45). Those cases are the gatekeepers stopping the
+ * intervention list from growing quietly.
  */
 
 test.beforeEach(async ({ page }) => {
   await openHarness(page);
 });
 
-test.describe("讀者沒設定的時候，書說了算", () => {
-  test("書寫死的 !important 字級照樣生效", async ({ page }) => {
-    // ADR-0003 的門檻：沒有讀者設定就沒有東西被擋住，也就沒有介入的理由。
+test.describe("with no reader setting, the book decides", () => {
+  test("a size the book pins with !important still takes effect", async ({ page }) => {
+    // ADR-0003's threshold: with no reader setting, nothing is being blocked, and so there
+    // is no reason to intervene.
     await mountFixture(page, "font-size-important");
 
     expect(await computed(page, "p", "font-size")).toBe("12px");
   });
 
-  test("書寫死的顏色照樣生效", async ({ page }) => {
+  test("colours the book pins still take effect", async ({ page }) => {
     await mountFixture(page, "hardcoded-colors");
 
     expect(await computed(page, "body", "color")).toBe("rgb(0, 0, 0)");
     expect(await computed(page, "body", "background-color")).toBe("rgb(255, 255, 255)");
   });
 
-  test("注入的讀者樣式表是空的", async ({ page }) => {
+  test("the injected reader stylesheet is empty", async ({ page }) => {
     await mountFixture(page, "vertical-japanese");
 
     const html = await page.evaluate(() => window.frond.html());
@@ -43,30 +46,32 @@ test.describe("讀者沒設定的時候，書說了算", () => {
   });
 });
 
-test.describe("字級", () => {
-  test("書沒有意見時，讀者說多大就多大", async ({ page }) => {
+test.describe("font size", () => {
+  test("with no opinion from the book, the reader's size is the size", async ({ page }) => {
     await mountFixture(page, "vertical-japanese", { settings: { fontSize: 24 } });
 
     expect(await computed(page, "p", "font-size")).toBe("24px");
   });
 
-  test("書寫死 !important 也擋不住讀者", async ({ page }) => {
-    // user story 42。書說 12px（也就是預設 16px 的 0.75 倍），讀者說基準是 24px，
-    // 所以正文是 18px——**書自己的比例保留，絕對值讓給讀者**。
+  test("an !important pinned by the book does not stop the reader", async ({ page }) => {
+    // user story 42. The book says 12px (0.75 of the 16px default), the reader sets the
+    // basis to 24px, so the body text is 18px — **the book's own ratio is kept and the
+    // absolute value goes to the reader**.
     await mountFixture(page, "font-size-important", { settings: { fontSize: 24 } });
 
     expect(await computed(page, "p", "font-size")).toBe("18px");
   });
 
-  test("讀者再調一次，比例跟著走", async ({ page }) => {
-    // 這一條才證明字級真的「可調」而不是被換成另一個定值。
+  test("adjusting again moves the ratio with it", async ({ page }) => {
+    // This is what proves the size is really "adjustable" rather than swapped for another
+    // fixed value.
     await mountFixture(page, "font-size-important", { settings: { fontSize: 24 } });
     await page.evaluate(() => window.frond.applySettings({ fontSize: 32 }));
 
     expect(await computed(page, "p", "font-size")).toBe("24px");
   });
 
-  test("書自己的字級層次保留——標題仍然比正文大", async ({ page }) => {
+  test("the book's own size hierarchy is kept — headings are still larger than body text", async ({ page }) => {
     await mountFixture(page, "font-size-important", { settings: { fontSize: 24 } });
 
     const heading = parseFloat(await computed(page, "h1", "font-size"));
@@ -76,10 +81,11 @@ test.describe("字級", () => {
   });
 });
 
-test.describe("字面與行高", () => {
-  test("讀者指名的字面蓋過書的宣告", async ({ page }) => {
-    // 指名而不是 generic family：三家對 generic 的 CJK 解析不一致（#4），而讀者
-    // 設定是權威順序裡唯一能合法指名的一層（ADR-0004）。
+test.describe("font family and line height", () => {
+  test("a face the reader names overrides the book's declaration", async ({ page }) => {
+    // A named face rather than a generic family: the three engines do not resolve generics
+    // to CJK faces consistently (#4), and reader settings are the one layer in the order of
+    // authority that may legitimately name a face (ADR-0004).
     await mountFixture(page, "vertical-japanese", {
       settings: { fontFamily: '"Noto Sans CJK JP"' },
     });
@@ -87,7 +93,7 @@ test.describe("字面與行高", () => {
     expect(await computed(page, "p", "font-family")).toContain("Noto Sans CJK JP");
   });
 
-  test("行高吃得到", async ({ page }) => {
+  test("line height takes effect", async ({ page }) => {
     await mountFixture(page, "vertical-japanese", {
       settings: { fontSize: 20, lineHeight: 2 },
     });
@@ -96,24 +102,25 @@ test.describe("字面與行高", () => {
   });
 });
 
-test.describe("主題", () => {
-  test("書寫死黑字白底，讀者的暗色模式照樣生效", async ({ page }) => {
-    // user story 43。
+test.describe("themes", () => {
+  test("with black on white pinned by the book, the reader's dark mode still takes effect", async ({ page }) => {
+    // user story 43.
     await mountFixture(page, "hardcoded-colors", {
       settings: { theme: { foreground: "#eeeeee", background: "#111111" } },
     });
 
     expect(await computed(page, "body", "color")).toBe("rgb(238, 238, 238)");
-    // 書寫在 body 上的白底變透明，讀者的底色從根元素透出來——全部設成讀者的
-    // 底色會讓書用底色區分的引文區塊消失。
+    // The white background the book set on body becomes transparent and the reader's shows
+    // through from the root element — setting the reader's background everywhere would
+    // erase the quote blocks a book distinguishes by background colour.
     expect(await computed(page, "body", "background-color")).toBe("rgba(0, 0, 0, 0)");
     expect(await computed(page, "html", "background-color")).toBe("rgb(17, 17, 17)");
   });
 
-  test("底色也塗在容器上，邊界那一圈不會留白", async ({ page }) => {
-    // 邊界在 iframe 外面，所以它不在書的文件裡——只塗文件的話深色模式下文字
-    // 四周會留一圈消費端頁面的白底。這一條是照 `docs/evidence/32/` 那批截圖
-    // 判讀出來的缺陷補的。
+  test("the background is painted on the container too, leaving no white ring at the margin", async ({ page }) => {
+    // The margin is outside the iframe, so it is not in the book's document — painting only
+    // the document leaves a ring of the consumer page's white around the text in dark mode.
+    // This case was added for a defect read off the screenshots in `docs/evidence/32/`.
     await mountFixture(page, "hardcoded-colors", {
       settings: { theme: { foreground: "#eeeeee", background: "#111111" } },
     });
@@ -128,8 +135,8 @@ test.describe("主題", () => {
     expect(background).toBe("rgb(17, 17, 17)");
   });
 
-  test("沒有主題時不碰容器的底色", async ({ page }) => {
-    // 那時候消費端自己的底色才是對的答案。
+  test("with no theme, the container's background is left alone", async ({ page }) => {
+    // At that point the consumer's own background is the right answer.
     await mountFixture(page, "hardcoded-colors");
 
     const inline = await page.evaluate(
@@ -140,9 +147,10 @@ test.describe("主題", () => {
   });
 });
 
-test.describe("固定寬度的書", () => {
-  test("width: 800px 在小一點的版面上不會被裁掉", async ({ page }) => {
-    // ADR-0003 的「內容讀不到」那一格。容器 800、邊界 24、單欄，所以一欄是 752 寬。
+test.describe("a book with a fixed width", () => {
+  test("width: 800px is not clipped in a smaller layout", async ({ page }) => {
+    // ADR-0003's "the content is unreadable" slot. Container 800, margin 24, one column, so
+    // a column is 752 wide.
     await mountFixture(page, "fixed-width-800", {
       settings: { margin: 24, columns: 1 },
     });
@@ -150,9 +158,10 @@ test.describe("固定寬度的書", () => {
     expect(await computed(page, "body", "width")).toBe("752px");
   });
 
-  test("放得下的時候這條介入是 no-op", async ({ page }) => {
-    // 這一條擋的是「一律把 body 縮到版面寬」這種過度介入：書要求 800px 而一欄
-    // 有 900px 時，書應該拿到它要的 800px。
+  test("the intervention is a no-op when it fits", async ({ page }) => {
+    // This blocks the over-intervention of "always shrink body to the layout width": when
+    // the book asks for 800px and a column has 900px, the book should get the 800px it
+    // asked for.
     await mountFixture(page, "fixed-width-800", {
       settings: { margin: 24, columns: 1 },
       viewport: { width: 948, height: 600 },
@@ -161,13 +170,14 @@ test.describe("固定寬度的書", () => {
     expect(await computed(page, "body", "width")).toBe("800px");
   });
 
-  test("雙欄時上限是一欄的寬度，不是整個版面", async ({ page }) => {
-    // 分欄容器裡的百分比是**相對於一欄**的，不是相對於容器——所以
-    // `max-inline-size: 100%` 剛好等於「內容要塞得進一欄」。那正是這條介入要的
-    // 意思，但它是 CSS 的性質而不是 frond 寫的規則，所以在這裡釘住：哪天百分比
-    // 的基準變了，這條會紅，而別條不會。
+  test("with two columns the cap is one column's width, not the whole layout", async ({ page }) => {
+    // A percentage inside a multicol container is **relative to one column**, not to the
+    // container — so `max-inline-size: 100%` means exactly "the content has to fit in one
+    // column". That is precisely what this intervention means, but it is a property of CSS
+    // rather than a rule frond wrote, so it is pinned here: the day the percentage's basis
+    // changes, this case goes red and no other one does.
     //
-    // 版面 752、欄距 40，兩欄各 356。
+    // Layout 752 with a 40 gap, so two columns of 356 each.
     await mountFixture(page, "fixed-width-800", {
       settings: { margin: 24, columns: 2 },
     });
@@ -176,32 +186,34 @@ test.describe("固定寬度的書", () => {
   });
 });
 
-test.describe("欄數", () => {
-  test("橫排可以要兩欄", async ({ page }) => {
+test.describe("column count", () => {
+  test("horizontal can ask for two columns", async ({ page }) => {
     await mountFixture(page, "huge-single-section", { settings: { columns: 2 } });
 
     expect(await computed(page, "html", "column-count")).toBe("2");
   });
 
-  test("直排一律單欄，設兩欄也一樣", async ({ page }) => {
-    // ADR-0003 明列的刻意簡化。不是錯誤，是一個此刻不適用的偏好。
+  test("vertical is always one column, even when two are set", async ({ page }) => {
+    // A deliberate simplification ADR-0003 lists explicitly. Not an error, just a preference
+    // that does not apply right now.
     await mountFixture(page, "vertical-japanese", { settings: { columns: 2 } });
 
     expect(await computed(page, "html", "column-count")).toBe("1");
   });
 });
 
-test.describe("邊界", () => {
-  test("邊界靠把 iframe 縮進來，不是注入 padding 給書", async ({ page }) => {
-    // 注入 padding 給分欄容器會讓第一欄與其餘的欄起點不一樣，「翻一頁 = 移動一個
-    // 頁距」就不再成立。所以書的 body 一個 padding 都拿不到。
+test.describe("margins", () => {
+  test("the margin comes from insetting the iframe, not from injecting padding into the book", async ({ page }) => {
+    // Injecting padding into a multicol container gives the first column a different origin
+    // from the rest, and "one page turn = one stride" stops holding. So the book's body gets
+    // no padding at all.
     await mountFixture(page, "huge-single-section", { settings: { margin: 50 } });
 
     expect(await computed(page, "html", "width")).toBe("700px");
     expect(await computed(page, "body", "padding-top")).toBe("0px");
   });
 
-  test("換邊界之後版面跟著換", async ({ page }) => {
+  test("changing the margin changes the layout with it", async ({ page }) => {
     await mountFixture(page, "huge-single-section", { settings: { margin: 50 } });
     await page.evaluate(() => window.frond.applySettings({ margin: 10 }));
 
@@ -209,16 +221,19 @@ test.describe("邊界", () => {
   });
 
   /**
-   * 軸向的邊界：讀者調的是**行長**。
+   * Axis-relative margins: what the reader adjusts is **line length**.
    *
-   * 橫排調左右、直排調上下，看起來是兩件事，實際上都是行內軸。用實體邊表達的話
-   * 同一個偏好換一本直排書就要換一個欄位填，而那個轉換每個消費端都要自己做一次。
+   * Horizontal adjusts left and right and vertical adjusts top and bottom, which look like
+   * two things and are both the inline axis. Expressed with physical edges, the same
+   * preference would need a different field filled in on a vertical book, and every consumer
+   * would have to do that conversion themselves.
    *
-   * 這兩條測試的重點是**兩者相反**：同一組 `{ block, inline }` 在橫排與直排下要
-   * 落到不同的實體邊。算反了不會報錯——邊界照樣縮，只是讀者拖滑桿時行長一格都不
-   * 會動。
+   * The point of these two tests is that they are **opposites**: one `{ block, inline }`
+   * has to land on different physical edges when horizontal and when vertical. Getting it
+   * backwards raises no error — the margins still shrink, it is just that the line length
+   * does not move at all while the reader drags the slider.
    */
-  test("橫排：inline 落在左右，block 落在上下", async ({ page }) => {
+  test("horizontal: inline lands on left and right, block on top and bottom", async ({ page }) => {
     await mountFixture(page, "huge-single-section", {
       settings: { margin: { block: 10, inline: 60 } },
     });
@@ -227,7 +242,7 @@ test.describe("邊界", () => {
     expect(box).toMatchObject({ x: 60, y: 10, width: 680, height: 580 });
   });
 
-  test("直排：inline 落在上下，block 落在左右——與橫排相反", async ({ page }) => {
+  test("vertical: inline lands on top and bottom, block on left and right — the opposite of horizontal", async ({ page }) => {
     await mountFixture(page, "vertical-japanese", {
       settings: { margin: { block: 10, inline: 60 } },
     });
@@ -236,7 +251,7 @@ test.describe("邊界", () => {
     expect(box).toMatchObject({ x: 10, y: 60, width: 780, height: 480 });
   });
 
-  test("純量仍然是四邊等距", async ({ page }) => {
+  test("a scalar is still all four edges alike", async ({ page }) => {
     await mountFixture(page, "vertical-japanese", { settings: { margin: 30 } });
 
     const box = await page.evaluate(() => window.frond.frameBox());
@@ -244,13 +259,14 @@ test.describe("邊界", () => {
   });
 
   /**
-   * `rectsFor()` 的原點與 iframe 的位置必須一致。
+   * `rectsFor()`'s origin and the iframe's position have to agree.
    *
-   * 消費端拿矩形去畫 highlight，畫在容器上。兩者用不同的參考系時，症狀是整片
-   * highlight 偏移一個邊界的距離——而軸向邊界下上下左右不等，偏移量在兩個方向上
-   * 還不一樣。
+   * A consumer takes the rectangles and draws a highlight on the container. When the two
+   * use different frames of reference, the symptom is the whole highlight offset by one
+   * margin — and with axis-relative margins the four edges differ, so the offset differs
+   * between the two directions as well.
    */
-  test("軸向邊界下，矩形仍然落在容器裡的正確位置", async ({ page }) => {
+  test("under axis-relative margins, the rectangles still land in the right place in the container", async ({ page }) => {
     await mountFixture(page, "vertical-japanese", {
       settings: { margin: { block: 10, inline: 60 } },
     });

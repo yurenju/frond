@@ -1,33 +1,40 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * 分頁的地基：multicol 在直排與橫排下，欄沿哪一軸溢出、`column-width` 量的是
- * 哪個方向、捲動座標的正負慣例是什麼。
+ * Pagination's foundation: under vertical and horizontal writing modes, which axis the
+ * columns overflow along, which direction `column-width` measures, and what the sign
+ * convention for scroll coordinates is.
  *
- * **這支沒有任何 frond 程式碼參與**（`docs/browser-quirks.md` 的〈這個數字是誰
- * 排的〉）：`page.setContent` 餵一份手寫的 HTML／CSS，量到的是瀏覽器本身的行為，
- * 換渲染器仍然成立。它釘住的是 `src/renderer/geometry.ts` 每一條公式所依賴的
- * 前提——那些公式若建立在錯的軸上，症狀是「一屏疊出好幾頁」而不是紅燈。
+ * **No frond code takes part in this spec** ("who laid this number out" in
+ * `docs/browser-quirks.md`): `page.setContent` feeds hand-written HTML/CSS, and what is
+ * measured is the browser's own behaviour, which still holds with a different renderer. It
+ * pins the premises every formula in `src/renderer/geometry.ts` depends on — built on the
+ * wrong axis, those formulas produce "several pages stacked on one screen" rather than a
+ * red test.
  *
- * ## 為什麼這一格非量不可
+ * ## Why this has to be measured
  *
- * 直排的欄軸是這一層最容易憑直覺搞錯的地方，而錯了不會有東西報錯：`column-width`
- * 套在錯的方向上仍然是一個合法的宣告，畫面照樣畫得出來，只是每一頁的內容量不對。
- * spine 踩過的「直排欄寬必須剛好等於一個 viewer 高」講的正是這件事，但那句話只
- * 給了結論沒有給理由，照抄的人不知道換一個 viewport 形狀之後該改哪一個數字。
+ * A vertical layout's column axis is where intuition most easily goes wrong at this layer,
+ * and going wrong raises nothing: `column-width` applied in the wrong direction is still a
+ * legal declaration, the page still draws, and only the amount of content per page is
+ * wrong. spine's hard-won "a vertical column's width must equal exactly one viewer height"
+ * is about precisely this, but it gives the conclusion without the reason, so whoever
+ * copies it does not know which number to change for a different viewport shape.
  *
- * 規格上的推導是：multicol 的欄沿**行內軸**（inline axis）排列並溢出，而
- * `column-width` 量的是單一欄的**行內尺寸**。橫排（`horizontal-tb`）的行內軸是
- * 水平的，所以欄寬是寬度、溢出在水平方向；直排（`vertical-rl`）的行內軸是垂直的
- * （字由上而下），所以**欄寬是高度、溢出在垂直方向**。這支測試把那個推導變成三家
- * 的實測。
+ * The derivation from the spec: multicol's columns are laid out along and overflow the
+ * **inline axis**, and `column-width` measures a single column's **inline size**.
+ * Horizontal (`horizontal-tb`) has a horizontal inline axis, so the column width is the
+ * width and the overflow is horizontal; vertical (`vertical-rl`) has a vertical inline
+ * axis (characters run top to bottom), so **the column width is the height and the
+ * overflow is vertical**. This spec turns that derivation into a measurement on all three
+ * engines.
  */
 
-/** 容器尺寸。長寬刻意不相等——相等的話兩條軸的數字會分不出誰是誰。 */
+/** The container's size. The two dimensions are deliberately unequal — equal, the two axes' numbers would be indistinguishable. */
 const PANE_WIDTH = 400;
 const PANE_HEIGHT = 300;
 
-/** 欄距。取 0 讓「總長 = 欄數 × 欄寬」這條算式沒有餘數要解釋。 */
+/** The column gap. 0, so that "total = column count × column width" leaves no remainder to explain. */
 const COLUMN_GAP = 0;
 
 type WritingMode = "horizontal-tb" | "vertical-rl";
@@ -37,49 +44,55 @@ interface PaneGeometry {
   readonly clientHeight: number;
   readonly scrollWidth: number;
   readonly scrollHeight: number;
-  /** 把捲動位置推到負無限大再讀回來——負值慣例下讀得到負數。 */
+  /** The scroll position pushed to negative infinity and read back — under a negative convention this reads negative. */
   readonly minScrollLeft: number;
   readonly minScrollTop: number;
-  /** 推到正無限大再讀回來，也就是捲到底。 */
+  /** Pushed to positive infinity and read back, that is, scrolled to the end. */
   readonly maxScrollLeft: number;
   readonly maxScrollTop: number;
 }
 
-test.describe("multicol 的欄軸與捲動慣例", () => {
-  test("橫排：欄寬是寬度，欄沿水平溢出", async ({ page }) => {
+test.describe("multicol's column axis and scroll conventions", () => {
+  test("horizontal: the column width is the width, and the columns overflow horizontally", async ({ page }) => {
     const geometry = await measurePane(page, "horizontal-tb");
 
-    // 行內軸是水平的：溢出在 x，y 不溢出。
+    // The inline axis is horizontal: overflow on x, none on y.
     expect(geometry.scrollWidth).toBeGreaterThan(geometry.clientWidth);
     expect(geometry.scrollHeight).toBe(geometry.clientHeight);
 
-    // 欄寬取容器寬度，所以總長是寬度的整數倍——這就是「一屏一頁」。
+    // The column width is the container's width, so the total is an integer multiple of the
+    // width — which is what "one screen, one page" means.
     expect(geometry.scrollWidth % PANE_WIDTH).toBe(0);
   });
 
-  test("直排：欄寬是高度，欄沿垂直溢出", async ({ page }) => {
+  test("vertical: the column width is the height, and the columns overflow vertically", async ({ page }) => {
     const geometry = await measurePane(page, "vertical-rl");
 
-    // 直排的行內軸是垂直的（字由上而下），所以溢出換到 y。
+    // A vertical layout's inline axis is vertical (characters run top to bottom), so the
+    // overflow moves to y.
     //
-    // 這一條是整層的地基。它若翻過來，`geometry.ts` 每一條把 viewport 高度
-    // 當成直排欄寬的公式都是錯的，而錯的症狀是一屏疊出好幾頁——不是紅燈。
+    // This case is the whole layer's foundation. Flipped, every formula in `geometry.ts`
+    // that takes the viewport's height as a vertical column width is wrong, and the symptom
+    // of being wrong is several pages stacked on one screen — not a red test.
     expect(geometry.scrollHeight).toBeGreaterThan(geometry.clientHeight);
     expect(geometry.scrollWidth).toBe(geometry.clientWidth);
 
     expect(geometry.scrollHeight % PANE_HEIGHT).toBe(0);
   });
 
-  test.describe("捲動座標的正負慣例", () => {
-    // 分頁沿行內軸推進，而這兩種書寫方向的行內軸都是「正向」的（橫排由左而右、
-    // 直排由上而下），所以捲動座標從 0 起算、往正數走。
+  test.describe("the sign convention for scroll coordinates", () => {
+    // Pagination advances along the inline axis, and both writing modes' inline axes run
+    // "positively" (horizontal left to right, vertical top to bottom), so the scroll
+    // coordinate starts at 0 and grows positive.
     //
-    // 量它是因為**負值慣例確實存在**：`direction: rtl` 的行內軸由右而左，
-    // CSSOM View 規定那種情況的 scrollLeft 由負值表示。frond v1 的兩種書寫
-    // 方向都不落在那一格，但 `geometry.ts` 仍然在執行期探測一次而不是寫死——
-    // 這兩條測試釘住的正是「探測到的答案應該是 0 起算」。
+    // It is measured because **the negative convention really does exist**:
+    // `direction: rtl` has a right-to-left inline axis, and CSSOM View specifies that
+    // scrollLeft is expressed negatively in that case. Neither of frond v1's writing modes
+    // lands in that slot, but `geometry.ts` still probes once at runtime rather than
+    // hard-coding — and what these two tests pin is that "the probed answer should start at
+    // 0".
 
-    test("橫排的分頁軸由 0 起算", async ({ page }) => {
+    test("the horizontal pagination axis starts at 0", async ({ page }) => {
       const geometry = await measurePane(page, "horizontal-tb");
 
       expect(geometry.minScrollLeft).toBe(0);
@@ -88,7 +101,7 @@ test.describe("multicol 的欄軸與捲動慣例", () => {
       );
     });
 
-    test("直排的分頁軸由 0 起算", async ({ page }) => {
+    test("the vertical pagination axis starts at 0", async ({ page }) => {
       const geometry = await measurePane(page, "vertical-rl");
 
       expect(geometry.minScrollTop).toBe(0);
@@ -98,10 +111,11 @@ test.describe("multicol 的欄軸與捲動慣例", () => {
     });
   });
 
-  test("直排的欄寬換一個 viewport 形狀就跟著換，跟寬度無關", async ({ page }) => {
-    // 「欄寬等於 viewer 高」不是一個常數，是一條與容器高度連動的公式。把高度
-    // 換掉、寬度不動，總長必須跟著換——若它跟著寬度走，上面那兩條在正方形容器
-    // 上會一起變綠而這一條會紅。
+  test("a vertical column's width follows a different viewport shape, independently of the width", async ({ page }) => {
+    // "The column width equals the viewer height" is not a constant but a formula tied to
+    // the container's height. Change the height and leave the width alone and the total has
+    // to change with it — were it following the width, the two cases above would go green
+    // together on a square container while this one goes red.
     const tall = await measurePane(page, "vertical-rl", { height: 600 });
 
     expect(tall.scrollHeight % 600).toBe(0);
@@ -110,11 +124,12 @@ test.describe("multicol 的欄軸與捲動慣例", () => {
 });
 
 /**
- * 造一個定尺寸的分欄容器，量它的捲動幾何。
+ * Builds a fixed-size multicol container and measures its scroll geometry.
  *
- * `column-fill: auto` 是必要的：預設的 `balance` 會把內容平均分到各欄，於是
- * 「一欄等於一頁」不再成立。`overflow: auto` 讓溢出的欄變成可捲動的範圍而不是
- * 畫到容器外面。
+ * `column-fill: auto` is necessary: the default `balance` distributes the content evenly
+ * across columns, and "one column is one page" stops holding. `overflow: auto` turns the
+ * overflowing columns into a scrollable range rather than drawing them outside the
+ * container.
  */
 async function measurePane(
   page: Page,
@@ -123,7 +138,8 @@ async function measurePane(
 ): Promise<PaneGeometry> {
   const width = size.width ?? PANE_WIDTH;
   const height = size.height ?? PANE_HEIGHT;
-  // 欄寬取行內軸上的容器尺寸：橫排是寬度，直排是高度。
+  // The column width is the container's size along the inline axis: the width when
+  // horizontal, the height when vertical.
   const columnWidth = writingMode === "vertical-rl" ? height : width;
 
   await page.setContent(`<!doctype html>
@@ -153,10 +169,11 @@ async function measurePane(
 
   return page.evaluate(() => {
     const pane = document.getElementById("pane");
-    if (pane === null) throw new Error("找不到分欄容器");
+    if (pane === null) throw new Error("multicol container not found");
 
-    // 先推到負無限大再推到正無限大。瀏覽器會把值夾到合法範圍，讀回來的就是
-    // 兩端——不必知道慣例是什麼就量得出慣例。
+    // Push to negative infinity first, then to positive infinity. The browser clamps to the
+    // legal range, so what reads back are the two ends — the convention can be measured
+    // without knowing what it is.
     pane.scrollTo({ left: -1_000_000, top: -1_000_000, behavior: "instant" });
     const minScrollLeft = pane.scrollLeft;
     const minScrollTop = pane.scrollTop;
@@ -180,7 +197,7 @@ async function measurePane(
   });
 }
 
-/** 足夠溢出好幾欄的內容。文字是合成的（ADR-0007），數量固定不取亂數。 */
+/** Enough content to overflow several columns. The text is synthetic (ADR-0007), and the count is fixed rather than random. */
 function paragraphs(count: number): string {
   const sentence = "窓の外に、静かな朝の光が差しこんでいた。";
   return Array.from({ length: count }, () => `<p>${sentence}</p>`).join("");

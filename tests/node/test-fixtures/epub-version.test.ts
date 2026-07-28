@@ -9,35 +9,37 @@ import {
 } from "../../../packages/frond/src/test-fixtures/index.ts";
 
 /**
- * EPUB 版本是 fixture 的**第二個軸**（ADR-0007、ADR-0010）。
+ * The EPUB version is the fixtures' **second axis** (ADR-0007, ADR-0010).
  *
- * 這一組要問的不是「病症在不在」，而是「這份產出物真的是那個 EPUB 版本嗎」。分開一個
- * 檔案的理由是失效方式不同：病症走偏會讓某一個 fixture 測錯東西，版本走偏會讓
- * **整批 EPUB 2 的 fixture 變成「EPUB 3 附一份 NCX」**——那是回溯相容那條路，
- * 不是書實際的形狀，測了不算數（ADR-0010）。
+ * What this group asks is not "is the ailment there" but "is this output really that
+ * EPUB version". It gets its own file because the failure modes differ: an ailment going
+ * astray makes one fixture measure the wrong thing, while the version going astray turns
+ * **every EPUB 2 fixture into "an EPUB 3 with an NCX attached"** — which is the
+ * backward-compatibility route rather than the shape books actually have, and testing it
+ * does not count (ADR-0010).
  */
 
 function open(name: AilmentName): EpubArchive {
   return openEpub(buildFixture(name));
 }
 
-describe("EPUB 2 這個版本", () => {
-  test("封裝文件宣告 version=\"2.0\"", () => {
+describe("the EPUB 2 version", () => {
+  test("the package document declares version=\"2.0\"", () => {
     expect(open("healthy-epub2").packageVersion).toBe("2.0");
   });
 
-  test("導覽文件是 NCX，而且壓縮檔裡連 nav.xhtml 都沒有", () => {
+  test("the navigation document is an NCX, and the archive has no nav.xhtml at all", () => {
     const book = open("healthy-epub2");
 
     expect(book.navigationVehicle).toBe("ncx");
     expect(book.navigationPath).toBe("EPUB/toc.ncx");
     expect(book.entryPaths.filter((path) => path.endsWith("nav.xhtml"))).toEqual([]);
-    // properties 是 EPUB 3 manifest 才有的屬性。EPUB 2 的書帶著它，就是「EPUB 3
-    // 附一份 NCX」那種合成物，而不是書實際的形狀。
+    // properties is an attribute only an EPUB 3 manifest has. An EPUB 2 carrying it is the
+    // "EPUB 3 with an NCX attached" hybrid rather than the shape books actually have.
     expect(book.manifest.filter((item) => item.properties !== undefined)).toEqual([]);
   });
 
-  test("NCX 由 manifest 宣告，且 readingOrder 用 spine 的 toc 屬性指得到它", () => {
+  test("the NCX is declared in the manifest, and the readingOrder points at it via spine's toc attribute", () => {
     const book = open("healthy-epub2");
     const ncx = book.manifest.find(
       (item) => item.mediaType === "application/x-dtbncx+xml",
@@ -47,7 +49,7 @@ describe("EPUB 2 這個版本", () => {
     expect(book.readingOrderTocId).toBe(ncx!.id);
   });
 
-  test("NCX 的每一個 navPoint 都有 navLabel、content 與 playOrder", () => {
+  test("every navPoint in the NCX has a navLabel, a content and a playOrder", () => {
     const book = open("healthy-epub2");
     const ncx = book.text(book.navigationPath);
 
@@ -56,54 +58,57 @@ describe("EPUB 2 這個版本", () => {
       expect(entry.label).not.toBe("");
       expect(entry.href).not.toBe("");
     }
-    // playOrder 是 NCX 自己的閱讀順序宣告，數量要與 navPoint 一致——少一個就是
-    // 有 navPoint 漏了它。
+    // playOrder is the NCX's own reading-order declaration, and its count has to match the
+    // navPoints — one short means a navPoint is missing it.
     expect([...ncx.matchAll(/<navPoint /g)].length).toBe(book.toc.length);
     expect([...ncx.matchAll(/playOrder="\d+"/g)].length).toBe(book.toc.length);
     expect([...ncx.matchAll(/<navLabel>/g)].length).toBe(book.toc.length);
   });
 
-  test("沒有 dcterms:modified——EPUB 2 沒有這個欄位", () => {
+  test("no dcterms:modified — EPUB 2 has no such field", () => {
     const book = open("healthy-epub2");
 
     expect(book.text(book.packageDocumentPath)).not.toContain("dcterms:modified");
   });
 
-  test("沒有 page-progression-direction——EPUB 2 沒有這個屬性", () => {
-    // ADR-0010：EPUB 2 的書一律落在「書沒說」那一格，而 frond 回報缺席而不是
-    // 預設值。fixture 必須真的缺席，否則 #8 的那條驗收沒有書可以餵。
+  test("no page-progression-direction — EPUB 2 has no such attribute", () => {
+    // ADR-0010: an EPUB 2 always lands in the "the book did not say" slot, and frond
+    // reports the absence rather than a default. The fixture has to really be missing it,
+    // or #8's acceptance criterion has no book to feed.
     expect(open("healthy-epub2").pageProgressionDirection).toBeUndefined();
   });
 });
 
-describe("EPUB 3 沒有被改動", () => {
+describe("EPUB 3 was left untouched", () => {
   const epub3 = syntheticFixtures
     .filter((fixture) => fixture.epubVersion === "epub3")
     .map((fixture) => fixture.name);
 
-  test.for(epub3)("%s 仍宣告 version=\"3.0\"，導覽文件仍是 nav", (name) => {
+  test.for(epub3)("%s still declares version=\"3.0\", and its navigation document is still a nav", (name) => {
     const book = open(name);
 
     expect(book.packageVersion).toBe("3.0");
     expect(book.navigationVehicle).toBe("nav");
   });
 
-  test.for(epub3)("%s 裡沒有 NCX", (name) => {
-    // 實際的 EPUB 3 幾乎都同時帶一份 NCX（ADR-0010：33 本樣本裡 31 本兩者都有），
-    // 但那份 NCX 只有在「兩份導覽載體內容不一致」時才有測試價值。#23 把 TOC 的
-    // 病症長到 NCX 上，走的是「同一個病症的 EPUB 2 版本」那條路（`-epub2` 後
-    // 綴），沒有動到這條界線。在有票要求兩份載體並存之前，EPUB 3 的 fixture
-    // 不帶 NCX，好讓「NCX 出現」就等於 EPUB 2。
+  test.for(epub3)("%s has no NCX", (name) => {
+    // Real EPUB 3s nearly always carry an NCX as well (ADR-0010: 31 of the 33 books in the
+    // sample have both), but that NCX only has testing value when "the two navigation
+    // vehicles disagree". #23 grew the TOC ailments onto the NCX by way of "the EPUB 2
+    // version of the same ailment" (the `-epub2` suffix), and left this boundary alone.
+    // Until a ticket calls for both vehicles side by side, EPUB 3 fixtures carry no NCX, so
+    // that "an NCX is present" means EPUB 2.
     expect(open(name).entryPaths.filter((path) => path.endsWith(".ncx"))).toEqual([]);
   });
 });
 
-describe("EPUB 版本寫在檔名上", () => {
+describe("the EPUB version is written in the filename", () => {
   test.for(syntheticFixtures)(
-    "$fileName 的後綴與它的 EPUB 版本一致",
+    "$fileName's suffix matches its EPUB version",
     (fixture: (typeof syntheticFixtures)[number]) => {
-      // 後綴只有非預設的那一種版本才帶：沒有後綴就是 EPUB 3。committed
-      // fixture 與檔名的一對一是紅燈可讀性的來源，所以版本必須看得見。
+      // Only the non-default version carries a suffix: no suffix means EPUB 3. The
+      // one-to-one between a committed fixture and its filename is where a red test's
+      // readability comes from, so the version has to be visible.
       expect(fixture.fileName.endsWith("-epub2.epub")).toBe(
         fixture.epubVersion === "epub2",
       );
@@ -111,7 +116,7 @@ describe("EPUB 版本寫在檔名上", () => {
   );
 
   test.for(syntheticFixtures)(
-    "$fileName 宣告的版本與位元組裡的 <package version> 一致",
+    "the version $fileName declares matches the <package version> in its bytes",
     (fixture: (typeof syntheticFixtures)[number]) => {
       const expected = fixture.epubVersion === "epub2" ? "2.0" : "3.0";
 
@@ -120,8 +125,8 @@ describe("EPUB 版本寫在檔名上", () => {
   );
 });
 
-describe("封面", () => {
-  test("cover-image-property：EPUB 3 走 manifest 的 properties=\"cover-image\"", () => {
+describe("covers", () => {
+  test("cover-image-property: EPUB 3 goes through the manifest's properties=\"cover-image\"", () => {
     const book = open("cover-image-property");
 
     expect(book.cover?.foundBy).toBe("cover-image-property");
@@ -129,24 +134,27 @@ describe("封面", () => {
     expect(book.text(book.packageDocumentPath)).not.toContain('name="cover"');
   });
 
-  test("cover-meta-name-epub2：EPUB 2 走 <meta name=\"cover\">", () => {
+  test("cover-meta-name-epub2: EPUB 2 goes through <meta name=\"cover\">", () => {
     const book = open("cover-meta-name-epub2");
 
     expect(book.cover?.foundBy).toBe("meta-name");
     expect(book.cover?.item.mediaType).toBe("image/png");
-    // <meta name="cover"> 指的是 manifest 項目的 id，不是它的 href。指成 href
-    // 是這條路上最典型的寫錯法，而錯了之後封面只是「找不到」不會報錯。
+    // <meta name="cover"> names a manifest item's id, not its href. Writing the href is
+    // the most typical mistake on this route, and once made the cover is merely "not
+    // found" with no error raised.
     expect(book.text(book.packageDocumentPath)).toContain(
       `<meta name="cover" content="${book.cover!.item.id}"/>`,
     );
   });
 
-  test("cover-meta-name：EPUB 3 的封面也可以只有舊寫法", () => {
+  test("cover-meta-name: an EPUB 3 cover may also have only the old form", () => {
     const book = open("cover-meta-name");
 
-    // 這一份的重點是版本與宣告寫法**不成對**：宣告 3.0，封面卻只走 EPUB 2 的
-    // 舊寫法。樣本裡有一本書就是這個形狀，而按版本分派封面的實作會讓它在書櫃
-    // 上沒有縮圖——那是使用者看得見的缺陷（ADR-0010、#24）。
+    // This fixture's point is that version and declaration form **do not pair up**: 3.0 is
+    // declared while the cover uses only EPUB 2's old form. One book in the sample has
+    // exactly this shape, and an implementation dispatching the cover on version would
+    // leave it with no thumbnail on the shelf — a defect the user can see (ADR-0010,
+    // #24).
     expect(book.packageVersion).toBe("3.0");
     expect(book.cover?.foundBy).toBe("meta-name");
     expect(book.text(book.packageDocumentPath)).toContain(
@@ -154,9 +162,11 @@ describe("封面", () => {
     );
   });
 
-  test("cover-meta-name 的 manifest 不帶 properties=\"cover-image\"", () => {
-    // 「只用舊寫法」得是真的只有一條路。manifest 若同時帶 properties，這份
-    // fixture 就退化成常態的那三十本（兩種都寫），而按版本分派的實作照樣全綠。
+  test("cover-meta-name's manifest carries no properties=\"cover-image\"", () => {
+    // "Uses only the old form" has to mean there really is only one route. Were the
+    // manifest to carry properties too, this fixture would degrade into the thirty
+    // ordinary ones (both forms written), and a version-dispatching implementation would
+    // stay green.
     const book = open("cover-meta-name");
 
     expect(book.text(book.packageDocumentPath)).not.toContain(
@@ -166,7 +176,7 @@ describe("封面", () => {
   });
 
   test.for(["cover-image-property", "cover-meta-name", "cover-meta-name-epub2"] as const)(
-    "%s 的封面是真的 PNG",
+    "%s's cover is a real PNG",
     (name: AilmentName) => {
       const book = open(name);
       const decoded = PNG.sync.read(Buffer.from(book.bytes(book.cover!.item.archivePath)));
@@ -176,16 +186,17 @@ describe("封面", () => {
     },
   );
 
-  test("沒宣告封面的書回報「沒有封面」，而不是丟錯", () => {
-    // ADR-0010：兩種寫法都找不到就是這本書沒有封面，不是錯誤。
+  test("a book declaring no cover reports \"no cover\" rather than throwing", () => {
+    // ADR-0010: neither form found means this book has no cover, which is not an error.
     expect(open("healthy-epub2").cover).toBeUndefined();
     expect(open("vertical-japanese").cover).toBeUndefined();
   });
 });
 
-describe("版本與封面宣告寫法的不合法組合被擋下來", () => {
-  // 這兩條擋的是 #23 與 #24：它們會往這個產生器加 fixture，而這兩種組合產出的
-  // 書不合規——而不合規的方式是靜默的（多一個屬性、多一個欄位），沒有東西會紅。
+describe("illegal combinations of version and cover declaration form are blocked", () => {
+  // These two block #23 and #24: both add fixtures to this generator, and both of these
+  // combinations produce non-conforming books — non-conforming in a silent way (one extra
+  // attribute, one extra field), with nothing going red.
   const minimal = {
     title: "frond fixture",
     language: "ja",
@@ -194,13 +205,13 @@ describe("版本與封面宣告寫法的不合法組合被擋下來", () => {
     readingOrder: [{ path: "section-1.xhtml", title: "朝", body: "    <p>朝。</p>" }],
   } as const;
 
-  test("EPUB 2 不能帶 page-progression-direction", () => {
+  test("an EPUB 2 may not carry a page-progression-direction", () => {
     expect(() =>
       buildEpub({ ...minimal, epubVersion: "epub2", pageProgressionDirection: "rtl" }),
     ).toThrow(/page-progression-direction/);
   });
 
-  test("EPUB 2 的封面不能走 properties=\"cover-image\"", () => {
+  test("an EPUB 2 cover may not go through properties=\"cover-image\"", () => {
     expect(() =>
       buildEpub({
         ...minimal,

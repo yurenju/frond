@@ -16,32 +16,35 @@ import {
 } from "./support/handmade.ts";
 
 /**
- * 資源取用——`Renderer` 排版時要的那條路：Section 的位元組、圖片、樣式表、字型。
+ * Resource access — the route `Renderer` needs when it lays a book out: a Section's
+ * bytes, images, stylesheets, fonts.
  *
- * ## oracle 為什麼不是產生器
+ * ## Why the oracle is not the generator
  *
- * 混淆那幾條的期望值全部由這個檔案**自己算**：`node:crypto` 的 SHA-1 加上寫在
- * 這裡的 XOR。拿產生器的反向操作去驗它自己的話，對演算法的任何誤解都會在兩邊
- * 同時成立，測試照樣全綠——而症狀要到讀者的畫面上才會以整頁豆腐字的形式出現。
- * 這與 `tests/node/support/epub-archive.ts` 用外部函式庫讀自己的產出是同一條
- * 紀律。
+ * The expected values for the obfuscation cases are all **computed by this file
+ * itself**: `node:crypto`'s SHA-1 plus the XOR written out here. Checking the generator
+ * against its own inverse would make any misunderstanding of the algorithm hold on both
+ * sides at once and the tests would stay green — while the symptom only surfaces on the
+ * reader's screen, as a page full of tofu. This is the same discipline as
+ * `tests/node/support/epub-archive.ts` reading its own output with external libraries.
  */
 
 const FONT_PATH = "EPUB/fonts/obfuscated.otf";
 const FIXTURE_IDENTIFIER = "urn:uuid:frond-fixture-obfuscated-font-idpf";
 
-/** IDPF 只蓋開頭這麼多位元組。 */
+/** IDPF covers only this many bytes from the start. */
 const OBFUSCATED_LENGTH = 1040;
 
-/** Adobe 那一套的演算法 URI。frond 不解它。 */
+/** Adobe's algorithm URI. frond does not undo it. */
 const ADOBE_ALGORITHM = "http://ns.adobe.com/pdf/enc#RC";
 const IDPF_ALGORITHM = "http://www.idpf.org/2008/embedding";
 
 /**
- * IDPF 的混淆／還原——XOR 自己是自己的反運算，所以同一個函式兩用。
+ * IDPF obfuscation and its undoing — XOR is its own inverse, so one function does both.
  *
- * 金鑰是 identifier 去掉空白之後的 SHA-1（規格點名 space、tab、CR、LF 四個
- * 碼位），雜湊走 `node:crypto`：那是與 frond 完全無關的第三方實作。
+ * The key is the SHA-1 of the identifier with whitespace stripped (the spec names four
+ * code points: space, tab, CR, LF), and the hash goes through `node:crypto`: a
+ * third-party implementation with no connection to frond at all.
  */
 function idpfXor(bytes: Uint8Array, identifier: string): Uint8Array {
   const stripped = [...identifier]
@@ -56,39 +59,40 @@ function idpfXor(bytes: Uint8Array, identifier: string): Uint8Array {
   return out;
 }
 
-/** 壓縮檔裡實際存著的位元組——還沒有經過任何還原。 */
+/** The bytes actually stored in the archive — before any undoing. */
 function storedBytes(archive: Uint8Array, path: string): Uint8Array {
   const found = unzipSync(archive)[path];
-  if (found === undefined) throw new Error(`壓縮檔內沒有 ${path}`);
+  if (found === undefined) throw new Error(`The archive has no ${path}`);
   return found;
 }
 
-/** 一項資源在壓縮檔內的路徑。不在包裡的資源沒有位元組可拿，測試要的都在包裡。 */
+/** A resource's path inside the archive. Resources outside the package have no bytes to fetch; everything the tests want is inside. */
 function pathOf(resource: Resource | undefined): string {
   if (resource?.location.kind !== "in-container") {
-    throw new Error(`${resource?.id ?? "(找不到)"} 不在壓縮檔內`);
+    throw new Error(`${resource?.id ?? "(not found)"} is not inside the archive`);
   }
   return resource.location.path;
 }
 
 /**
- * 讀不到位元組時丟的是哪一種失敗。
+ * Which kind of failure is thrown when the bytes cannot be read.
  *
- * 只用這一種寫法問，是因為 `toThrow()` 只問到「有丟東西」——而這幾條要守的正是
- * **丟的是哪一種**：consumer 靠 `reason` 分辨「這本書沒有這一項」與「這一項解不
- * 開」，兩者該做的事不同。
+ * Asked only this way because `toThrow()` only asks "did something get thrown" — and
+ * what these cases guard is precisely **which kind**: the consumer uses `reason` to
+ * tell "this book does not have that item" from "that item cannot be decoded", and the
+ * two call for different responses.
  */
 function expectFailure(read: () => unknown, reason: EpubResourceFailure): void {
   try {
     read();
-    expect.unreachable("應該丟 EpubResourceError");
+    expect.unreachable("should have thrown EpubResourceError");
   } catch (error) {
     expect(error).toBeInstanceOf(EpubResourceError);
     expect((error as EpubResourceError).reason).toBe(reason);
   }
 }
 
-/** 宣告一份混淆資源的 `META-INF/encryption.xml`。 */
+/** A `META-INF/encryption.xml` declaring one obfuscated resource. */
 function encryptionXml(path: string, algorithm: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container" xmlns:enc="http://www.w3.org/2001/04/xmlenc#">
@@ -102,8 +106,8 @@ function encryptionXml(path: string, algorithm: string): string {
 `;
 }
 
-describe("Section 的位元組與 media type", () => {
-  test("readingOrder 上的每一項都拿得到", async () => {
+describe("a Section's bytes and media type", () => {
+  test("every item on the readingOrder is reachable", async () => {
     const archive = await readFixture("vertical-japanese.epub");
     const book = await EpubBook.open(archive);
 
@@ -111,13 +115,14 @@ describe("Section 的位元組與 media type", () => {
       const bytes = book.bytes(section.path);
 
       expect(section.mediaType).toBe("application/xhtml+xml");
-      // `Renderer` 要的是位元組本身：它手上只有這本書，沒有檔案系統。
+      // What `Renderer` wants is the bytes themselves: all it has is this book, not a
+      // filesystem.
       expect(new TextDecoder().decode(bytes)).toContain("<html");
     }
     expect(book.readingOrder.length).toBeGreaterThan(0);
   });
 
-  test("拿到的是那一份 Section，不是別份", async () => {
+  test("the bytes are that Section's, not another's", async () => {
     const book = await EpubBook.open(await readFixture("vertical-japanese.epub"));
     const first = new TextDecoder().decode(book.bytes(book.readingOrder[0]!.path));
 
@@ -126,19 +131,20 @@ describe("Section 的位元組與 media type", () => {
   });
 });
 
-describe("manifest 上任一資源", () => {
-  test("圖片拿得到位元組", async () => {
+describe("any resource on the manifest", () => {
+  test("an image's bytes are reachable", async () => {
     const book = await EpubBook.open(
       await readFixture("empty-and-image-only-sections.epub"),
     );
     const image = book.resources.find((resource) => resource.mediaType === "image/png");
 
     const bytes = book.bytes(pathOf(image));
-    // PNG 的簽章。拿到的是不是圖片，不能靠 media type 說了算——那是書的宣告。
+    // The PNG signature. Whether what came back is an image cannot be settled by the
+    // media type — that is the book's own declaration.
     expect([...bytes.subarray(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
   });
 
-  test("樣式表拿得到位元組", async () => {
+  test("a stylesheet's bytes are reachable", async () => {
     const book = await EpubBook.open(await readFixture("vertical-japanese.epub"));
     const stylesheet = book.resources.find(
       (resource) => resource.mediaType === "text/css",
@@ -149,22 +155,22 @@ describe("manifest 上任一資源", () => {
     );
   });
 
-  test("依 manifest 的 id 找得到", async () => {
+  test("findable by the manifest's id", async () => {
     const book = await EpubBook.open(await readFixture("vertical-japanese.epub"));
 
     expect(book.resource("stylesheet")?.mediaType).toBe("text/css");
-    expect(book.resource("どこにもない-id")).toBeUndefined();
+    expect(book.resource("no-such-id")).toBeUndefined();
   });
 
-  test("壓縮檔裡沒有的路徑丟明確錯誤", async () => {
+  test("a path not in the archive throws an explicit error", async () => {
     const book = await EpubBook.open(await readFixture("vertical-japanese.epub"));
 
-    expectFailure(() => book.bytes("EPUB/どこにもない.xhtml"), "missing-resource");
+    expectFailure(() => book.bytes("EPUB/no-such-file.xhtml"), "missing-resource");
   });
 });
 
-describe("拿到了／在遠端／不在包裡，三種分得出來", () => {
-  /** 一本 manifest 上三種情況都有的書。 */
+describe("fetched, remote, and absent are three distinguishable answers", () => {
+  /** A book whose manifest has all three cases. */
   async function threeWays(): Promise<EpubBook> {
     return EpubBook.open(
       handmadeBook({
@@ -178,15 +184,16 @@ describe("拿到了／在遠端／不在包裡，三種分得出來", () => {
     );
   }
 
-  test("三種各自是自己的一格", async () => {
+  test("each of the three is its own slot", async () => {
     const book = await threeWays();
     const kinds = Object.fromEntries(
       book.resources.map((resource) => [resource.id, resource.location.kind]),
     );
 
-    // 把後兩者壓成同一個 undefined 的 API，會讓消費端分不出「這一項本來就不在
-    // 包裡（合規）」與「這本書宣告了卻沒附上（書寫錯了）」——而那兩件事該做的
-    // 事不同。
+    // An API that collapses the latter two into one undefined leaves the consumer unable
+    // to tell "this item was never in the package (conforming)" from "this book declared
+    // it and did not ship it (the book is wrong)" — and those two call for different
+    // responses.
     expect(kinds).toEqual({
       "section-1": "in-container",
       narration: "remote",
@@ -194,15 +201,16 @@ describe("拿到了／在遠端／不在包裡，三種分得出來", () => {
     });
   });
 
-  test("缺檔與遠端都不讓這本書開不起來", async () => {
-    // 缺檔只在 readingOrder 上致命（`resources.ts`：33/33 的量測）。這一條守的
-    // 是既有語意不因為「開出取用 API」而被重新權衡。
+  test("neither a missing file nor a remote one stops this book opening", async () => {
+    // A missing file is only fatal on the readingOrder (`resources.ts`: the 33/33
+    // measurement). This case guards that existing semantics are not re-litigated just
+    // because an access API was opened up.
     const book = await threeWays();
 
     expect(book.readingOrder).toHaveLength(1);
   });
 
-  test("不在包裡的那一項，位置仍然回報得出來供診斷", async () => {
+  test("the absent item still reports its location, for diagnostics", async () => {
     const book = await threeWays();
     const lost = book.resource("lost-plate");
 
@@ -210,20 +218,22 @@ describe("拿到了／在遠端／不在包裡，三種分得出來", () => {
   });
 });
 
-describe("IDPF 混淆過的字型", () => {
-  test("解出來的位元組等於未混淆的原檔", async () => {
+describe("an IDPF-obfuscated font", () => {
+  test("the restored bytes equal the un-obfuscated original", async () => {
     const archive = await readFixture("obfuscated-font-idpf.epub");
     const book = await EpubBook.open(archive);
 
-    // 期望值由這個檔案自己從壓縮檔裡的位元組算回去，用的是 node:crypto。
+    // The expected value is computed back from the archive's bytes by this file itself,
+    // using node:crypto.
     const expected = idpfXor(storedBytes(archive, FONT_PATH), FIXTURE_IDENTIFIER);
 
     expect(book.bytes(FONT_PATH)).toEqual(expected);
   });
 
-  test("壓縮檔裡存的確實是混淆過的位元組", async () => {
-    // 少了這一條，一個什麼都不做的 restore() 也會讓上一條全綠——那時候測到的
-    // 只是「fixture 沒有被混淆」。
+  test("what the archive stores really is obfuscated bytes", async () => {
+    // Without this case, a restore() that does nothing at all would also make the case
+    // above green — and what would have been measured is only "the fixture was never
+    // obfuscated".
     const archive = await readFixture("obfuscated-font-idpf.epub");
     const book = await EpubBook.open(archive);
     const stored = storedBytes(archive, FONT_PATH);
@@ -234,23 +244,24 @@ describe("IDPF 混淆過的字型", () => {
     ]);
   });
 
-  test("只蓋前 1040 個位元組，後面原樣不動", async () => {
+  test("only the first 1040 bytes are covered; the rest is untouched", async () => {
     const archive = await readFixture("obfuscated-font-idpf.epub");
     const book = await EpubBook.open(archive);
     const stored = storedBytes(archive, FONT_PATH);
     const restored = book.bytes(FONT_PATH);
 
-    // 蓋過頭是這個演算法最容易寫錯的一步，而它的症狀與「完全沒解」一樣：一份
-    // 壞掉的字型。fixture 的長度刻意超過 1040 就是為了照出這一格。
+    // Covering too far is the easiest step of this algorithm to get wrong, and its
+    // symptom is the same as not undoing it at all: a broken font. The fixture is
+    // deliberately longer than 1040 bytes so that this slot is lit.
     expect(stored.length).toBeGreaterThan(OBFUSCATED_LENGTH);
     expect([...restored.subarray(OBFUSCATED_LENGTH)]).toEqual([
       ...stored.subarray(OBFUSCATED_LENGTH),
     ]);
   });
 
-  test("金鑰的推導會去掉 identifier 裡的空白", async () => {
-    // 書把 identifier 折行寫在 XML 裡是常見的。不去空白的話，同一本書換一種
-    // 排版就推出另一把金鑰。
+  test("key derivation strips whitespace out of the identifier", async () => {
+    // Books commonly wrap the identifier across lines in the XML. Without stripping,
+    // the same book reformatted derives a different key.
     const identifier = "urn:uuid:frond \t\r\n handmade";
     const original = Uint8Array.from({ length: 1100 }, (_, index) => (index * 7) % 256);
 
@@ -280,8 +291,9 @@ describe("IDPF 混淆過的字型", () => {
     expect(book.bytes("OEBPS/fonts/face.otf")).toEqual(original);
   });
 
-  test("沒有宣告混淆的書，位元組原樣回傳", async () => {
-    // 樣本裡 33 本全部沒有 encryption.xml，所以這是常態那一格。
+  test("a book declaring no obfuscation gets its bytes back verbatim", async () => {
+    // None of the 33 books in the sample has an encryption.xml, so this is the common
+    // case.
     const archive = await readFixture("empty-and-image-only-sections.epub");
     const book = await EpubBook.open(archive);
     const path = "EPUB/images/plate.png";
@@ -290,8 +302,8 @@ describe("IDPF 混淆過的字型", () => {
   });
 });
 
-describe("不支援的混淆方式", () => {
-  /** 一本用 `algorithm` 宣告混淆了一份資源的書。 */
+describe("unsupported obfuscation", () => {
+  /** A book declaring one resource obfuscated with `algorithm`. */
   function obfuscatedWith(algorithm: string): Uint8Array {
     return handmadeBook({
       packageDocument: packageDocument({
@@ -309,19 +321,20 @@ describe("不支援的混淆方式", () => {
     });
   }
 
-  test("Adobe 那套給明確錯誤，不吐壞位元組", async () => {
-    // 兩套的金鑰推導與長度都不同，拿 IDPF 去解 Adobe **一定**得到壞位元組。
-    // 而壞字型在畫面上的症狀是滿頁豆腐字——那時候沒有人查得到根因在解碼，所以
-    // 這裡寧可讓消費端拿到一個說得出原因的錯誤。
+  test("Adobe's scheme gives an explicit error rather than bad bytes", async () => {
+    // The two schemes differ in both key derivation and length, so undoing Adobe's with
+    // IDPF's **always** yields bad bytes. And a broken font's on-screen symptom is a page
+    // full of tofu — at which point nobody traces the root cause back to decoding, so it
+    // is better for the consumer to get an error that can state its reason.
     const book = await EpubBook.open(obfuscatedWith(ADOBE_ALGORITHM));
 
     expectFailure(() => book.bytes("OEBPS/fonts/face.otf"), "unsupported-obfuscation");
-    // 訊息要說得出是哪一套演算法——「不支援」而不說是什麼，查的人還是得自己
-    // 去翻壓縮檔。
+    // The message has to name the algorithm — "unsupported" without saying what still
+    // leaves whoever investigates digging through the archive themselves.
     expect(() => book.bytes("OEBPS/fonts/face.otf")).toThrow(ADOBE_ALGORITHM);
   });
 
-  test("真的加密過的資源同樣是明確錯誤", async () => {
+  test("a genuinely encrypted resource is an explicit error too", async () => {
     const book = await EpubBook.open(
       obfuscatedWith("http://www.w3.org/2001/04/xmlenc#aes256-cbc"),
     );
@@ -329,8 +342,9 @@ describe("不支援的混淆方式", () => {
     expectFailure(() => book.bytes("OEBPS/fonts/face.otf"), "unsupported-obfuscation");
   });
 
-  test("這本書照樣開得起來，其他資源照樣拿得到", async () => {
-    // 解不開的是那一項字型，不是這本書。讀者要的是書打得開（ADR-0010）。
+  test("the book still opens, and the other resources are still reachable", async () => {
+    // What cannot be decoded is that one font, not this book. What the reader wants is
+    // for the book to open (ADR-0010).
     const book = await EpubBook.open(obfuscatedWith(ADOBE_ALGORITHM));
 
     expect(book.readingOrder).toHaveLength(1);
@@ -339,7 +353,7 @@ describe("不支援的混淆方式", () => {
     );
   });
 
-  test("IDPF 混淆但書沒有 identifier 時，說得出金鑰推不出來", async () => {
+  test("IDPF obfuscation with no identifier in the book says the key cannot be derived", async () => {
     const book = await EpubBook.open(
       handmadeBook({
         packageDocument: packageDocument({
@@ -364,11 +378,12 @@ describe("不支援的混淆方式", () => {
   });
 });
 
-describe("封面與資源走同一條路", () => {
-  test("解不開的封面等於沒有封面，不是開不起來", async () => {
-    // 同一個路徑在同一本書上只能有一種答案：封面若繞過還原直接讀壓縮檔，
-    // `book.cover.bytes` 與 `book.bytes(cover.path)` 就會給出兩批不同的位元組。
-    // 而拿不到封面的處置早就定好了——那不是錯誤（ADR-0010）。
+describe("the cover goes through the same route as any resource", () => {
+  test("a cover that cannot be decoded means no cover, not a book that will not open", async () => {
+    // One path in one book can only have one answer: if the cover bypassed the undoing
+    // and read the archive directly, `book.cover.bytes` and `book.bytes(cover.path)`
+    // would give two different sets of bytes. And what to do about an unavailable cover
+    // was settled long ago — it is not an error (ADR-0010).
     const book = await EpubBook.open(
       handmadeBook({
         packageDocument: packageDocument({
@@ -395,10 +410,10 @@ describe("封面與資源走同一條路", () => {
   });
 });
 
-describe("encryption.xml 的 URI 也是 URL", () => {
-  test("編碼過的 URI 對得上壓縮檔的項目名", async () => {
-    // 字型的檔名帶空白是常見的，而 URI 裡的它是 percent-encoded 的。這一條與
-    // manifest、TOC 走的是同一條解析。
+describe("encryption.xml's URI is a URL too", () => {
+  test("an encoded URI matches the archive's entry name", async () => {
+    // Spaces in font filenames are common, and in a URI they arrive percent-encoded.
+    // This goes through the same resolution as the manifest and the TOC.
     const original = Uint8Array.from({ length: 1100 }, (_, index) => (index * 13) % 256);
     const identifier = "urn:uuid:frond-handmade";
 

@@ -1,17 +1,18 @@
 /**
- * 瀏覽器那一側的操作面。
+ * The browser side's operating surface.
  *
- * 它跑在頁面裡，所以它看得到真的 React 樹與真的 `Renderer`；spec 那一側只拿得到
- * 可序列化的東西加上一般的 DOM 斷言。
+ * It runs inside the page, so it can see the real React tree and the real `Renderer`; the
+ * spec side gets only serializable values plus ordinary DOM assertions.
  *
- * ## 為什麼書是 `MemoryBook` 而不是合成 fixture
+ * ## Why the books are `MemoryBook`s rather than synthetic fixtures
  *
- * 這一批測試量的是 **frond-react 加上去的那一層**——掛載、卸載、換書、換設定、
- * `data-*` 屬性——而不是 frond 排版排得對不對（那是 `tests/browser/renderer/`
- * 的事，而且它們用的是實際解析出來的書）。
+ * What these tests measure is **the layer frond-react adds** — mounting, unmounting,
+ * changing books, changing settings, the `data-*` attributes — rather than whether frond
+ * lays a book out correctly (that is `tests/browser/renderer/`'s business, and those use
+ * books parsed for real).
  *
- * `MemoryBook` 是公開 API 的一部分（ADR-0002），所以這裡順便也在示範消費端該怎麼
- * 測他們自己接 frond 的那一層：不需要一個 EPUB 檔案。
+ * `MemoryBook` is part of the public API (ADR-0002), so this doubles as a demonstration
+ * of how a consumer should test their own integration layer: without an EPUB file.
  */
 
 import { StrictMode, useEffect, useSyncExternalStore, type ReactNode } from "react";
@@ -25,7 +26,7 @@ import type {
   SettingsPatch,
 } from "../harness.ts";
 
-/** 段落夠多，一節排得出好幾頁——不然 `atEnd` 從第一頁就是真的。 */
+/** Enough paragraphs for a section to lay out over several pages — otherwise `atEnd` is true from page one. */
 function prose(marker: string): string {
   const paragraph = `<p>${marker}　この文章は折り返しと改ページを起こすためだけに置かれている。`
     .concat("いろはにほへとちりぬるを".repeat(24))
@@ -48,11 +49,12 @@ const BOOKS: Record<"one" | "two", RenderableBook> = {
   }),
 };
 
-// --- 一顆給 React 讀的外部狀態 ----------------------------------------------
+// --- One external store for React to read ----------------------------------
 //
-// 用 `useSyncExternalStore` 而不是把 `setState` 存到模組變數裡。後者要在 render
-// 期間寫一個模組層的變數，而那在 StrictMode 底下（render 會跑兩次）是最容易騙過
-// 自己的一種寫法——偏偏 StrictMode 正是這批測試要驗的東西。
+// `useSyncExternalStore` rather than stashing `setState` in a module variable. The latter
+// means writing a module-level variable during render, which under StrictMode (where
+// render runs twice) is the easiest way there is to fool yourself — and StrictMode is
+// precisely what these tests are here to verify.
 
 let config: MountConfig = { book: null };
 const subscribers = new Set<() => void>();
@@ -67,21 +69,23 @@ function publish(next: MountConfig): void {
   for (const listener of subscribers) listener();
 }
 
-// --- 觀測 -------------------------------------------------------------------
+// --- Observation ------------------------------------------------------------
 
 let loadCount = 0;
 let childClickCount = 0;
 let location: LocationSnapshot | null = null;
 
 /**
- * 出現過的 `Renderer` 實例。**大小就是「掛了幾次書」。**
+ * The `Renderer` instances that have appeared. **Its size is "how many times a book was
+ * mounted".**
  *
- * 用集合而不是計數器，是因為 StrictMode 會把每一個 effect 掛、卸、再掛一次——計數
- * 器在那裡會跳成 2，而那一次「重掛」用的仍然是同一個 `Renderer`。要區分的兩件事
- * （「effect 跑了兩次」與「真的又 attach 了一次」）只有 identity 分得開。
+ * A set rather than a counter, because StrictMode mounts, unmounts and remounts every
+ * effect — a counter would jump to 2 there, while that "remount" still used the same
+ * `Renderer`. Only identity separates the two things that need separating ("the effect
+ * ran twice" and "something really attached again").
  *
- * 這也是為什麼不能用 `load` 事件的次數來當這個指標：換一次讀者設定會重建文件，
- * 於是 `load` 也會多一次——但那不是重掛書。
+ * It is also why the `load` event count cannot serve as this metric: changing a reader
+ * setting rebuilds the document, so `load` fires again too — and that is not a remount.
  */
 const seenRenderers = new Set<unknown>();
 
@@ -120,7 +124,7 @@ function App(): ReactNode {
   );
 }
 
-/** 記下每一個出現過的 `Renderer`。它自己不畫任何東西。 */
+/** Records every `Renderer` that appears. It draws nothing itself. */
 function Observer(): ReactNode {
   const { renderer } = Reader.useReader();
 
@@ -132,10 +136,11 @@ function Observer(): ReactNode {
 }
 
 /**
- * 政策掛在一個什麼都不畫的元件上。
+ * Policy hangs on a component that draws nothing.
  *
- * 這正是 `paging.ts` 檔頭建議的形狀——寫在這裡是因為它同時是這個套件的使用範例，
- * 而範例最好就是測試實際跑的那一份。
+ * This is exactly the shape `paging.ts`'s header comment recommends — written out here
+ * because it doubles as this package's usage example, and an example is best when it is
+ * the one the tests actually run.
  */
 function Paging(): ReactNode {
   Reader.useKeyboardPaging();
@@ -146,19 +151,19 @@ function Toolbar({ asChild }: { readonly asChild: boolean }): ReactNode {
   if (!asChild) {
     return (
       <>
-        <Reader.PreviousTrigger data-testid="previous">前一頁</Reader.PreviousTrigger>
-        <Reader.NextTrigger data-testid="next">下一頁</Reader.NextTrigger>
+        <Reader.PreviousTrigger data-testid="previous">Previous page</Reader.PreviousTrigger>
+        <Reader.NextTrigger data-testid="next">Next page</Reader.NextTrigger>
       </>
     );
   }
 
-  // child 帶著自己的 `onClick` 與自己的 `className`——兩者都該與零件那一份共存，
-  // 而不是被覆蓋掉（`slot.tsx` 的合併規則）。
+  // The child carries its own `onClick` and its own `className` — both should coexist with
+  // the part's own rather than be overwritten (`slot.tsx`'s merge rules).
   return (
     <>
       <Reader.PreviousTrigger asChild>
         <button type="button" data-testid="previous" className="mine">
-          前一頁
+          Previous page
         </button>
       </Reader.PreviousTrigger>
       <Reader.NextTrigger asChild>
@@ -170,23 +175,25 @@ function Toolbar({ asChild }: { readonly asChild: boolean }): ReactNode {
             childClickCount += 1;
           }}
         >
-          下一頁
+          Next page
         </button>
       </Reader.NextTrigger>
     </>
   );
 }
 
-// --- 掛載 -------------------------------------------------------------------
+// --- Mounting ---------------------------------------------------------------
 
 let root: ReactRoot | undefined;
 
 /**
- * 等 React 把這一次更新刷出去，以及 `Renderer` 掛書那一段非同步的工作跑完。
+ * Waits for React to flush this update, and for `Renderer`'s asynchronous book-mounting
+ * work to finish.
  *
- * 兩個 `requestAnimationFrame` 加一次 microtask flush 不是一個保證——真正的等待
- * 由 spec 那一側的 `expect(locator).toHaveAttribute(…)` 輪詢負責。這裡只是讓
- * `mount()` 回來的時候通常已經有東西可看，省下每支 spec 開頭一行 wait。
+ * Two `requestAnimationFrame`s plus a microtask flush is not a guarantee — the real
+ * waiting is done by the spec side's `expect(locator).toHaveAttribute(…)` polling. This
+ * only makes `mount()` usually return with something to look at, saving a wait line at
+ * the top of every spec.
  */
 function settled(): Promise<void> {
   return new Promise((resolve) => {
@@ -212,7 +219,7 @@ const harness: ReactHarness = {
     config = next;
 
     const container = document.getElementById("root");
-    if (container === null) throw new Error("外殼頁面沒有 #root");
+    if (container === null) throw new Error("the shell page has no #root");
 
     root = createRoot(container);
     root.render(next.strict === true ? <StrictMode><App /></StrictMode> : <App />);

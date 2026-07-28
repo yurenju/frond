@@ -2,70 +2,76 @@ import { unzipSync } from "fflate";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 
 /**
- * 從產出的位元組把一本 EPUB 讀回來，供 fixture 產生器的測試斷言結構。
+ * Reads an EPUB back from the bytes it was built into, so the fixture generator's
+ * tests can assert on its structure.
  *
- * 這裡刻意全部走**外部**的實作：解壓用 fflate、XML 用 fast-xml-parser、相對
- * href 的解析用 WHATWG `URL`。用產生器自己的反向操作來讀自己的產出，任何對
- * 格式的誤解都會在兩邊同時成立，測試照樣全綠——那種測試只證明程式碼跟自己
- * 一致。
+ * Everything here deliberately goes through **external** implementations: fflate for
+ * decompression, fast-xml-parser for XML, WHATWG `URL` for resolving relative hrefs.
+ * Reading the generator's output with the generator's own inverse operations would
+ * make any misunderstanding of the format hold on both sides at once, and the tests
+ * would stay green — that kind of test only proves the code agrees with itself.
  *
- * 這一層不是 `EpubBook` 的雛形，也不該長成那樣（#8）。它只需要夠用來問「這份
- * 產出物是不是一本合規的書」。
+ * This layer is not a prototype of `EpubBook`, and should not grow into one (#8). It
+ * only needs to be enough to ask "is this output a conforming book".
  */
 
-/** 封裝文件的根元素名稱。 */
+/** The root element name of the package document. */
 const PACKAGE_ELEMENT = "package";
 
 /**
- * readingOrder 在 EPUB 封裝格式裡的元素名稱。CONTEXT.md 把 `spine` 列為
- * _Avoid_——這個常數是規格的線上格式用詞，不是識別字，所以它出現在這裡一次，
- * 其餘地方一律叫 readingOrder。
+ * What readingOrder is called in the EPUB packaging format. CONTEXT.md lists `spine`
+ * under _Avoid_ — this constant is the spec's on-the-wire term, not an identifier, so
+ * it appears here once and everywhere else it is readingOrder.
  */
 const READING_ORDER_ELEMENT = "spine";
 
-/** 解析相對 href 用的假 origin。只用來借 WHATWG URL 的解析規則。 */
+/** A fake origin for resolving relative hrefs. Only used to borrow WHATWG URL's rules. */
 const RESOLUTION_ORIGIN = "https://frond.invalid/";
 
 export interface ManifestItem {
   readonly id: string;
-  /** 相對於封裝文件的 href，原樣照抄。 */
+  /** The href relative to the package document, copied verbatim. */
   readonly href: string;
   readonly mediaType: string;
   readonly properties: string | undefined;
-  /** href 解析之後在壓縮檔內的路徑。 */
+  /** The path inside the archive the href resolves to. */
   readonly archivePath: string;
 }
 
 export interface TocEntry {
   readonly label: string;
-  /** 相對於導覽文件的 href，原樣照抄——病症就寫在這裡。 */
+  /** The href relative to the navigation document, copied verbatim — the ailment is written right here. */
   readonly href: string;
-  /** href 解析之後在壓縮檔內的路徑（含 percent-encoding 的還原）。 */
+  /** The path inside the archive the href resolves to (percent-encoding undone). */
   readonly archivePath: string;
 }
 
 /**
- * TOC 的一個節點，**保留層次**。
+ * One TOC node, **with its hierarchy kept**.
  *
- * 與攤平的 `toc` 是兩個不同的問題，所以兩個都在：href 的病症（`%2c`、`../`）
- * 問的是每一項寫成什麼樣，攤平比較好問；巢狀問的是樹長什麼形狀，而那在攤平
- * 之後就消失了——只有攤平版本的話，一份把子項目放成兄弟的導覽文件會全綠。
+ * This is a different question from the flattened `toc`, which is why both exist: the
+ * href ailments (`%2c`, `../`) ask what each entry is written as, and flattened is
+ * easier to ask that of; nesting asks what shape the tree has, and that disappears
+ * once flattened — with only the flattened version, a navigation document that puts
+ * sub-entries in as siblings would come out green.
  */
 export interface TocNode extends TocEntry {
   readonly children: readonly TocNode[];
 }
 
-/** 承載 TOC 的那份檔案是哪一種。EPUB 3 是 `nav.xhtml`，EPUB 2 是 `toc.ncx`。 */
+/** Which kind of file carries the TOC. EPUB 3 is `nav.xhtml`, EPUB 2 is `toc.ncx`. */
 export type NavigationVehicle = "nav" | "ncx";
 
 export interface CoverDeclaration {
   readonly item: ManifestItem;
   /**
-   * 是哪一種寫法**找到**它的，依 ADR-0010 的順序：先 properties，再 meta。
+   * Which form of declaration **found** it, in ADR-0010's order: properties first,
+   * then meta.
    *
-   * 刻意不叫 `declaredBy`——產生器那一側的 `CoverSpec.declaredBy` 是一份清單
-   * （這本書用了哪幾種寫法宣告封面），這裡是單一值（依優先順序先命中的那一
-   * 種）。同名會讓兩個不同的問題看起來只是基數不同。
+   * Deliberately not named `declaredBy` — the generator side's `CoverSpec.declaredBy`
+   * is a list (which forms this book declares its cover with), and this is a single
+   * value (the first one to hit, in priority order). Sharing a name would make two
+   * different questions look like they only differ in cardinality.
    */
   readonly foundBy: "cover-image-property" | "meta-name";
 }
@@ -73,23 +79,23 @@ export interface CoverDeclaration {
 export interface EpubArchive {
   readonly entryPaths: readonly string[];
   readonly packageDocumentPath: string;
-  /** `<package version>` 原樣照抄。EPUB 版本的判準，`"3.0"` 或 `"2.0"`。 */
+  /** `<package version>` copied verbatim. The criterion for the EPUB version, `"3.0"` or `"2.0"`. */
   readonly packageVersion: string;
   readonly manifest: readonly ManifestItem[];
-  /** readingOrder——封裝文件的 `<spine>` 解析成 manifest item。 */
+  /** readingOrder — the package document's `<spine>` resolved into manifest items. */
   readonly readingOrder: readonly ManifestItem[];
-  /** `<spine toc>` 指向的 manifest id。EPUB 3 沒有這個屬性時是 undefined。 */
+  /** The manifest id `<spine toc>` points at. undefined when an EPUB 3 has no such attribute. */
   readonly readingOrderTocId: string | undefined;
-  /** 沒宣告時是 undefined，與宣告成 `"ltr"` 有別。 */
+  /** undefined when undeclared, which differs from being declared `"ltr"`. */
   readonly pageProgressionDirection: string | undefined;
   readonly navigationPath: string;
-  /** TOC 是從哪一種載體讀出來的。ADR-0010 要 frond 回報這件事。 */
+  /** Which vehicle the TOC was read from. ADR-0010 requires frond to report this. */
   readonly navigationVehicle: NavigationVehicle;
-  /** TOC 攤平成文件順序的一串。巢狀的層次見 `tocTree`。 */
+  /** The TOC flattened into document order. For the hierarchy, see `tocTree`. */
   readonly toc: readonly TocEntry[];
-  /** TOC 保留層次的樣子。頂層項目在這裡，子項目在各自的 `children` 底下。 */
+  /** The TOC with its hierarchy kept. Top-level entries are here, sub-entries under their own `children`. */
   readonly tocTree: readonly TocNode[];
-  /** 兩種寫法都找不到就是這本書沒有封面——那不是錯誤（ADR-0010）。 */
+  /** Neither form found means this book has no cover — which is not an error (ADR-0010). */
   readonly cover: CoverDeclaration | undefined;
   readonly stylesheet: string;
   readonly language: string;
@@ -106,7 +112,7 @@ export function openEpub(archive: Uint8Array): EpubArchive {
     const found = entries[archivePath];
     if (found === undefined) {
       throw new Error(
-        `壓縮檔內沒有 ${archivePath}。有的是：${Object.keys(entries).join(", ")}`,
+        `The archive has no ${archivePath}. It has: ${Object.keys(entries).join(", ")}`,
       );
     }
     return found;
@@ -143,7 +149,7 @@ export function openEpub(archive: Uint8Array): EpubArchive {
     const idref = String(itemref["@_idref"]);
     const item = manifest.find((candidate) => candidate.id === idref);
     if (item === undefined) {
-      throw new Error(`readingOrder 指向 manifest 沒有的 id：${idref}`);
+      throw new Error(`readingOrder points at an id the manifest does not have: ${idref}`);
     }
     return item;
   });
@@ -163,9 +169,10 @@ export function openEpub(archive: Uint8Array): EpubArchive {
     text(navigation.item.archivePath),
     navigation.item.archivePath,
   );
-  // 兩種載體的 TOC 各自從自己的根元素往下讀，而不是在整份文件上遞迴找標籤。
-  // 遞迴找的話，`<nav>` 之外的 `<a>`（例如 landmarks 那份 nav）也會被收進來，
-  // 而那不是 TOC。
+  // Each vehicle's TOC is read down from its own root element, rather than by
+  // recursively hunting for tags across the whole document. Hunting would gather
+  // `<a>` elements outside the `<nav>` too (the landmarks nav, for instance), and
+  // those are not the TOC.
   const tocTree = resolveTocTree(
     navigation.vehicle === "ncx"
       ? collectNcxTree(pickPath(navigationDocument, "ncx", "navMap"))
@@ -175,7 +182,7 @@ export function openEpub(archive: Uint8Array): EpubArchive {
 
   const stylesheetItem = manifest.find((item) => item.mediaType === "text/css");
   if (stylesheetItem === undefined) {
-    throw new Error("manifest 內沒有樣式表");
+    throw new Error("The manifest has no stylesheet");
   }
 
   return {
@@ -203,12 +210,13 @@ export function openEpub(archive: Uint8Array): EpubArchive {
 }
 
 /**
- * 承載 TOC 的是哪一份檔案。順序照 ADR-0010：
+ * Which file carries the TOC. The order follows ADR-0010:
  *
- * 1. 宣告 3.x 時 `properties="nav"` 贏，NCX 完全忽略
- * 2. 宣告 2.x 時只有 NCX 這條路
- * 3. 宣告 3.x 卻找不到 nav 時**退回 NCX**，不丟錯——書的封裝宣告與內容不一致
- *    是常態，而讀者要的是書打得開
+ * 1. When 3.x is declared, `properties="nav"` wins and the NCX is ignored entirely
+ * 2. When 2.x is declared, the NCX is the only route
+ * 3. When 3.x is declared but no nav is found, **fall back to the NCX** rather than
+ *    throwing — a book whose packaging declaration and contents disagree is the norm,
+ *    and what the reader wants is for the book to open
  */
 function findNavigation(
   manifest: readonly ManifestItem[],
@@ -220,23 +228,25 @@ function findNavigation(
     return { item: nav, vehicle: "nav" };
   }
 
-  // NCX 的指法是 `<spine toc>`。這裡刻意**不**加「找不到就掃 media type」的
-  // 後援：ADR-0010 的四條規則裡沒有那一條，而在這一層多發明一條規則，等於讓
-  // 支援層對一本封裝宣告有問題的書比 EpubBook 還寬容——於是產生器漏寫
-  // `<spine toc>` 時沒有任何東西會紅。
+  // The NCX is pointed at by `<spine toc>`. There is deliberately **no** "scan media
+  // types when that is missing" fallback here: ADR-0010's four rules do not include
+  // one, and inventing an extra rule at this layer would make the support layer more
+  // forgiving of a badly packaged book than EpubBook is — so nothing would go red when
+  // the generator forgets to write `<spine toc>`.
   const ncx = manifest.find((item) => item.id === readingOrderTocId);
   if (ncx !== undefined) {
     return { item: ncx, vehicle: "ncx" };
   }
 
   throw new Error(
-    `找不到導覽文件：version="${packageVersion}" 既沒有 properties="nav" 的項目，<spine toc> 也沒有指到 NCX`,
+    `No navigation document: version="${packageVersion}" has neither an item with properties="nav" nor a <spine toc> pointing at an NCX`,
   );
 }
 
 /**
- * 封面。**先 properties，再 `<meta name="cover">`，兩者都沒有就是沒有封面**
- * ——不按版本分派（ADR-0010：樣本裡有一本 EPUB 3 只用舊寫法）。
+ * The cover. **properties first, then `<meta name="cover">`, and neither means no
+ * cover** — no dispatch on version (ADR-0010: one EPUB 3 in the sample uses only the
+ * old form).
  */
 function findCover(
   manifest: readonly ManifestItem[],
@@ -255,24 +265,26 @@ function findCover(
   const id = String(meta["@_content"]);
   const item = manifest.find((candidate) => candidate.id === id);
   if (item === undefined) {
-    // 這一層讀的是**我們自己產生的** fixture，所以指不到的 id 只可能是產生器的
-    // bug，吵出來是對的。`EpubBook`（#8）的義務相反：ADR-0010 說書的封裝宣告
-    // 與內容不一致是常態，那邊要回報「這本書沒有封面」而不是丟錯。
+    // This layer reads the fixtures **we generated ourselves**, so an id that points
+    // nowhere can only be a generator bug, and making noise is right. `EpubBook`'s
+    // (#8) obligation is the opposite: ADR-0010 says a book whose packaging
+    // declaration and contents disagree is the norm, so there it must report "this
+    // book has no cover" rather than throw.
     throw new Error(
-      `<meta name="cover" content="${id}"> 指向 manifest 沒有的 id（content 要放 id，不是 href）`,
+      `<meta name="cover" content="${id}"> points at an id the manifest does not have (content takes an id, not an href)`,
     );
   }
   return { item, foundBy: "meta-name" };
 }
 
-/** manifest item 的 `properties` 是空白分隔的清單，不是單一值。 */
+/** A manifest item's `properties` is a whitespace-separated list, not a single value. */
 function hasProperty(item: ManifestItem, property: string): boolean {
   return (item.properties ?? "").split(/\s+/).includes(property);
 }
 
 /**
- * 解析壓縮檔內的相對 href。借 WHATWG URL 的規則——它同時處理 `../` 與
- * percent-encoding，而那兩者各自是一個病症。
+ * Resolves a relative href inside the archive. Borrows WHATWG URL's rules — it handles
+ * both `../` and percent-encoding, and each of those is an ailment in its own right.
  */
 export function resolve(href: string, fromArchivePath: string): string {
   const base = new URL(fromArchivePath, RESOLUTION_ORIGIN);
@@ -280,11 +292,11 @@ export function resolve(href: string, fromArchivePath: string): string {
   return decodeURIComponent(resolved.pathname).slice(1);
 }
 
-/** XML 的良構性。XHTML 不是 HTML——少一個結束標籤，三家瀏覽器都會拒絕整份文件。 */
+/** XML well-formedness. XHTML is not HTML — one missing end tag and all three browsers reject the whole document. */
 export function assertWellFormedXml(source: string, label: string): void {
   const result = XMLValidator.validate(source, { allowBooleanAttributes: false });
   if (result !== true) {
-    throw new Error(`${label} 不是良構的 XML：${result.err.msg}（第 ${result.err.line} 行）`);
+    throw new Error(`${label} is not well-formed XML: ${result.err.msg} (line ${result.err.line})`);
   }
 }
 
@@ -295,8 +307,9 @@ function parseXml(source: string, label: string): XmlNode {
   const parser = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: "@_",
-    // 元素名稱保留前綴（dc:language、epub:type），因為 fixture 的斷言要看得到
-    // 它們——命名空間寫錯是 EPUB 最常見的靜默失敗。
+    // Element names keep their prefixes (dc:language, epub:type), because the fixture
+    // assertions need to see them — a wrong namespace is EPUB's most common silent
+    // failure.
     removeNSPrefix: false,
     isArray: (name) =>
       ["item", "itemref", "li", "rootfile", "navPoint"].includes(name),
@@ -307,12 +320,12 @@ function parseXml(source: string, label: string): XmlNode {
 function pick(node: XmlNode, key: string): XmlNode {
   const value = node[key];
   if (value === undefined) {
-    throw new Error(`XML 內找不到 ${key}`);
+    throw new Error(`No ${key} in the XML`);
   }
   return (Array.isArray(value) ? value[0] : value) as XmlNode;
 }
 
-/** 一路往下取。多層的 pick 疊在一起讀起來是反的。 */
+/** Descends a path. Stacked picks read backwards. */
 function pickPath(node: XmlNode, ...keys: readonly string[]): XmlNode {
   return keys.reduce((current, key) => pick(current, key), node);
 }
@@ -320,7 +333,7 @@ function pickPath(node: XmlNode, ...keys: readonly string[]): XmlNode {
 function pickText(node: XmlNode, key: string): string {
   const value = node[key];
   if (value === undefined) {
-    throw new Error(`XML 內找不到 ${key}`);
+    throw new Error(`No ${key} in the XML`);
   }
   return String(
     typeof value === "object" && value !== null && "#text" in value
@@ -341,12 +354,14 @@ interface RawTocNode {
 }
 
 /**
- * `nav.xhtml` 的 TOC——標籤與位置都在 `<a>` 上，巢狀是 `<li>` **裡面**再開一個
- * `<ol>`。
+ * `nav.xhtml`'s TOC — label and location both live on the `<a>`, and nesting is
+ * another `<ol>` opened **inside** the `<li>`.
  *
- * 「裡面」是重點：子清單放成 `<li>` 的兄弟時 XHTML 一樣良構、瀏覽器一樣畫得
- * 出來，但那棵樹是平的。這裡照 `<li>` 的邊界收子項目，所以放錯位置的導覽文件
- * 會在深度上看得出來，而不是靜默地變成一串。
+ * "Inside" is the point: a sub-list placed as a sibling of the `<li>` is equally
+ * well-formed XHTML and browsers draw it just the same, but that tree is flat. This
+ * collects sub-entries along the `<li>` boundary, so a navigation document that puts
+ * them in the wrong place shows up as a difference in depth rather than silently
+ * flattening into a single run.
  */
 function collectNavTree(node: XmlNode): RawTocNode[] {
   const list = node["ol"];
@@ -365,12 +380,14 @@ function collectNavTree(node: XmlNode): RawTocNode[] {
 }
 
 /**
- * NCX 的 TOC——標籤在 `<navLabel><text>`，位置在 `<content src>`，兩者是
- * navPoint 的兩個**不同**子元素。這是與 `nav.xhtml` 最大的形狀差異：那邊一個
- * `<a>` 同時帶著兩者，這邊要把它們湊起來，而湊錯（例如拿 navPoint 的 id 當
- * 標籤）在平的 TOC 上看不出來。
+ * The NCX's TOC — the label is in `<navLabel><text>` and the location in
+ * `<content src>`, two **different** children of the navPoint. That is the biggest
+ * shape difference from `nav.xhtml`: there a single `<a>` carries both, here they have
+ * to be put together, and putting them together wrongly (taking the navPoint's id as
+ * the label, say) is invisible in a flat TOC.
  *
- * 巢狀則是 navPoint 直接套 navPoint，中間沒有 `<ol>` 那種容器元素。
+ * Nesting is a navPoint directly inside a navPoint, with no `<ol>`-style container
+ * element in between.
  */
 function collectNcxTree(node: XmlNode): RawTocNode[] {
   return asArray(node["navPoint"]).map((navPoint) => ({
@@ -380,7 +397,7 @@ function collectNcxTree(node: XmlNode): RawTocNode[] {
   }));
 }
 
-/** 把每一項的 href 解析成壓縮檔內的路徑，層次原樣保留。 */
+/** Resolves each entry's href into a path inside the archive, hierarchy untouched. */
 function resolveTocTree(
   nodes: readonly RawTocNode[],
   fromArchivePath: string,
@@ -393,7 +410,7 @@ function resolveTocTree(
   }));
 }
 
-/** 把樹攤平成文件順序：先自己，再子項目。 */
+/** Flattens the tree into document order: self first, then children. */
 function flattenToc(nodes: readonly TocNode[]): TocEntry[] {
   return nodes.flatMap((node) => [node, ...flattenToc(node.children)]);
 }

@@ -7,42 +7,47 @@ import { EpubBook } from "../../../packages/frond/src/epub/index.ts";
 import type { AilmentName } from "../../../packages/frond/src/test-fixtures/index.ts";
 
 /**
- * 把 frond 餵進瀏覽器。
+ * Feeding frond into a browser.
  *
- * ## 為什麼沒有打包器
+ * ## Why there is no bundler
  *
- * `Renderer` 的模組圖裡**一個 bare specifier 都沒有**——它只相依 `src/renderer/`
- * 自己與 `src/epub/` 裡兩支零相依的純函式模組（`cfi.ts`、`resource-path.ts`）。
- * 解壓與 XML 解析那兩個套件在 `EpubBook` 那一層，而 `Renderer` 收的是
- * `RenderableBook` 這個窄介面而不是 `EpubBook`（`src/renderer/book.ts`）。
+ * `Renderer`'s module graph contains **not one bare specifier** — it depends only on
+ * `src/renderer/` itself and two zero-dependency pure-function modules from `src/epub/`
+ * (`cfi.ts`, `resource-path.ts`). The decompression and XML parsing packages live at the
+ * `EpubBook` layer, and `Renderer` takes the narrow `RenderableBook` interface rather
+ * than `EpubBook` (`src/renderer/book.ts`).
  *
- * 於是「把原始碼送進頁面」剩下一件事：把 TypeScript 的型別剝掉。Node 內建的
- * `stripTypeScriptTypes` 就做這個，所以這裡不需要引入打包器，也就不需要為了測試
- * 而多一份與正式建置不同的模組解析設定——那種設定漂掉的時候，症狀是「測試綠但
- * 消費端 build 不起來」。
+ * That leaves one thing to do to get the source into the page: strip TypeScript's types.
+ * Node's built-in `stripTypeScriptTypes` does exactly that, so no bundler has to be
+ * introduced — and so no second module-resolution configuration, differing from the real
+ * build, has to exist for the tests. When that kind of configuration drifts, the symptom
+ * is "tests green but the consumer cannot build".
  *
- * 剝型別而不是轉譯，代價是原始碼裡不能出現不可抹除的語法（`enum`、`namespace`、
- * 建構子參數屬性）。那個限制與 `tsconfig.json` 已經為了讓 `node` 直接跑 `src/`
- * 而接受的限制是同一條，所以沒有新增任何約束。
+ * Stripping rather than transpiling costs the ability to use non-erasable syntax in the
+ * source (`enum`, `namespace`, constructor parameter properties). That restriction is the
+ * same one `tsconfig.json` already accepts so that `node` can run `src/` directly, so
+ * nothing new is being constrained.
  *
- * ## 為什麼是攔截而不是起一個伺服器
+ * ## Why interception rather than a server
  *
- * 容器以 `--network=none` 執行（`scripts/test-in-container.sh`）。Playwright 的
- * 路由攔截在請求離開瀏覽器之前就把它接走，所以連 loopback 都不需要——少一個會在
- * 別人的環境變成無法重現的紅燈的東西。
+ * The container runs with `--network=none` (`scripts/test-in-container.sh`). Playwright's
+ * route interception takes a request before it leaves the browser, so not even loopback
+ * is needed — one fewer thing to turn into an irreproducible red test in somebody else's
+ * environment.
  */
 
 export const ORIGIN = "http://frond.test";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
-/** 頁面裡那個容器元素的 id。 */
+/** The id of the container element in the page. */
 export const VIEWPORT_ID = "viewport";
 
 /**
- * 讓這個 page 認得 `http://frond.test`，並開啟外殼頁面。
+ * Teaches this page about `http://frond.test` and opens the shell page.
  *
- * 呼叫之後 `window.frond` 就緒（`tests/browser/support/page/frond-page.ts`）。
+ * After the call, `window.frond` is ready
+ * (`tests/browser/support/page/frond-page.ts`).
  */
 export async function openHarness(page: Page): Promise<void> {
   await page.route(`${ORIGIN}/**`, async (route) => {
@@ -78,11 +83,12 @@ export async function openHarness(page: Page): Promise<void> {
 }
 
 /**
- * 把一份合成 fixture 掛上去，回傳掛好之後的位置。
+ * Mounts a synthetic fixture and returns the position it lands at.
  *
- * 書在 **Node 這一側**用 `EpubBook` 開，逐檔餵進頁面。這樣測到的是實際的書經過
- * 實際的解析層之後的內容——不是一份為了方便而手寫的 XHTML——而瀏覽器那邊仍然不
- * 需要解壓與 XML 解析。
+ * The book is opened with `EpubBook` **on the Node side** and fed into the page file by
+ * file. What gets measured is therefore a real book after a real parsing layer — not
+ * XHTML hand-written for convenience — while the browser side still needs no
+ * decompression and no XML parsing.
  */
 export async function mountFixture(
   page: Page,
@@ -95,18 +101,18 @@ export async function mountFixture(
   );
 }
 
-/** 掛書時可以先給一組讀者設定。 */
+/** A set of reader settings can be supplied up front when mounting. */
 export interface MountOptions {
   readonly settings?: SettingsPatch;
-  /** 容器尺寸。省略時用外殼頁面的預設值。 */
+  /** The container's size. Omitted uses the shell page's default. */
   readonly viewport?: { readonly width: number; readonly height: number };
-  /** 第一節要渲染哪裡。對應 `RendererOptions.start`。 */
+  /** Where in the first section to render. Corresponds to `RendererOptions.start`. */
   readonly start?:
     | { readonly cfi: string }
     | { readonly sectionIndex: number; readonly fragment?: string };
 }
 
-/** `ReaderSettings` 的可序列化版本——`page.evaluate` 只送得過去純資料。 */
+/** A serializable form of `ReaderSettings` — `page.evaluate` can only send plain data across. */
 export interface SettingsPatch {
   readonly fontFamily?: string;
   readonly fontSize?: number;
@@ -117,11 +123,11 @@ export interface SettingsPatch {
 }
 
 /**
- * 一次量測。
+ * One measurement.
  *
- * `fraction` 用 `null` 而不是 `undefined`：跨過 `page.evaluate` 的邊界時
- * `undefined` 的欄位會整個消失，於是「還沒建好索引」與「這個欄位不存在」變成同
- * 一件事。
+ * `fraction` uses `null` rather than `undefined`: crossing `page.evaluate`'s boundary
+ * makes an `undefined` field disappear entirely, so "the index is not built yet" and
+ * "this field does not exist" would become the same thing.
  */
 export interface Snapshot {
   readonly writingMode: "horizontal-tb" | "vertical-rl";
@@ -135,18 +141,21 @@ export interface Snapshot {
   readonly atEnd: boolean;
 }
 
-/** 頁面那一側的操作面。實作在 `tests/browser/support/page/frond-page.ts`。 */
+/** The page side's operating surface. Implemented in `tests/browser/support/page/frond-page.ts`. */
 export interface FrondHarness {
   mount(fixture: string, options: MountOptions): Promise<Snapshot>;
   /**
-   * 用手寫的 XHTML 掛一本 `MemoryBook`，不經過任何 committed fixture。
+   * Mounts a `MemoryBook` from hand-written XHTML, without going through any committed
+   * fixture.
    *
-   * 給的是「這份內容會不會被正確處理」這類問題——例如帶著腳本的書。那種內容
-   * 不該變成一份 committed fixture：ADR-0007 的紀律是一個檔一個病症，而
-   * 「書裡有 script」不是一個排版病症，它是一個安全性質，做成檔案只會讓每一支
-   * 掃過 fixture 目錄的測試都多處理一個特例。
+   * This serves "will this content be handled correctly" questions — a book carrying
+   * scripts, for instance. That kind of content should not become a committed fixture:
+   * ADR-0007's discipline is one file per ailment, and "the book contains a script" is not
+   * a layout ailment but a security property; making it a file would only add a special
+   * case to every test that sweeps the fixture directory.
    *
-   * 這也正是 ADR-0002 要求 frond 自己提供 in-memory 實作的用途。
+   * This is also exactly what ADR-0002's requirement for frond to ship its own in-memory
+   * implementation is for.
    */
   mountInline(sections: readonly string[], options: MountOptions): Promise<Snapshot>;
   next(): Promise<Snapshot>;
@@ -158,38 +167,39 @@ export interface FrondHarness {
   applySettings(patch: SettingsPatch): Promise<Snapshot>;
   resize(width: number, height: number): Promise<Snapshot>;
   /**
-   * 連按 N 次「下一頁」，**不等前一次落地**就發下一次。
+   * Presses "next page" N times, **without waiting for the previous one to land**.
    *
-   * 模擬快速滑動：消費端不會等 `next()` 的 promise。這是「按 N 次前進 N 頁」那條
-   * 不變量唯一測得到的方式——逐次 await 的話佇列永遠只有一個人，測不到任何東西。
+   * Simulates fast swiping: a consumer does not await `next()`'s promise. This is the only
+   * way to measure the "N presses advance N pages" invariant — awaiting each in turn leaves
+   * the queue with a single occupant, and measures nothing.
    */
   rapidNext(times: number): Promise<Snapshot>;
-  /** 連續發 N 次 `applySettings`，不等前一次落地——模擬拖滑桿。 */
+  /** Fires `applySettings` N times in a row without waiting — simulates dragging a slider. */
   rapidApplySettings(patches: readonly SettingsPatch[]): Promise<Snapshot>;
-  /** 一個全書進度落在哪一節。索引還沒建好時是 `null`。 */
+  /** Which section a whole-book progress falls in. `null` while the index is not built yet. */
   locate(fraction: number): SectionAtSnapshot | null;
-  /** iframe 元素在容器裡的位置與尺寸——驗邊界用。 */
+  /** The iframe element's position and size within the container — for verifying margins. */
   frameBox(): Rect;
   snapshot(): Snapshot;
-  /** 等整書索引建好，回傳全書字元數。 */
+  /** Waits for the whole-book index and returns the book's character count. */
   waitForIndex(): Promise<number>;
-  /** 某個 CFI 指到的位置往後 `length` 個字元。位置走不到時是 `null`。 */
+  /** The `length` characters following the position a CFI points at. `null` when the position cannot be reached. */
   textAt(cfi: string, length: number): string | null;
-  /** 某個 CFI 在容器座標系裡的矩形。 */
+  /** A CFI's rectangles in the container's coordinate system. */
   rectsFor(cfi: string): readonly Rect[];
-  /** 容器目前的尺寸——判斷一個矩形在不在畫面上時要用它。 */
+  /** The container's current size — needed to decide whether a rectangle is on screen. */
   containerSize(): { readonly width: number; readonly height: number };
-  /** 目前這一節的 iframe 裡，某個選擇器的 computed style。 */
+  /** The computed style of a selector inside the current section's iframe. */
   computed(selector: string, property: string): string;
-  /** 目前這一節的 iframe 文件的 outerHTML——查改寫結果用。 */
+  /** The outerHTML of the current section's iframe document — for inspecting rewrites. */
   html(): string;
-  /** 這一節目前這一頁上，畫得出來的第一個字元的文件座標。 */
+  /** The document coordinate of the first character drawn on this section's current page. */
   scrollOffset(): number;
-  /** 收到過的事件名稱與內容，依順序。 */
+  /** The names and payloads of the events received, in order. */
   events(): readonly EventRecord[];
-  /** 在 iframe 裡選取一段文字，供選字事件測試用。 */
+  /** Selects a run of text inside the iframe, for the selection event tests. */
   selectText(selector: string): void;
-  /** 點一個連結，供 linkactivate 測試用。 */
+  /** Clicks a link, for the linkactivate tests. */
   clickLink(selector: string): void;
   destroy(): void;
 }
@@ -201,7 +211,7 @@ export interface Rect {
   readonly height: number;
 }
 
-/** `Renderer.locate()` 的可序列化版本。 */
+/** A serializable form of `Renderer.locate()`. */
 export interface SectionAtSnapshot {
   readonly sectionIndex: number;
   readonly sectionPath: string;
@@ -222,7 +232,7 @@ declare global {
   }
 }
 
-/** 外殼頁面。容器的尺寸與 `playwright.config.ts` 的 viewport 一致。 */
+/** The shell page. The container's size matches `playwright.config.ts`'s viewport. */
 function shell(): string {
   return `<!doctype html>
 <html lang="ja">
@@ -242,11 +252,11 @@ function shell(): string {
 }
 
 /**
- * 讀一支原始碼並剝掉型別。
+ * Reads one source file and strips its types.
  *
- * 只放行 `packages/` 與 `tests/` 底下的 `.ts`。限制範圍不是安全考量（這是本機的
- * 測試執行器），是為了讓「頁面載得到什麼」這件事有一個明確的邊界——路徑打錯時
- * 得到 404 而不是一份意料之外的檔案。
+ * Only `.ts` under `packages/` and `tests/` is allowed through. The restriction is not a
+ * security measure (this is a local test runner) but a way to give "what the page can
+ * load" a definite boundary — a mistyped path gets a 404 rather than an unexpected file.
  */
 async function readSourceFile(pathname: string): Promise<string | undefined> {
   if (!pathname.endsWith(".ts")) return undefined;
@@ -268,7 +278,7 @@ const ALLOWED_ROOTS = new Set(["packages", "tests"]);
 
 const FIXTURE_DIRECTORY = join(REPO_ROOT, "tests", "fixtures");
 
-/** 開過的書留著，同一支 spec 裡換設定重掛時不必重開一次。 */
+/** Opened books are kept, so remounting with different settings within one spec need not reopen. */
 const openedBooks = new Map<string, Promise<EpubBook>>();
 
 function bookFor(name: string): Promise<EpubBook> {
@@ -286,7 +296,7 @@ async function fulfilBookRequest(
   route: Parameters<Parameters<Page["route"]>[1]>[0],
   url: URL,
 ): Promise<void> {
-  // `/book/<name>/manifest.json` 或 `/book/<name>/bytes?path=…`
+  // `/book/<name>/manifest.json` or `/book/<name>/bytes?path=…`
   const [, , name, kind] = url.pathname.split("/");
   if (name === undefined || kind === undefined) {
     await route.fulfill({ status: 404, body: "" });
