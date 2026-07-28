@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { EpubBook, EpubOpenError, type EpubOpenFailure } from "../../../src/epub/index.ts";
+import { EpubBook, EpubOpenError, type EpubOpenFailure } from "../../../packages/frond/src/epub/index.ts";
 import {
   handmadeBook,
   pack,

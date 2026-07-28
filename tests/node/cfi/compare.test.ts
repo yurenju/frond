@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { compareCfi, parseCfi, type Cfi } from "../../../src/epub/index.ts";
+import { compareCfi, parseCfi, type Cfi } from "../../../packages/frond/src/epub/index.ts";
 
 /**
  * 兩個 CFI 在書中的先後（user story 22：把 annotation 依書中順序排列）。

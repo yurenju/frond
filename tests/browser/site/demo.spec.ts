@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type Page, expect, test } from "@playwright/test";
-import { buildDemoBook } from "../../../src/test-fixtures/demo-book.ts";
+import { buildDemoBook } from "../../../packages/frond/src/test-fixtures/demo-book.ts";
 
 /**
  * 展示頁（`site/`）真的跑得起來。

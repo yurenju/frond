@@ -1,12 +1,12 @@
 import { describe, expect, test } from "vitest";
 import { PNG } from "pngjs";
 import { openEpub, type EpubArchive } from "../support/epub-archive.ts";
-import { buildEpub } from "../../../src/test-fixtures/epub.ts";
+import { buildEpub } from "../../../packages/frond/src/test-fixtures/epub.ts";
 import {
   buildFixture,
   syntheticFixtures,
   type AilmentName,
-} from "../../../src/test-fixtures/index.ts";
+} from "../../../packages/frond/src/test-fixtures/index.ts";
 
 /**
  * EPUB 版本是 fixture 的**第二個軸**（ADR-0007、ADR-0010）。

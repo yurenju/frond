@@ -6,7 +6,7 @@ import { unzipSync } from "fflate";
 import {
   syntheticFixtures,
   type AilmentName,
-} from "../../../src/test-fixtures/index.ts";
+} from "../../../packages/frond/src/test-fixtures/index.ts";
 
 /**
  * 合成 fixture 裡的每一份 XML 在三家瀏覽器裡真的解得開。

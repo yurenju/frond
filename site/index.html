@@ -22,6 +22,7 @@
         與 WebKit 三家上實證驗證。
       </p>
       <nav class="masthead-links">
+        <a href="./react/">用 React？看 frond-react</a>
         <a href="https://github.com/yurenju/frond">GitHub</a>
         <a href="https://github.com/yurenju/frond#readme">說明文件</a>
       </nav>
@@ -66,26 +67,55 @@
           </section>
 
           <section>
-            <h2>用起來長這樣</h2>
+            <h2>怎麼裝</h2>
+            <pre><code>npm install @yurenju/frond</code></pre>
+            <p class="note">
+              你拿到的是純 ES module 加上 <code>.d.ts</code>——你這邊不需要建置
+              步驟，也不需要有 TypeScript。<code>exports</code> 開兩個進入點：
+              <code>@yurenju/frond/epub</code>（純 TypeScript、零 DOM，Node
+              裡也跑得動）與 <code>@yurenju/frond/renderer</code>（要 DOM）。
+            </p>
+
+            <h2>怎麼用</h2>
             <pre><code>&lt;div id="viewer" style="height: 100dvh"&gt;&lt;/div&gt;
 
 &lt;script type="module"&gt;
-  import { EpubBook } from "./frond/epub/index.js";
-  import { Renderer } from "./frond/renderer/index.js";
+  import { EpubBook } from "@yurenju/frond/epub";
+  import { Renderer } from "@yurenju/frond/renderer";
 
   const book = await EpubBook.open(await file.arrayBuffer());
   const renderer = await Renderer.attach(
     book,
     document.getElementById("viewer"),
-    { on: { relocate: (at) =&gt; console.log(at.page, at.pageCount) } },
+    {
+      settings: { fontSize: 20, margin: 32 },
+      on: { relocate: (at) =&gt; console.log(at.page + 1, "/", at.pageCount) },
+    },
   );
+
+  await renderer.next();          // 翻頁是動作，不是事件處理器
+  await renderer.goToCfi(saved);  // 回到上次讀到的地方
 &lt;/script&gt;</code></pre>
             <p class="note">
-              沒有打包器、沒有執行期相依。這一頁本身就是這段程式碼跑起來的樣子
-              ——<a href="https://github.com/yurenju/frond/blob/main/site/app.js"
+              <strong>frond 不吃手勢。</strong> 它說的是事實（現在第幾頁、這一節
+              排成什麼方向、那個連結指向哪一節），「往左滑等於下一頁」是你的決定
+              ——所以 <code>next()</code> 是一個動作而不是一個事件處理器。
+            </p>
+            <p class="note">
+              沒有執行期相依，所以<strong>產物裡一個 bare specifier 都沒有，
+              瀏覽器可以直接 import 它</strong>。這一頁就是那件事的證明：它沒有
+              打包器，所以上面那兩行在它裡面寫成
+              <code>import … from "./frond/epub/index.js"</code>——同一份
+              <code>tsc</code> emit 出來的檔案，只是用路徑指過去而不是用套件名。
+              完整版在
+              <a href="https://github.com/yurenju/frond/blob/main/site/app.js"
                 >app.js</a
-              >
-              是它的完整版。
+              >。
+            </p>
+            <p class="note">
+              用 React 的話還有一層 unstyled 的元件：<a href="./react/"
+                >frond-react</a
+              >。
             </p>
           </section>
         </div>

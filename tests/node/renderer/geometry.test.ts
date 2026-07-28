@@ -10,7 +10,7 @@ import {
   pageOffsetFor,
   resolveColumns,
   type PageMetrics,
-} from "../../../src/renderer/geometry.ts";
+} from "../../../packages/frond/src/renderer/geometry.ts";
 
 /**
  * 分頁算術的單元測試。這一層是純函式，所以它落在測試金字塔底層（ADR-0009）——

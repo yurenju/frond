@@ -77,23 +77,33 @@ RUN chmod +x /usr/local/bin/frond-verify-fonts && frond-verify-fonts
 WORKDIR /work
 
 # 先只複製 manifest，讓相依層在原始碼變動時仍能命中 build cache。
+#
+# workspace 的每一個套件都要有自己的 manifest 在場，否則 `npm ci` 認不出
+# `workspaces` 指到的目錄，會當成缺套件而失敗。這裡逐一列出而不是 `COPY
+# packages/*/package.json`——後者在 Docker 的 COPY 語意下會把每一份都攤平成
+# `packages/package.json`，最後一份蓋掉前一份，而症狀是 npm 抱怨一個名字對不上
+# 的套件。
 COPY package.json package-lock.json ./
+COPY packages/frond/package.json packages/frond/
+COPY packages/frond-react/package.json packages/frond-react/
 # 瀏覽器已經在基底映像裡，不需要再下載一次。
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 #
-# `--ignore-scripts` 是為了 `prepare`。那支 script 跑 `npm run build`，而 build
-# 要有 `src/` 與 `scripts/`——這一層卻只複製了兩份 manifest（那正是它能命中
-# cache 的原因）。不擋掉的話這裡直接失敗。
-#
-# `prepare` 本身不能拿掉：消費端以 git dependency 安裝 frond 時，npm 就是靠它
-# 把 `dist/` 生出來的（ADR-0008）。所以擋的是這一層，不是那支 script。
+# `--ignore-scripts` 是為了根 package.json 的 `prepare`。那支 script 跑
+# `npm run build`，而 build 要有 `packages/*/src/` 與 `scripts/`——這一層卻只複製
+# 了幾份 manifest（那正是它能命中 cache 的原因）。不擋掉的話這裡直接失敗。
 RUN npm ci --ignore-scripts
 
 COPY . .
 
-# 原始碼到齊了才建得起來。兩個東西要它：`tests/node/epub-book/open.test.ts` 會走
-# package.json 的 `exports` 進入點（那條路指向 `dist/`），而展示頁的截圖要
-# `site/frond/` 底下有產物。`npm run site` 內含 `npm run build`。
+# 原始碼到齊了才建得起來。三個東西要它：`tests/node/epub-book/open.test.ts` 會走
+# package.json 的 `exports` 進入點（那條路指向 `packages/frond/dist/`），
+# frond-react 的瀏覽器測試要它自己那份 `dist/`，而展示頁的截圖要 `site/frond/`
+# 底下有產物。
+#
+# 兩步而不是一步：`npm run site` 只建 `@yurenju/frond`（理由見
+# `scripts/build-site.sh`），所以 frond-react 要靠前面那一行的整批 build。
+RUN npm run build
 RUN npm run site
 
 CMD ["npx", "playwright", "test"]

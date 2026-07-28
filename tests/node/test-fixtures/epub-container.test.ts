@@ -4,7 +4,7 @@ import {
   buildFixture,
   syntheticFixtures,
   type AilmentName,
-} from "../../../src/test-fixtures/index.ts";
+} from "../../../packages/frond/src/test-fixtures/index.ts";
 
 /**
  * 產生器的驗收：產出物必須是真的 EPUB，不是「腳本沒丟例外」。

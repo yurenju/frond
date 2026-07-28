@@ -9,15 +9,21 @@ tests/books/commercial/
 # 會變成沒有人維護、CI 卻要跑的東西（docs/agents/pull-requests.md）。
 tests/browser/evidence/
 
-# 出貨產物。`npm run build` 產生，消費端以 git dependency 安裝時由 `prepare`
-# 在他們那邊生成——commit 進來只會讓兩份不同步。
+# 出貨產物，每個套件各一份（packages/*/dist）。`npm run build` 產生——commit 進來
+# 只會讓兩份不同步。
 dist/
 
-# demo 站在建置時把 dist/ 複製到這裡（scripts/build-site.sh）。
+# demo 站在建置時把 packages/frond/dist 複製到這裡（scripts/build-site.sh）。
 site/frond/
 
+# React 那一頁的產物：esbuild 的 bundle，以及從 packages/frond-react 複製過來的
+# 預設樣式。`site/react/index.html` 與 `app.tsx` 是原始碼，留在 repo 裡。
+site/react/bundle.js
+site/react/bundle.js.map
+site/react/frond-react.css
+
 # 展示用的合成書。`npm run demo:book` 隨時產得出來（決定性），內容與理由在
-# src/test-fixtures/demo-book.ts——產物不必進 repo。
+# packages/frond/src/test-fixtures/demo-book.ts——產物不必進 repo。
 tests/books/demo-zh-tw.epub
 
 # 每個人各自的 Claude Code 本機設定與 worktree 工作目錄。前者是個人偏好、後者是

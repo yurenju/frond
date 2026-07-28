@@ -3,8 +3,8 @@ import { stripTypeScriptTypes } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Page } from "@playwright/test";
-import { EpubBook } from "../../../src/epub/index.ts";
-import type { AilmentName } from "../../../src/test-fixtures/index.ts";
+import { EpubBook } from "../../../packages/frond/src/epub/index.ts";
+import type { AilmentName } from "../../../packages/frond/src/test-fixtures/index.ts";
 
 /**
  * 把 frond 餵進瀏覽器。
@@ -244,9 +244,9 @@ function shell(): string {
 /**
  * 讀一支原始碼並剝掉型別。
  *
- * 只放行 `src/` 與 `tests/` 底下的 `.ts`。限制範圍不是安全考量（這是本機的測試
- * 執行器），是為了讓「頁面載得到什麼」這件事有一個明確的邊界——路徑打錯時得到
- * 404 而不是一份意料之外的檔案。
+ * 只放行 `packages/` 與 `tests/` 底下的 `.ts`。限制範圍不是安全考量（這是本機的
+ * 測試執行器），是為了讓「頁面載得到什麼」這件事有一個明確的邊界——路徑打錯時
+ * 得到 404 而不是一份意料之外的檔案。
  */
 async function readSourceFile(pathname: string): Promise<string | undefined> {
   if (!pathname.endsWith(".ts")) return undefined;
@@ -264,7 +264,7 @@ async function readSourceFile(pathname: string): Promise<string | undefined> {
   }
 }
 
-const ALLOWED_ROOTS = new Set(["src", "tests"]);
+const ALLOWED_ROOTS = new Set(["packages", "tests"]);
 
 const FIXTURE_DIRECTORY = join(REPO_ROOT, "tests", "fixtures");
 

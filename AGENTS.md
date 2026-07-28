@@ -1,10 +1,28 @@
 # frond
 
+## 這是一個 workspace，兩個套件
+
+```
+packages/frond/         @yurenju/frond         核心，零相依（ADR-0005）
+packages/frond-react/   @yurenju/frond-react   unstyled React 元件（ADR-0011）
+```
+
+`tests/`、`scripts/`、`site/`、`docs/` 在根目錄，**兩個 test runner 也在根目錄**
+——ADR-0009 那一刀切的是 Node 與瀏覽器，不是套件，所以它沒有變成四個。
+
+改動落在哪個套件會決定一件事：`packages/frond` 的**出貨相依必須是零**，而那不是
+靠 review 守的，三道機制寫在 ADR-0011。在那底下加一個 npm 相依，紅的是
+`npm run build`。
+
 ## 跑東西一律走 `npm run`
 
-`package.json` 的 `scripts` 是這個 repo 唯一的指令入口。**不要直接叫 `npx`、
+根 `package.json` 的 `scripts` 是這個 repo 唯一的指令入口。**不要直接叫 `npx`、
 `node_modules/.bin/` 或工具的裸執行檔**——版本、flag 與路徑都釘在 script 裡，繞過
 去就等於在本機跑一套與 CI 不同的設定，而差異只會在 CI 紅燈時才被發現。
+
+**一律從根目錄跑。** 套件底下那幾支 `build` 是給根目錄的 script 叫的，不是入口
+——單獨跑 `npm run build -w @yurenju/frond-react` 而沒先建 frond，會紅在一個看起來
+像型別錯誤的地方（它解析的是 frond 出貨的 `.d.ts`）。
 
 需要縮小範圍時用 npm 的 `--` 傳參，而不是換一支指令：
 

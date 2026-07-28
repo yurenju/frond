@@ -15,7 +15,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve } from "node:path";
-import { buildDemoBook } from "../src/test-fixtures/demo-book.ts";
+import { buildDemoBook } from "../packages/frond/src/test-fixtures/demo-book.ts";
 
 const REPOSITORY_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_OUTPUT = join(REPOSITORY_ROOT, "tests", "books", "demo-zh-tw.epub");

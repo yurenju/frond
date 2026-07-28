@@ -2,7 +2,7 @@
   // 出貨產物的建置設定。根 `tsconfig.json` 服務的是「在這個 repo 裡工作」——它
   // 收 scripts/ 與 tests/、不 emit、吃 @types/node。這一份只服務一件事：把
   // `src/epub` 與 `src/renderer` 變成消費端 import 得動的 JavaScript。
-  "extends": "./tsconfig.json",
+  "extends": "../../tsconfig.json",
   "compilerOptions": {
     "noEmit": false,
     "rootDir": "src",
@@ -32,7 +32,13 @@
     //
     // `src/test-fixtures/` 用 node:fs 寫檔，所以它在下面被排除掉——它是我們產
     // 合成 fixture 的工具，不是出貨表面的一部分。
-    "types": []
+    "types": [],
+
+    // 根 `tsconfig.json` 的 `paths` 是 dev-time 的方便（讓 frond-react 不必先
+    // build 就 typecheck 得動）。清掉它，同一條紀律就延伸到這裡：這個套件的
+    // 模組圖裡**沒有任何 bare specifier 解析得開**，連一條只在 repo 內成立的
+    // 捷徑都沒有。零相依因此不是靠 review 守的。
+    "paths": {}
   },
   "include": ["src/**/*.ts"],
   "exclude": ["src/test-fixtures/**"]

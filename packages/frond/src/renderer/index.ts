@@ -15,6 +15,7 @@
 
 export { Renderer } from "./renderer.ts";
 export type {
+  RendererListeners,
   RendererOptions,
   RendererStart,
   SectionAnchor,

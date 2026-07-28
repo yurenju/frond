@@ -1,0 +1,35 @@
+{
+  // 出貨產物的建置設定。與 `packages/frond/tsconfig.build.json` 同一個形狀，差別
+  // 只在下面三格註解說明的地方。
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
+
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "rewriteRelativeImportExtensions": true,
+
+    // 不吃 @types/node。這一層跑在瀏覽器裡，理由與 frond 那一份相同。
+    "types": [],
+
+    // **這一格是這份設定存在的理由。**
+    //
+    // 根 `tsconfig.json` 把 `@yurenju/frond/renderer` 對應到 frond 的**原始碼**，
+    // 那是為了讓一棵沒 build 過的樹也 typecheck 得動。清掉之後，這一次建置走的是
+    // 真正的 node_modules 解析——也就是 `packages/frond/package.json` 的 `exports`
+    // 那條路，指向 `dist/` 裡 emit 出來的 `.d.ts`。
+    //
+    // 於是這次建置順便回答了一個 frond 自己回答不了的問題：**它出貨的型別，被另一
+    // 個 TypeScript 專案 import 的時候解不解得開。** frond 的測試全部走相對路徑，
+    // 從來不經過 `exports`；`release.yml` 那個 repo 外的假消費端會驗，但那是發版
+    // 才跑的。這裡讓它變成每一次 build 都在驗的事。
+    //
+    // 代價是**必須先 build frond**。根 package.json 的 `build` 因此把順序寫死，
+    // 沒有用 `--workspaces`（那個旗標不保證拓樸順序）。
+    "paths": {}
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
+}

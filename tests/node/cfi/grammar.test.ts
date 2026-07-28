@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { CfiParseError, parseCfi, serializeCfi } from "../../../src/epub/index.ts";
+import { CfiParseError, parseCfi, serializeCfi } from "../../../packages/frond/src/epub/index.ts";
 
 /**
  * CFI 的文法：字串與結構之間的來回。

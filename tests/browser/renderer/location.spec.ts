@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { compareCfi, parseCfi, serializeCfi } from "../../../src/epub/cfi.ts";
+import { compareCfi, parseCfi, serializeCfi } from "../../../packages/frond/src/epub/cfi.ts";
 import { mountFixture, openHarness } from "../support/harness.js";
 
 /**

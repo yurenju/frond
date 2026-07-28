@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { PNG } from "pngjs";
-import { EpubBook } from "../../../src/epub/index.ts";
+import { EpubBook } from "../../../packages/frond/src/epub/index.ts";
 import { readFixture } from "../support/fixtures.ts";
 import {
   handmadeBook,
