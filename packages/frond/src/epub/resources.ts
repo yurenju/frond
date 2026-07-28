@@ -4,29 +4,38 @@ import type { ManifestItem } from "./package-document.ts";
 import { resolveHref } from "./resource-path.ts";
 
 /**
- * manifest 宣告的資源——**宣告在哪裡**，以及那裡**有沒有東西**。
+ * The resources the manifest declares — **where they are declared to be**, and
+ * whether **anything is actually there**.
  *
- * 這一層是「書怎麼宣告」與「檔案在哪裡」之間的那一刀：上面的 `EpubBook` 只問
- * 「id 是這個的資源在哪裡」，不必再碰 href、相對解析或壓縮檔。
+ * This layer is the cut between "how the book declares things" and "where the files
+ * are": the `EpubBook` above it only asks "where is the resource with this id", and
+ * never has to touch hrefs, relative resolution or the archive again.
  *
- * ## 宣告了卻不在壓縮檔裡，不等於這本書開不起來
+ * ## Declared but not in the archive does not mean the book will not open
  *
- * 這一層**不因為缺檔而拒絕整本書**。缺檔只在那一項落在 readingOrder 上時才致命
- * ——那時讀者是真的少了一段內容，由 `epub-book.ts` 丟 `missing-resource`。
+ * This layer **does not reject a whole book over a missing file**. A missing file is
+ * only fatal when that item is on the readingOrder — at that point the reader really
+ * is missing a stretch of content, and `epub-book.ts` throws `missing-resource`.
  *
- * 依據是量到的數字，不是推論。拿樣本那 33 本繁中／簡中商業書打過兩輪：
+ * The basis is a measurement, not an inference. Two passes over the sample of 33
+ * commercial Traditional/Simplified Chinese books:
  *
- * - 照原本「manifest 缺任一項就拒開」的規則，**33/33 全開得起來**——這批書裡沒有
- *   一本是靠那條規則擋下來的，它的收益是零
- * - 把任何一項**不在 readingOrder 上**的資源從壓縮檔裡拿掉（一張插圖、一份 CSS、
- *   一份 NCX），**33/33 整本開不起來**。而這批書的 manifest 共 3045 項，其中
- *   **1467 項**不在 readingOrder 上，每一項都是一個能讓整本書打不開的單點
+ * - Under the original "refuse to open if any manifest item is missing" rule,
+ *   **33/33 open** — not one book in this set was caught by that rule, so its return
+ *   was zero
+ * - Removing any resource **not on the readingOrder** from the archive (an
+ *   illustration, a stylesheet, an NCX) makes **33/33 fail to open entirely**. And
+ *   these books' manifests hold 3045 items in total, of which **1467** are off the
+ *   readingOrder — each one a single point that can keep the whole book from opening
  *
- * 一本漏了裝飾用插圖的書仍然讀得完，而「這本書打不開」是讀者最不能接受的失效
- * 方式。權衡的方向由 ADR-0010 定：讀者要的是書打得開。
+ * A book missing a decorative illustration still reads through to the end, and "this
+ * book will not open" is the failure mode a reader can least accept. The direction of
+ * the trade-off is set by ADR-0010: what the reader wants is for the book to open.
  *
- * 跳出封裝根（`resource-outside-container`）**仍然當場拒書**。它與缺檔不同：那是
- * 不合規，也是路徑穿越的形狀，而樣本裡一本都沒有——放寬它沒有任何量到的好處。
+ * Escaping the package root (`resource-outside-container`) **still rejects the book
+ * on the spot**. It differs from a missing file: it is non-conforming, and also the
+ * shape of a path traversal, and not one book in the sample does it — relaxing it
+ * buys nothing measurable.
  */
 export interface Resource {
   readonly id: string;
@@ -36,18 +45,20 @@ export interface Resource {
 }
 
 /**
- * 一項資源實際落在哪裡。
+ * Where a resource actually lands.
  *
- * 「宣告的位置」與「那裡有沒有東西」分開表達，因為兩者的處置不同：缺檔要不要
- * 致命取決於誰在用它，而遠端資源在 manifest 上本來就合規。把兩者都壓成
- * `path: undefined` 會讓上層分不出「書寫錯了」與「這一項本來就不在包裡」。
+ * "The declared location" and "whether anything is there" are expressed separately,
+ * because they are handled differently: whether a missing file is fatal depends on
+ * who is using it, and a remote resource in the manifest is conforming to begin
+ * with. Collapsing both into `path: undefined` would leave the layer above unable to
+ * tell "the book wrote it wrong" from "this item was never in the package".
  */
 export type ResourceLocation =
-  /** 在壓縮檔內，而且那一項確實存在。 */
+  /** Inside the archive, and that entry really exists. */
   | { readonly kind: "in-container"; readonly path: string }
-  /** 解析得出壓縮檔內的位置，但那一項不存在。`path` 是書宣告的位置，供診斷。 */
+  /** Resolves to a location inside the archive, but that entry does not exist. `path` is where the book declared it, for diagnostics. */
   | { readonly kind: "missing"; readonly path: string }
-  /** 絕對 URL。EPUB 3 允許遠端資源（`properties="remote-resources"`），frond 不下載它。 */
+  /** An absolute URL. EPUB 3 allows remote resources (`properties="remote-resources"`); frond does not download them. */
   | { readonly kind: "remote" };
 
 export function resolveResources(
@@ -62,7 +73,7 @@ export function resolveResources(
     if (resolved.kind === "outside-container") {
       throw new EpubOpenError(
         "resource-outside-container",
-        `manifest 的 ${item.id} 指向封裝外：href="${item.href}"`,
+        `manifest item ${item.id} points outside the package: href="${item.href}"`,
       );
     }
 

@@ -1,29 +1,33 @@
 /**
- * `asChild` 的實作——把一個零件該有的 props 交給消費端自己的元素去承接。
+ * The implementation of `asChild` — handing the props a part would carry to the consumer's
+ * own element.
  *
- * ## 為什麼需要它
+ * ## Why it is needed
  *
- * 「unstyled」有兩個層次。第一個是不出樣式，那用 `className` 就解決了。第二個是
- * **不出元素**：消費端已經有自己的 `<Button>`（帶著自己的 focus ring、自己的
- * loading 狀態、自己的 design token），而 frond 的 `NextTrigger` 只想貢獻「按下去
- * 會翻頁」與「翻到底了就是 disabled」這兩件事。沒有 `asChild` 的話，消費端只能把
- * 自己的按鈕包在我們的 `<button>` 裡——巢狀的 button 是無效的 HTML，鍵盤與螢幕
- * 閱讀器都會壞掉。
+ * "Unstyled" has two levels. The first is producing no styles, which `className` already
+ * solves. The second is **producing no element**: the consumer already has their own
+ * `<Button>` (with its own focus ring, its own loading state, its own design tokens), and
+ * frond's `NextTrigger` only wants to contribute two things, "pressing it turns the page"
+ * and "at the end it is disabled". Without `asChild`, the consumer could only wrap their
+ * button inside our `<button>` — and a nested button is invalid HTML that breaks both the
+ * keyboard and screen readers.
  *
- * 所以這裡跟 Radix 走同一條路：`asChild` 打開時不渲染自己的元素，改成把 props
- * 併進唯一的那個 child。
+ * So this takes the same route as Radix: with `asChild` on, no element of our own is
+ * rendered and the props are merged into the single child instead.
  *
- * ## 合併規則
+ * ## Merge rules
  *
- * child 的 props 贏過零件的 props，三種例外：
+ * The child's props beat the part's props, with three exceptions:
  *
- *   - `on*` 事件處理器兩邊都跑，**child 先**。零件那一邊是行為（翻頁），child 那
- *     一邊是消費端自己要做的事（收起選單）；哪一邊先跑都合理，跟 Radix 對齊可以
- *     少一個要記的差異。
- *   - `className` 串起來。兩邊都在描述外觀，覆寫掉任一邊都是丟資訊。
- *   - `style` 淺層合併，child 的鍵贏。
+ *   - `on*` event handlers both run, **the child first**. The part's side is behaviour
+ *     (turning the page) and the child's side is whatever the consumer wants to do (closing
+ *     a menu); either order is reasonable, and matching Radix means one fewer difference to
+ *     remember.
+ *   - `className` is concatenated. Both sides are describing appearance, and overwriting
+ *     either loses information.
+ *   - `style` is shallow-merged, with the child's keys winning.
  *
- * ref 兩邊都接得到。
+ * Both sides receive the ref.
  */
 
 import {
@@ -39,11 +43,12 @@ import {
 type AnyProps = Record<string, unknown>;
 
 /**
- * React 19 起 `ref` 是一個普通的 prop，`element.ref` 變成一個會印警告的相容
- * getter。18 則相反：`ref` 從來不在 props 裡。
+ * From React 19 on, `ref` is an ordinary prop and `element.ref` becomes a compatibility
+ * getter that logs a warning. 18 is the opposite: `ref` is never in props.
  *
- * 兩邊都讀是不行的——在 19 上碰 `element.ref` 就會印那行警告，而那會出現在每一個
- * 用了 `asChild` 的消費端的 console 裡。所以在這裡分一次版，只讀對的那一邊。
+ * Reading both is not an option — touching `element.ref` on 19 logs that warning, and it
+ * would appear in the console of every consumer using `asChild`. So the version is checked
+ * once here and only the correct side is read.
  */
 const RENDERS_REF_AS_PROP = Number.parseInt(version, 10) >= 19;
 
@@ -59,8 +64,9 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function assignRef(ref: unknown, node: unknown): void {
   if (typeof ref === "function") {
-    // 刻意不回傳 ref callback 的回傳值。React 19 會把它當成 cleanup 函式，18 則
-    // 直接忽略——兩邊語意不同的東西不要放進共用的路徑。
+    // The ref callback's return value is deliberately not returned. React 19 would treat it
+    // as a cleanup function while 18 ignores it — do not put something with different
+    // semantics on the two sides into a shared path.
     (ref as (value: unknown) => void)(node);
     return;
   }
@@ -116,15 +122,16 @@ export interface SlotProps {
 export const Slot = forwardRef<unknown, SlotProps & AnyProps>(function Slot(props, forwardedRef) {
   const { children, ...slotProps } = props;
 
-  // `Children.only` 丟的錯訊息不錯，但它沒說是誰要求只能有一個 child。自己丟。
+  // `Children.only`'s error message is decent, but it does not say who required exactly one
+  // child. Throw our own.
   if (!isValidElement(children)) {
     throw new Error(
-      "asChild 要求剛好一個 React 元素當 child——收到的不是元素。" +
-        "常見的原因是包了一層 fragment，或者 child 是一段文字。",
+      "asChild requires exactly one React element as its child — what it received is not an element. " +
+        "The usual causes are a wrapping fragment, or a child that is a run of text.",
     );
   }
   if (Children.count(children) !== 1) {
-    throw new Error(`asChild 要求剛好一個 React 元素當 child，收到 ${Children.count(children)} 個。`);
+    throw new Error(`asChild requires exactly one React element as its child; it received ${Children.count(children)}.`);
   }
 
   const child = children as ReactElement<AnyProps>;

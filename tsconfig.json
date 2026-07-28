@@ -11,33 +11,38 @@
     "esModuleInterop": true,
     "types": ["node"],
 
-    // packages/*/src 與 scripts/ 底下一律以 .ts 副檔名互相 import。理由是那些
-    // 檔案要能被 `node` 直接執行（Node 的型別剝離），而剝離器不會把 ./x.js 對應
-    // 回 ./x.ts——它就照字面去找 x.js，然後失敗。tests/browser 沿用既有的 .js
-    // 寫法，bundler resolution 兩種都吃。
+    // Under packages/*/src and scripts/, everything imports everything else with a .ts
+    // extension. The reason is that those files have to be executable by `node` directly
+    // (Node's type stripping), and the stripper does not map ./x.js back to ./x.ts — it looks
+    // for x.js literally and fails. tests/browser keeps its existing .js notation; bundler
+    // resolution accepts both.
     "allowImportingTsExtensions": true,
 
-    // frond-react 的原始碼是 .tsx。這一格對其他每一個套件都是 no-op——沒有 JSX
-    // 的檔案不受影響——所以寫在共用的這一份而不是各自複製一次。
+    // frond-react's source is .tsx. This setting is a no-op for every other package — files
+    // without JSX are unaffected — so it lives in this shared file rather than being copied
+    // into each.
     //
-    // `react-jsx` 而不是 `react`：前者 emit 的是 `react/jsx-runtime` 的呼叫，
-    // 消費端不必在每個檔案頂端 import React。
+    // `react-jsx` rather than `react`: the former emits calls to `react/jsx-runtime`, so
+    // consumers need not import React at the top of every file.
     "jsx": "react-jsx",
 
-    // **這一格只服務「在這個 repo 裡工作」，出貨的建置設定會把它關掉。**
+    // **This setting serves only "working inside this repo"; the shipping build configuration
+    // turns it off.**
     //
-    // frond-react 以 `@yurenju/frond/renderer` 這個 bare specifier 消費 frond，
-    // 而那條路（package.json 的 `exports`）指向 `packages/frond/dist/`。沒有這
-    // 個對應的話，一棵剛 clone 下來、還沒 build 的樹連 `npm run typecheck` 都跑
-    // 不起來——而那個錯誤訊息（找不到模組）完全看不出真正的原因是「還沒 build」。
+    // frond-react consumes frond through the bare specifier `@yurenju/frond/renderer`, and
+    // that route (package.json's `exports`) points at `packages/frond/dist/`. Without this
+    // mapping, a freshly cloned, unbuilt tree cannot even run `npm run typecheck` — and that
+    // error message (module not found) gives no hint that the real cause is "it has not been
+    // built".
     //
-    // 對應到 `src/` 也讓「改 frond、看 frond-react 有沒有跟著壞」變成即時的事，
-    // 不必中間插一次建置。
+    // Mapping to `src/` also makes "change frond, see whether frond-react breaks with it"
+    // immediate, without a build step in between.
     //
-    // 代價是這條路**繞過了出貨的 `.d.ts`**，所以它證明不了消費端拿到的型別是好
-    // 的。那件事由兩個地方守：`packages/frond-react/tsconfig.build.json` 把
-    // `paths` 清空，於是建置走的是真正的 node_modules 解析；以及 `release.yml`
-    // 在 repo 外面用一個假的消費端、開著 `skipLibCheck: false` 再驗一次。
+    // The cost is that this route **bypasses the shipped `.d.ts`**, so it cannot prove the
+    // types a consumer receives are sound. That is guarded in two places:
+    // `packages/frond-react/tsconfig.build.json` clears `paths`, so the build goes through
+    // real node_modules resolution; and `release.yml` verifies it again outside the repo with
+    // a fake consumer and `skipLibCheck: false`.
     "paths": {
       "@yurenju/frond/epub": ["./packages/frond/src/epub/index.ts"],
       "@yurenju/frond/renderer": ["./packages/frond/src/renderer/index.ts"],
@@ -50,13 +55,14 @@
     "scripts/**/*.ts",
     "tests/**/*.ts",
     "tests/**/*.tsx",
-    // 展示站的 React 那一頁。它是 .tsx 而不是像 `site/app.js` 那樣的純
-    // JavaScript——那一頁反正需要打包器（見 scripts/bundle-site-react.ts），所以
-    // 順便讓 typecheck 蓋得到它。它同時是 frond-react 的使用範例，而一份型別沒被
-    // 檢查過的範例會在某次 API 變動之後靜靜地變成錯的。
+    // The demo site's React page. It is .tsx rather than plain JavaScript like
+    // `site/app.js` — that page needs a bundler anyway (see scripts/bundle-site-react.ts), so
+    // typecheck may as well cover it. It is also frond-react's usage example, and an example
+    // whose types are never checked silently becomes wrong after some API change.
     //
-    // `site/app.js` 仍然刻意不在這裡：那一頁的價值就是「純 JavaScript、沒有任何
-    // 建置步驟」，收進來會需要 allowJs 而且守不住任何東西。
+    // `site/app.js` is still deliberately absent: that page's whole value is "plain
+    // JavaScript, no build step at all", and including it would require allowJs while
+    // guarding nothing.
     "site/react/**/*.tsx",
     "playwright.config.ts",
     "vitest.config.ts"

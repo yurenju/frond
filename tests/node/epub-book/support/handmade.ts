@@ -1,39 +1,47 @@
 import { zipSync } from "fflate";
 
 /**
- * 手工組出一本書的位元組，供 `EpubBook` 的測試餵那些**沒有 fixture 的形狀**。
+ * Assembles a book's bytes by hand, so `EpubBook`'s tests can be fed the **shapes no
+ * fixture has**.
  *
- * 合成 fixture（`tests/fixtures/*.epub`）是主力，一個病症一個檔（ADR-0007），
- * 而它們一律是**合規且開得起來**的書——產生器連「EPUB 2 帶 page-progression-
- * direction」這種組合都擋著不讓產出。壞書因此在那一層產不出來：不是 zip、缺
- * `META-INF/container.xml`、OPF 指向不存在的檔案，這些形狀沒有一種能由那支產生器
- * 表達，而它們正是本票錯誤處理那條驗收要餵的東西。
+ * The synthetic fixtures (`tests/fixtures/*.epub`) do the bulk of the work, one file
+ * per ailment (ADR-0007), and they are always **conforming books that open** — the
+ * generator refuses to emit even a combination like "EPUB 2 with a
+ * page-progression-direction". Broken books therefore cannot be produced at that
+ * layer: not a zip at all, a missing `META-INF/container.xml`, an OPF pointing at a
+ * file that does not exist. None of those shapes is expressible by that generator, and
+ * they are exactly what this ticket's error-handling acceptance criterion needs to be
+ * fed.
  *
- * 所以這裡的書**逐位元組由測試自己寫**：OPF 的全文寫在測試裡，這一層只負責打包。
- * 這也讓斷言的期望值有獨立來源——不是拿產生器的反向操作去驗它自己。
+ * So the books here are **written byte by byte by the tests themselves**: the full OPF
+ * text lives in the test, and this layer only packs it. That also gives the assertions
+ * an independent source for their expected values — rather than checking the generator
+ * against its own inverse.
  *
- * 這批書刻意**不進 `tests/fixtures/`**：它們只服務單一條錯誤路徑，不需要跨
- * runner 共用，也不該佔一個「病症」的名字。真正需要進 repo 的形狀（例如
- * manifest 的 `../`）由 #23 產。
+ * These books deliberately **do not go into `tests/fixtures/`**: each serves a single
+ * error path, needs no sharing across runners, and should not take up an "ailment"
+ * name. The shapes that genuinely need to be in the repo (a `../` in the manifest, for
+ * instance) come from #23.
  */
 
 export interface HandmadeEntry {
-  /** 壓縮檔內的路徑，一律以 `/` 分隔。 */
+  /** The path inside the archive, always `/`-separated. */
   readonly path: string;
   readonly contents: string | Uint8Array;
 }
 
 export interface HandmadeBook {
-  /** 封裝文件在壓縮檔內的位置。省略時是 `OEBPS/content.opf`。 */
+  /** Where the package document sits in the archive. Omitted means `OEBPS/content.opf`. */
   readonly packageDocumentPath?: string;
-  /** 封裝文件的全文。 */
+  /** The full text of the package document. */
   readonly packageDocument: string;
   /**
-   * 覆寫 `META-INF/container.xml` 的內容。省略時寫一份指向
-   * `packageDocumentPath` 的合規容器；給 `null` 則整份不寫（缺容器的壞書）。
+   * Overrides the contents of `META-INF/container.xml`. Omitted writes a conforming
+   * container pointing at `packageDocumentPath`; `null` writes no container at all (the
+   * broken book that is missing one).
    */
   readonly container?: string | null;
-  /** 除了容器與封裝文件之外還要放進去的項目。 */
+  /** Entries to include beyond the container and the package document. */
   readonly entries?: readonly HandmadeEntry[];
 }
 
@@ -56,7 +64,7 @@ export function handmadeBook(book: HandmadeBook): Uint8Array {
   return pack(entries);
 }
 
-/** 把項目打包成 ZIP，不加任何 EPUB 的假設——連 `mimetype` 都不補。 */
+/** Packs entries into a ZIP with no EPUB assumptions at all — not even a `mimetype`. */
 export function pack(entries: readonly HandmadeEntry[]): Uint8Array {
   const encoder = new TextEncoder();
   const files: Record<string, Uint8Array> = {};
@@ -66,8 +74,8 @@ export function pack(entries: readonly HandmadeEntry[]): Uint8Array {
         ? encoder.encode(entry.contents)
         : entry.contents;
   }
-  // level 0（stored）：這批書不進 repo，體積無所謂，而未壓縮的位元組在測試失敗
-  // 時可以直接用眼睛看。
+  // level 0 (stored): these books never enter the repo so size does not matter, and
+  // uncompressed bytes can be read by eye when a test fails.
   return zipSync(files, { level: 0 });
 }
 
@@ -82,10 +90,12 @@ function containerXml(packageDocumentPath: string): string {
 }
 
 /**
- * 一份最小但合規的 EPUB 3 封裝文件。
+ * A minimal but conforming EPUB 3 package document.
  *
- * 需要「除了某一處以外都健康」的壞書時從這裡改一處——與 fixture 產生器同一條
- * 紀律（單點差異），只是這裡的單點差異寫在測試裡而不是病症清單裡。
+ * When a "healthy except in one place" broken book is needed, change one thing here —
+ * the same discipline as the fixture generator (a single point of difference), except
+ * that here the single difference is written in the test rather than in the ailment
+ * list.
  */
 export function packageDocument(options: {
   readonly version?: string;
@@ -121,16 +131,17 @@ ${readingOrder}
 }
 
 /**
- * 與 `packageDocument()` 的預設 manifest 相配的那一份內容文件。
+ * The content document that matches `packageDocument()`'s default manifest.
  *
- * 「除了某一處以外都健康」的書大多只需要這一項，各自寫一次的話，預設 manifest
- * 改了路徑就要在每個測試裡追著改。
+ * Most "healthy except in one place" books need only this one entry; writing it out in
+ * each test would mean chasing every one of them whenever the default manifest's path
+ * changes.
  */
 export const HEALTHY_ENTRIES: readonly HandmadeEntry[] = [
   { path: "OEBPS/section-1.xhtml", contents: sectionDocument("朝") },
 ];
 
-/** 一份最小的 XHTML 內容文件。 */
+/** A minimal XHTML content document. */
 export function sectionDocument(title: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>

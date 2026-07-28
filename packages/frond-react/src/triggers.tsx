@@ -1,21 +1,24 @@
 /**
- * 翻頁的兩個按鈕。
+ * The two page-turn buttons.
  *
- * ## 「上一頁／下一頁」是事實，「往左滑」才是政策
+ * ## "Previous/next page" is a fact; "swipe left" is policy
  *
- * 這兩個零件按下去呼叫 `previous()` 與 `next()`，而那是**閱讀順序**上的前後——與
- * 頁面推進方向、書寫方向都無關。一本 `rtl` 的直排書，「下一頁」仍然是下一頁，只是
- * 它畫在畫面的左邊。ADR-0002 拒絕的是 frond 去決定「往左滑等於下一頁」那一類事
- * 情，而不是拒絕承認閱讀順序有前後。
+ * Pressing these two parts calls `previous()` and `next()`, and that is backwards and
+ * forwards along the **reading order** — independent of both the page progression direction
+ * and the writing mode. In an `rtl` vertical book, "next page" is still the next page; it
+ * is merely drawn on the left of the screen. What ADR-0002 refuses is frond deciding things
+ * like "swiping left means next page", not refusing to acknowledge that the reading order
+ * has a direction.
  *
- * 所以這兩個按鈕沒有違反那條線，`useSwipePaging()` 才在線的另一邊——它在
- * `paging.ts`，而且要顯式 import。
+ * So these two buttons do not cross that line, and `useSwipePaging()` is the thing on the
+ * other side of it — it lives in `paging.ts` and has to be imported explicitly.
  *
- * ## 版面順序也是政策
+ * ## Layout order is policy too
  *
- * 這裡不決定哪一顆畫在左邊。`rtl` 的書通常要把「下一頁」放左邊，但那是消費端的
- * CSS——`Viewport` 的 `data-writing-mode` 與 `EpubBook.metadata.pageProgressionDirection`
- * 是判斷的依據，兩者都拿得到。
+ * Which button is drawn on the left is not decided here. An `rtl` book usually wants "next
+ * page" on the left, but that is the consumer's CSS — `Viewport`'s `data-writing-mode` and
+ * `EpubBook.metadata.pageProgressionDirection` are the grounds for deciding, and both are
+ * available.
  */
 
 import { forwardRef, type ComponentPropsWithoutRef, type MouseEvent, type ReactNode } from "react";
@@ -23,15 +26,16 @@ import { dataAttr, useReader } from "./context.ts";
 import { Slot } from "./slot.tsx";
 
 export interface TriggerProps extends ComponentPropsWithoutRef<"button"> {
-  /** 不渲染自己的 `<button>`，把 props 併進唯一的 child。見 `slot.tsx`。 */
+  /** Renders no `<button>` of its own, merging the props into the single child. See `slot.tsx`. */
   readonly asChild?: boolean;
 }
 
 /**
- * 建兩個只差在方向的零件。
+ * Builds two parts differing only in direction.
  *
- * 抽出來不是為了省那十行，是為了讓「兩顆按鈕的行為完全對稱」變成程式碼結構保證的
- * 事——分開寫的話，日後只補其中一顆的那次修改不會有任何東西紅。
+ * Factoring it out is not about saving ten lines, it is about making "the two buttons behave
+ * perfectly symmetrically" something the code structure guarantees — written separately,
+ * the future change that only patches one of them would turn nothing red.
  */
 function createTrigger(
   part: string,
@@ -48,16 +52,17 @@ function createTrigger(
     const handle = useReader();
     const { act, atBoundary } = pick(handle);
 
-    // 三種情況都是「現在按不了」：消費端自己說 disabled、還沒掛好、已經到底。
+    // All three cases mean "cannot be pressed right now": the consumer said disabled, it is
+    // not mounted yet, or we are already at the boundary.
     const isDisabled = disabled === true || handle.renderer === undefined || atBoundary;
 
     const Component = asChild ? Slot : "button";
 
     return (
       <Component
-        // `type="button"` 排在展開之前，消費端覆寫得掉。沒有它的話，這顆按鈕放進
-        // 任何一個 `<form>` 裡都會變成 submit——那是原生 `<button>` 的預設值，而
-        // 症狀是翻一頁整個頁面重新載入。
+        // `type="button"` comes before the spread so the consumer can override it. Without
+        // it, this button becomes a submit inside any `<form>` — that is the native
+        // `<button>` default, and the symptom is the whole page reloading on a page turn.
         type="button"
         {...rest}
         ref={forwardedRef}

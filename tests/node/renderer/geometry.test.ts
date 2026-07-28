@@ -13,41 +13,43 @@ import {
 } from "../../../packages/frond/src/renderer/geometry.ts";
 
 /**
- * 分頁算術的單元測試。這一層是純函式，所以它落在測試金字塔底層（ADR-0009）——
- * 一條邊界條件不必開三家瀏覽器就問得出答案。
+ * Unit tests for the pagination arithmetic. This layer is pure functions, so it sits at
+ * the bottom of the test pyramid (ADR-0009) — a boundary condition can be answered
+ * without opening three browsers.
  *
- * 「欄沿行內軸溢出」這個前提本身不在這裡驗，那是瀏覽器的行為，由
- * `tests/browser/renderer/multicol-geometry.spec.ts` 在三家各釘一次。這裡驗的是
- * **接受那個前提之後的算術**。
+ * The premise that "columns overflow along the inline axis" is not verified here; that
+ * is browser behaviour, and `tests/browser/renderer/multicol-geometry.spec.ts` pins it
+ * once per engine. What is verified here is **the arithmetic that follows from
+ * accepting that premise**.
  */
 
 const VIEWPORT = { width: 800, height: 600 };
 
-describe("分頁軸", () => {
-  test("橫排的頁沿 x 推進，直排沿 y", () => {
+describe("the pagination axis", () => {
+  test("horizontal pages advance along x, vertical ones along y", () => {
     expect(pageAxisFor("horizontal-tb")).toBe("x");
     expect(pageAxisFor("vertical-rl")).toBe("y");
   });
 
-  test("行內軸上的長度：橫排取寬度，直排取高度", () => {
+  test("extent along the inline axis: width when horizontal, height when vertical", () => {
     expect(inlineExtentOf("horizontal-tb", VIEWPORT)).toBe(800);
     expect(inlineExtentOf("vertical-rl", VIEWPORT)).toBe(600);
   });
 
-  test("區塊軸與行內軸互補", () => {
+  test("the block axis is the inline axis's complement", () => {
     expect(blockExtentOf("horizontal-tb", VIEWPORT)).toBe(600);
     expect(blockExtentOf("vertical-rl", VIEWPORT)).toBe(800);
   });
 });
 
-describe("邊界落到實體邊", () => {
-  test("純量是四邊等距，與書寫方向無關", () => {
+describe("margins landing on physical edges", () => {
+  test("a scalar means all four edges alike, regardless of writing mode", () => {
     const expected = { top: 24, right: 24, bottom: 24, left: 24 };
     expect(marginInsets(24, "horizontal-tb")).toEqual(expected);
     expect(marginInsets(24, "vertical-rl")).toEqual(expected);
   });
 
-  test("橫排：行內軸是左右，區塊軸是上下", () => {
+  test("horizontal: the inline axis is left and right, the block axis top and bottom", () => {
     expect(marginInsets({ block: 16, inline: 48 }, "horizontal-tb")).toEqual({
       top: 16,
       right: 48,
@@ -57,12 +59,14 @@ describe("邊界落到實體邊", () => {
   });
 
   /**
-   * 直排時行內軸**是垂直的**（字由上而下），所以 `inline` 給的是上下。
+   * When vertical, the inline axis **is the vertical one** (characters run top to bottom),
+   * so `inline` gives top and bottom.
    *
-   * 這一格算反的話不會報錯：邊界照樣縮，只是讀者調的變成頁與頁之間那條看不見的
-   * 縫，行長一格都沒動。也就是「拖滑桿沒有反應」。
+   * Getting this slot backwards raises no error: the margins still shrink, it is just that
+   * what the reader is adjusting becomes the invisible gutter between pages while the line
+   * length does not move at all. Which reads as "the slider does nothing".
    */
-  test("直排：行內軸是上下，區塊軸是左右——與橫排相反", () => {
+  test("vertical: the inline axis is top and bottom, the block axis left and right — the opposite of horizontal", () => {
     expect(marginInsets({ block: 16, inline: 48 }, "vertical-rl")).toEqual({
       top: 48,
       right: 16,
@@ -71,7 +75,7 @@ describe("邊界落到實體邊", () => {
     });
   });
 
-  test("同一組軸向設定在兩個方向下佔用的總邊界相同，只是換了一軸", () => {
+  test("one axis-relative setting takes up the same total margin in both modes, just on swapped axes", () => {
     const horizontal = marginInsets({ block: 16, inline: 48 }, "horizontal-tb");
     const vertical = marginInsets({ block: 16, inline: 48 }, "vertical-rl");
 
@@ -80,33 +84,35 @@ describe("邊界落到實體邊", () => {
   });
 });
 
-describe("欄數", () => {
-  test("直排一律單欄，即使讀者要兩欄", () => {
-    // ADR-0003 的刻意簡化。讀者的偏好不是錯誤，只是此刻不適用——不丟錯。
+describe("column count", () => {
+  test("vertical is always one column, even when the reader asks for two", () => {
+    // ADR-0003's deliberate simplification. The reader's preference is not an error, it
+    // just does not apply right now — so nothing is thrown.
     expect(resolveColumns("vertical-rl", 2, VIEWPORT)).toBe(1);
     expect(resolveColumns("vertical-rl", "auto", VIEWPORT)).toBe(1);
   });
 
-  test("橫排依讀者指定", () => {
+  test("horizontal follows what the reader specified", () => {
     expect(resolveColumns("horizontal-tb", 1, VIEWPORT)).toBe(1);
     expect(resolveColumns("horizontal-tb", 2, VIEWPORT)).toBe(2);
   });
 
-  test("auto 依可用寬度決定，窄的時候給單欄", () => {
+  test("auto decides on the available width, giving one column when narrow", () => {
     expect(resolveColumns("horizontal-tb", "auto", { width: 1200, height: 600 })).toBe(2);
     expect(resolveColumns("horizontal-tb", "auto", { width: 480, height: 600 })).toBe(1);
   });
 
-  test("auto 看的是行內軸而不是寬度本身——直排的行內軸是高度", () => {
-    // 直排那條先被單欄規則收掉，所以這條問的是「auto 沒有把高度當寬度用」。
-    // 一個 1200 高、480 寬的直排 viewport 若走到寬度判準會得到單欄；走到
-    // 高度判準會得到雙欄。兩者都不對——直排的答案永遠是 1。
+  test("auto looks at the inline axis rather than width itself — vertical's inline axis is height", () => {
+    // The vertical case is caught by the one-column rule first, so what this asks is that
+    // "auto did not use height as width". A vertical viewport 1200 tall and 480 wide would
+    // give one column on a width criterion and two on a height criterion. Neither is right
+    // — vertical's answer is always 1.
     expect(resolveColumns("vertical-rl", "auto", { width: 480, height: 1200 })).toBe(1);
   });
 });
 
-describe("欄的設定", () => {
-  test("橫排單欄：欄寬等於可用寬度，頁距多一個欄距", () => {
+describe("column setup", () => {
+  test("horizontal, one column: the column width equals the available width, and the stride adds one gap", () => {
     const metrics = pageMetrics({
       writingMode: "horizontal-tb",
       viewport: VIEWPORT,
@@ -119,11 +125,12 @@ describe("欄的設定", () => {
     expect(metrics.blockSize).toBe(600);
     expect(metrics.columnWidth).toBe(800);
     expect(metrics.columnCount).toBe(1);
-    // 下一頁的第一欄落在一頁之後再隔一個欄距——那條縫在兩頁之間，讀者看不到。
+    // The next page's first column sits one page plus one gap away — that gutter falls
+    // between two pages, where the reader never sees it.
     expect(metrics.stride).toBe(840);
   });
 
-  test("直排單欄：欄寬取的是高度", () => {
+  test("vertical, one column: the column width is taken from the height", () => {
     const metrics = pageMetrics({
       writingMode: "vertical-rl",
       viewport: VIEWPORT,
@@ -132,15 +139,16 @@ describe("欄的設定", () => {
     });
 
     expect(metrics.axis).toBe("y");
-    // 這一條是 spine 那句「直排欄寬必須剛好等於一個 viewer 高」的機器版本。
-    // 若欄寬跟著寬度走，這裡會是 800，而畫面上會一屏疊出好幾頁。
+    // This is the machine-readable form of spine's "a vertical column's width must equal
+    // exactly one viewer height". If the column width followed the width, this would be
+    // 800, and the screen would stack several pages into one.
     expect(metrics.inlineSize).toBe(600);
     expect(metrics.columnWidth).toBe(600);
     expect(metrics.blockSize).toBe(800);
     expect(metrics.stride).toBe(640);
   });
 
-  test("橫排雙欄：兩欄加中間那條縫剛好填滿可用寬度", () => {
+  test("horizontal, two columns: the two columns plus the gutter between fill the available width exactly", () => {
     const metrics = pageMetrics({
       writingMode: "horizontal-tb",
       viewport: { width: 1000, height: 600 },
@@ -151,11 +159,12 @@ describe("欄的設定", () => {
     expect(metrics.columnWidth).toBe(480);
     expect(metrics.columnCount).toBe(2);
     expect(metrics.columnWidth * 2 + metrics.columnGap).toBe(metrics.inlineSize);
-    // 頁距與單欄是同一個式子：雙欄時頁內那條縫剛好湊回來。
+    // The stride is the same formula as for one column: with two, the in-page gutter makes
+    // up exactly the difference.
     expect(metrics.stride).toBe(1040);
   });
 
-  test("分數尺寸一律取整——分數 DPI 下的頁距不能是分數", () => {
+  test("fractional sizes are always floored — a stride cannot be fractional at fractional DPI", () => {
     const metrics = pageMetrics({
       writingMode: "horizontal-tb",
       viewport: { width: 800.4, height: 600.6 },
@@ -169,7 +178,7 @@ describe("欄的設定", () => {
     expect(Number.isInteger(metrics.stride)).toBe(true);
   });
 
-  test("極窄的 viewport 仍給得出可用的設定，不會出現 0 或負數", () => {
+  test("an extremely narrow viewport still yields a usable setup, never 0 or negative", () => {
     const metrics = pageMetrics({
       writingMode: "horizontal-tb",
       viewport: { width: 10, height: 10 },
@@ -182,7 +191,7 @@ describe("欄的設定", () => {
   });
 });
 
-describe("頁數與頁的位置", () => {
+describe("page count and page position", () => {
   const metrics: PageMetrics = pageMetrics({
     writingMode: "horizontal-tb",
     viewport: VIEWPORT,
@@ -190,42 +199,46 @@ describe("頁數與頁的位置", () => {
     gap: 40,
   });
 
-  test("內容剛好一屏就是一頁", () => {
+  test("content filling exactly one screen is one page", () => {
     expect(pageCountFor(metrics, metrics.inlineSize)).toBe(1);
   });
 
-  test("空文件仍然是一頁，不是零頁", () => {
-    // 零頁沒有任何消費端處理得了——頁碼會變成 1/0，翻頁的邊界判斷會全部翻掉。
+  test("an empty document is still one page, not zero", () => {
+    // No consumer can handle zero pages — the page number becomes 1/0, and every
+    // page-turn boundary check flips.
     expect(pageCountFor(metrics, 0)).toBe(1);
   });
 
-  test("三頁的內容總長換算回三頁", () => {
-    // 三欄之間有兩條縫，所以總長是三個頁距少一個欄距。
+  test("the total extent of three pages converts back to three pages", () => {
+    // Three columns have two gutters between them, so the total is three strides less one
+    // gap.
     const extent = metrics.stride * 3 - metrics.columnGap;
     expect(pageCountFor(metrics, extent)).toBe(3);
   });
 
-  test("多出零點幾個像素不會憑空多一頁", () => {
-    // 分數 DPI 下最常見的那一格。無條件進位會回報一頁空白的第四頁。
+  test("a fraction of a pixel over does not conjure an extra page", () => {
+    // The most common slot at fractional DPI. Rounding up unconditionally would report a
+    // blank fourth page.
     expect(pageCountFor(metrics, metrics.inlineSize + 0.4)).toBe(1);
     expect(pageCountFor(metrics, metrics.stride * 3 - metrics.columnGap + 0.4)).toBe(3);
   });
 
-  test("頁的位置是頁距的整數倍", () => {
+  test("a page's position is an integer multiple of the stride", () => {
     expect(pageOffsetFor(metrics, 0)).toBe(0);
     expect(pageOffsetFor(metrics, 1)).toBe(840);
     expect(pageOffsetFor(metrics, 3)).toBe(2520);
   });
 
-  test("捲動位置換算回頁碼，取最近的一頁", () => {
+  test("a scroll position converts back to the nearest page number", () => {
     expect(pageAt(metrics, 0)).toBe(0);
     expect(pageAt(metrics, 840)).toBe(1);
-    // 瀏覽器把捲動位置調整了零點幾個像素——回報的頁碼不能因此退回上一頁。
+    // The browser nudges the scroll position by a fraction of a pixel — the reported page
+    // number must not fall back a page because of it.
     expect(pageAt(metrics, 839.6)).toBe(1);
     expect(pageAt(metrics, 840.4)).toBe(1);
   });
 
-  test("頁碼與頁位置互為反函數", () => {
+  test("page number and page position are inverses of each other", () => {
     for (let page = 0; page < 20; page += 1) {
       expect(pageAt(metrics, pageOffsetFor(metrics, page))).toBe(page);
     }

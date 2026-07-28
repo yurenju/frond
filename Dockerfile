@@ -1,108 +1,124 @@
-# frond 的測試環境。
+# frond's test environment.
 #
-# 這不是 CI 的附屬設定，而是跨瀏覽器自我差分能否成立的物理前提（ADR-0004）。
-# 差分的 oracle 是 frond 自己：同一本書、同一 viewport、同一組設定在三家瀏覽器
-# 各跑一次互比，差異即紅燈。若三個環境解析到不同的系統字型，比對出的差異會
-# 100% 是字型差異，真正的 bug 會被埋掉。
+# This is not an accessory of the CI configuration; it is the physical precondition for
+# cross-browser self-differencing to work at all (ADR-0004). The oracle for the differencing
+# is frond itself: the same book, the same viewport and the same settings are run once in
+# each of the three browsers and compared, and a difference is a red light. If the three
+# environments resolved to different system fonts, every difference measured would be 100%
+# a font difference, and real bugs would be buried.
 #
-# 同樣的道理讓本機不能直接跑在開發者自己的作業系統上——那會製造「本機綠、
-# CI 紅」這類最消耗人的落差，而落差的原因藏在字型層，極難查。所以 CI 與本機
-# 共用這一個映像。
+# The same reasoning is why local runs cannot happen directly on a developer's own operating
+# system — that would create the most draining kind of gap, "green locally, red in CI", with
+# the cause hidden in the font layer where it is extremely hard to trace. So CI and local
+# machines share this one image.
 
-# 基底釘死到明確版本，不用 floating tag。
-# 這裡的版本必須與 package.json 的 @playwright/test 一致，否則映像內的瀏覽器
-# 與測試套件期待的版本會對不上。
+# The base is pinned to an explicit version, not a floating tag.
+# The version here has to match package.json's @playwright/test, or the browsers in the image
+# will not match the version the test suite expects.
 #
-# 版本上限由映像而非 npm 決定：MCR 的正式映像落後 npm 套件。撰寫當下 npm 的
-# @playwright/test 已經是 1.62.0，但 mcr.microsoft.com/playwright 只有
-# v1.62.0-next-canary-*，正式的最新是 v1.61.1。升級時先查 tag 再動 package.json：
+# The upper bound is set by the image rather than by npm: MCR's official images lag the npm
+# package. At the time of writing, npm's @playwright/test is already 1.62.0, while
+# mcr.microsoft.com/playwright only has v1.62.0-next-canary-*, with v1.61.1 as the latest
+# official. When upgrading, check the tags before touching package.json:
 #   curl -s https://mcr.microsoft.com/v2/playwright/tags/list
 FROM mcr.microsoft.com/playwright:v1.61.1-noble
 
 # ---------------------------------------------------------------------------
-# 字型
+# Fonts
 # ---------------------------------------------------------------------------
 #
-# CJK 字型統一使用 Noto CJK：繁體中文、簡體中文、日文共用同一個字型家族。
-# 理由是避免各語系混用不同設計的字型——那會讓三家瀏覽器各自的 fallback 路徑
-# 有機會分歧，而分歧點藏在字型層極難查。
+# Noto CJK is used uniformly for CJK: Traditional Chinese, Simplified Chinese and Japanese
+# share one font family. The reason is to avoid mixing differently designed fonts across
+# locales — that would give each of the three browsers' fallback paths a chance to diverge,
+# and a divergence hidden in the font layer is extremely hard to trace.
 #
-# 版本釘死的理由不是一般的可重現性衛生，而是：字型更新會改變字形度量，字形
-# 度量改變會改變斷行，斷行改變會改變斷頁。一次無意的更新可以讓整批不變量與
-# 差分測試同時變色，而變色的原因與 frond 的程式碼無關。
+# The reason the version is pinned is not ordinary reproducibility hygiene but this: a font
+# update changes glyph metrics, changed glyph metrics change line breaking, and changed line
+# breaking changes page breaking. One unintended update can turn a whole batch of invariants
+# and differencing tests a different colour, for reasons unrelated to frond's code.
 #
-# 只裝 fonts-noto-cjk（regular 與 bold，安裝後約 91 MB），不裝
-# fonts-noto-cjk-extra（其餘字重，再多約 214 MB）。目前沒有任何 fixture 用到
-# regular / bold 以外的字重；等真的有的時候再加，並在此記下原因。
+# Only fonts-noto-cjk is installed (regular and bold, about 91 MB installed), not
+# fonts-noto-cjk-extra (the remaining weights, another 214 MB or so). No fixture currently
+# uses a weight other than regular or bold; add it when one really does, and record the
+# reason here.
 ARG FONTS_NOTO_CJK_VERSION=1:20230817+repack1-3
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         "fonts-noto-cjk=${FONTS_NOTO_CJK_VERSION}" \
     && rm -rf /var/lib/apt/lists/*
 
-# 把 generic family 與區域字面綁死。只是「裝了字型」不夠：serif 與 sans-serif
-# 的解析順序仍可能因基底映像更新而改變，而區域字面（TC / SC / JP）的選用若
-# 交給各家瀏覽器自己的語言比對，三家可能對同一本日文書選到不同字面。
-# 編號 75 是必要的，不是隨手取的：基底映像的 60-latin.conf 與 fonts-noto-cjk
-# 自帶的 70-fonts-noto-cjk.conf 都會動到同一組 generic family，本檔必須排在
-# 兩者之後。該檔開頭的註解記載了完整的順序規則——包含一條與直覺相反的：
-# mode="prepend" 是插在被 test 命中的值前面，所以先套用的規則優先權較高。
+# Pins the generic families and the regional faces. Merely "having installed the fonts" is
+# not enough: the resolution order for serif and sans-serif could still change with a base
+# image update, and if the choice of regional face (TC / SC / JP) is left to each browser's
+# own language matching, the three may pick different faces for the same Japanese book.
+# The number 75 is necessary rather than arbitrary: the base image's 60-latin.conf and the
+# 70-fonts-noto-cjk.conf that ships with fonts-noto-cjk both touch the same generic
+# families, and this file has to come after both. The comment at the top of that file records
+# the complete ordering rules — including one that runs counter to intuition:
+# mode="prepend" inserts before the value the test matched, so an earlier-applied rule has
+# higher priority.
 COPY docker/fontconfig/75-frond-cjk.conf /etc/fonts/conf.d/75-frond-cjk.conf
 RUN fc-cache --force --really-force
 
-# 行程的 locale 也是字型設定的一部分，所以顯式釘死。
+# The process's locale is part of the font configuration too, so it is pinned explicitly.
 #
-# WebKit 問 fontconfig 要 generic family（serif / sans-serif）時**不帶文件的
-# lang**，缺的那格由 fontconfig 用行程的 locale 補上——於是整個 WebKit 行程
-# 的 CJK 區域字面由這個環境變數決定。實測 LANG=ja_JP.UTF-8 會讓 WebKit 的
-# serif 從 TC 全面變成 JP，連 lang=zh-TW 的文件也一樣（docs/browser-quirks.md）。
+# When WebKit asks fontconfig for a generic family (serif / sans-serif) it **does not pass
+# the document's lang**, and fontconfig fills that gap from the process's locale — so the
+# CJK regional face for the entire WebKit process is decided by this environment variable.
+# Measured, LANG=ja_JP.UTF-8 switches WebKit's serif from TC to JP across the board, even for
+# documents with lang=zh-TW (docs/browser-quirks.md).
 #
-# 基底映像目前就是 C.UTF-8，所以這兩行今天是 no-op。寫出來是因為它一旦漂掉，
-# 症狀是三家的斷行與斷頁一起變，而原因藏在一個沒有人在看的環境變數裡。
+# The base image is already C.UTF-8, so these two lines are a no-op today. They are written
+# out because the moment it drifts, the symptom is all three browsers' line and page breaks
+# changing together, with the cause hidden in an environment variable nobody is looking at.
 #
-# 排在字型驗證之前，那支腳本的 fc-match 才是在釘死的 locale 下跑的——同一個
-# 變數也會改變 fc-match 對 generic family 的答案。
+# Placed before the font verification, so that script's fc-match runs under the pinned locale
+# — the same variable also changes fc-match's answer for a generic family.
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
-# 建置期驗證字型綁定確實生效。放在這裡而不是留給測試，是因為綁定失敗的失敗
-# 模式是「靜默 fallback 到別的字型」——那不會報錯，只會讓後續每一個幾何數字
-# 都建立在錯的字型上。寧可在 build 就炸掉。
+# Verifies at build time that the font bindings really took effect. It is here rather than
+# left to the tests, because the failure mode of a broken binding is a silent fallback to a
+# different font — which raises no error and merely builds every subsequent geometric number
+# on the wrong font. Better to blow up at build.
 COPY docker/verify-fonts.sh /usr/local/bin/frond-verify-fonts
 RUN chmod +x /usr/local/bin/frond-verify-fonts && frond-verify-fonts
 
 # ---------------------------------------------------------------------------
-# 測試套件
+# The test suite
 # ---------------------------------------------------------------------------
 WORKDIR /work
 
-# 先只複製 manifest，讓相依層在原始碼變動時仍能命中 build cache。
+# Copy only the manifests first, so the dependency layer still hits the build cache when the
+# source changes.
 #
-# workspace 的每一個套件都要有自己的 manifest 在場，否則 `npm ci` 認不出
-# `workspaces` 指到的目錄，會當成缺套件而失敗。這裡逐一列出而不是 `COPY
-# packages/*/package.json`——後者在 Docker 的 COPY 語意下會把每一份都攤平成
-# `packages/package.json`，最後一份蓋掉前一份，而症狀是 npm 抱怨一個名字對不上
-# 的套件。
+# Every package in the workspace has to have its own manifest present, or `npm ci` will not
+# recognise the directories `workspaces` points at and fails as if packages were missing.
+# They are listed one by one rather than `COPY packages/*/package.json` — under Docker's COPY
+# semantics the latter flattens each of them onto `packages/package.json`, with the last
+# overwriting the previous, and the symptom is npm complaining about a package whose name
+# does not match.
 COPY package.json package-lock.json ./
 COPY packages/frond/package.json packages/frond/
 COPY packages/frond-react/package.json packages/frond-react/
-# 瀏覽器已經在基底映像裡，不需要再下載一次。
+# The browsers are already in the base image and need not be downloaded again.
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 #
-# `--ignore-scripts` 是為了根 package.json 的 `prepare`。那支 script 跑
-# `npm run build`，而 build 要有 `packages/*/src/` 與 `scripts/`——這一層卻只複製
-# 了幾份 manifest（那正是它能命中 cache 的原因）。不擋掉的話這裡直接失敗。
+# `--ignore-scripts` is for the root package.json's `prepare`. That script runs
+# `npm run build`, and the build needs `packages/*/src/` and `scripts/` — while this layer has
+# only copied a few manifests (which is precisely why it can hit the cache). Without blocking
+# it, this step fails outright.
 RUN npm ci --ignore-scripts
 
 COPY . .
 
-# 原始碼到齊了才建得起來。三個東西要它：`tests/node/epub-book/open.test.ts` 會走
-# package.json 的 `exports` 進入點（那條路指向 `packages/frond/dist/`），
-# frond-react 的瀏覽器測試要它自己那份 `dist/`，而展示頁的截圖要 `site/frond/`
-# 底下有產物。
+# The build only works once the source is all here. Three things need it:
+# `tests/node/epub-book/open.test.ts` goes through package.json's `exports` entry point (which
+# points at `packages/frond/dist/`), frond-react's browser tests need its own `dist/`, and the
+# demo page's screenshots need build output under `site/frond/`.
 #
-# 兩步而不是一步：`npm run site` 只建 `@yurenju/frond`（理由見
-# `scripts/build-site.sh`），所以 frond-react 要靠前面那一行的整批 build。
+# Two steps rather than one: `npm run site` only builds `@yurenju/frond` (for the reason see
+# `scripts/build-site.sh`), so frond-react relies on the full build in the line before.
 RUN npm run build
 RUN npm run site
 

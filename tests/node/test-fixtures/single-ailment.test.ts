@@ -3,25 +3,28 @@ import { openEpub, type EpubArchive } from "../support/epub-archive.ts";
 import { buildFixture, syntheticFixtures } from "../../../packages/frond/src/test-fixtures/index.ts";
 
 /**
- * 「一個 fixture 只帶一個病症，其餘部分保持健康」——這條紀律的執行者。
+ * The enforcer of "one fixture carries one ailment, and everything else stays healthy".
  *
- * `ailments.test.ts` 問「病在不在」，這裡問「病有沒有溢出到別的檔案」。缺了這
- * 一組，一份把所有病症寫進同一張樣式表的產生器會在那邊全綠，而 fixture 的全部
- * 價值——測試紅燈直接指向唯一一個病因——就沒了。
+ * `ailments.test.ts` asks "is the ailment there"; this asks "has the ailment spilled into
+ * other files". Without this group, a generator writing every ailment into one stylesheet
+ * would come out green over there, and the whole value of a fixture — a red test pointing
+ * straight at one single cause — would be gone.
  *
- * 做法是把每個病症寫成一個探針，然後斷言**命中的檔案集合恰好等於**那份清單。
- * 「恰好等於」是重點：只斷言「有命中」的話，病症擴散到第二個檔案時沒有人會
- * 知道。
+ * The method is to write each ailment as a probe and assert that **the set of files it
+ * hits is exactly** that list. "Exactly" is the point: asserting only "it hits something"
+ * would leave nobody to notice when an ailment spreads to a second file.
  */
 
 /**
- * ADR-0007 那張 fixture 表的程式碼版本。
+ * The code version of ADR-0007's fixture table.
  *
- * 底下那條斷言比的是**集合相等**，不是「包含」。單向的「包含」只擋得住一個
- * 方向：表上有而程式碼沒有。反方向——程式碼加了一份 fixture 而 ADR 的表沒有跟上
- * ——會靜默通過，而那正是文件腐爛的實際走法。
+ * The assertion below compares for **set equality**, not containment. One-way containment
+ * only guards one direction: on the table but not in the code. The other way — a fixture
+ * added in code with the ADR's table not keeping up — would pass silently, and that is
+ * how documentation actually rots.
  *
- * 順序不比：這份清單依病症分組排，`AILMENTS` 依加入的時間排，兩者都沒有語意。
+ * Order is not compared: this list is grouped by ailment while `AILMENTS` is ordered by
+ * when each was added, and neither ordering carries meaning.
  */
 const REQUIRED_BY_ADR_0007 = [
   "vertical-japanese",
@@ -34,26 +37,30 @@ const REQUIRED_BY_ADR_0007 = [
   "ppd-rtl-vertical",
   "huge-single-section",
   "empty-and-image-only-sections",
-  // 版本那一軸（ADR-0010 → #22）。EPUB 2 的健康骨架與兩種封面宣告寫法。
+  // The version axis (ADR-0010 → #22). EPUB 2's healthy skeleton, and both cover
+  // declaration forms.
   "healthy-epub2",
   "cover-image-property",
   "cover-meta-name-epub2",
-  // TOC 那一軸（#23）。病症的 NCX 版、兩種載體的巢狀 TOC，以及 manifest 側的
-  // `../`——最後這一份演的是好書，不是病症。
+  // The TOC axis (#23). The NCX versions of the ailments, a nested TOC on each vehicle,
+  // and the manifest-side `../` — that last one plays a good book, not an ailment.
   "toc-href-percent-comma-epub2",
   "toc-href-parent-prefix-epub2",
   "nested-toc",
   "nested-toc-epub2",
   "manifest-href-parent-prefix",
-  // 書實際的形狀裡兩個沒有東西會亮紅燈的缺口（#24）。
+  // Two gaps in the shapes books actually have that nothing would go red on (#24).
   "writing-mode-prefixed-only",
   "cover-meta-name",
-  // 唯一一份沒有樣本支撐、照規格合成的（#30）。理由見 ADR-0007：混淆解錯不會
-  // 丟錯，症狀只在讀者的畫面上。
+  // The only one with no sample behind it, synthesized from the spec (#30). The reasoning
+  // is in ADR-0007: undoing obfuscation wrongly throws nothing, and the symptom shows up
+  // only on the reader's screen.
   "obfuscated-font-idpf",
-  // 拿 34 本書實際跑一趟渲染才量到的四個病症。四者都不會報錯，只會讓讀者少看到
-  // 東西——整本排錯方向、一章只翻得到第一頁、圖版與表格的下半永遠看不到。最後
-  // 一份是三家分歧且 frond 修不掉的那一格，存在的理由是釘住現況。
+  // Four ailments only measured by actually running a render over 34 books. None of the
+  // four raises an error; they just leave the reader seeing less — a whole book laid out
+  // the wrong way, a chapter where only the first page can be turned to, the lower half of
+  // plates and tables permanently out of view. The last one is the slot where the three
+  // engines disagree and frond cannot fix it; it exists to pin the status quo.
   "writing-mode-behind-import",
   "hidden-trailing-notes",
   "plate-taller-than-page",
@@ -69,105 +76,109 @@ const books = new Map<string, EpubArchive>(
 
 interface Probe {
   readonly symptom: string;
-  /** 允許出現這個症狀的檔案，恰好這些。 */
+  /** The files allowed to show this symptom — exactly these. */
   readonly expectedIn: readonly string[];
   readonly matches: (book: EpubArchive) => boolean;
 }
 
 const PROBES: readonly Probe[] = [
   {
-    symptom: "font-size 被 !important 鎖住",
+    symptom: "font-size pinned by !important",
     expectedIn: ["font-size-important"],
     matches: (book) => book.stylesheet.includes("!important"),
   },
   {
-    symptom: "固定寬度",
+    symptom: "a fixed width",
     expectedIn: ["fixed-width-800"],
     matches: (book) => /\bwidth:\s*\d+px/.test(book.stylesheet),
   },
   {
-    symptom: "寫死顏色",
+    symptom: "hardcoded colours",
     expectedIn: ["hardcoded-colors"],
     matches: (book) => /(^|[\s;{])(background-)?color:/m.test(book.stylesheet),
   },
   {
-    symptom: "直排宣告在 body，屬性名無前綴",
+    symptom: "the vertical declaration is on body, with an unprefixed property name",
     expectedIn: ["writing-mode-on-body"],
-    // `[^-\w]` 是這條探針的全部重點：少了它，`-epub-writing-mode` 裡的
-    // `writing-mode` 也會命中，於是位置那個病症與語法那個病症在探針上分不開
-    // ——而那兩份 fixture 存在的理由正是它們是**不同**的病（#24）。
+    // `[^-\w]` is this probe's entire point: without it, the `writing-mode` inside
+    // `-epub-writing-mode` matches too, and the positional ailment and the syntactic one
+    // become indistinguishable under the probe — while those two fixtures exist precisely
+    // because they are **different** ailments (#24).
     matches: (book) => /body\s*\{[^}]*[^-\w]writing-mode:/.test(book.stylesheet),
   },
   {
-    symptom: "直排只用帶前綴的屬性名宣告",
+    symptom: "the vertical declaration uses only prefixed property names",
     expectedIn: ["writing-mode-prefixed-only"],
     matches: (book) =>
       /-(?:epub|webkit)-writing-mode:/.test(book.stylesheet),
   },
   {
-    symptom: "直排宣告在 html",
+    symptom: "the vertical declaration is on html",
     expectedIn: ["vertical-japanese", "ppd-rtl-vertical"],
     matches: (book) => /html\s*\{[^}]*writing-mode/.test(book.stylesheet),
   },
   {
-    symptom: "TOC 的 href 帶 percent-encoding",
+    symptom: "a TOC href carries percent-encoding",
     expectedIn: ["toc-href-percent-comma", "toc-href-percent-comma-epub2"],
     matches: (book) => book.toc.some((entry) => /%[0-9a-fA-F]{2}/.test(entry.href)),
   },
   {
-    symptom: "TOC 的 href 帶 ../ 前綴",
+    symptom: "a TOC href carries a ../ prefix",
     expectedIn: ["toc-href-parent-prefix", "toc-href-parent-prefix-epub2"],
     matches: (book) => book.toc.some((entry) => entry.href.startsWith("../")),
   },
   {
-    symptom: "manifest 的 href 帶 ../ 前綴",
-    // TOC 側那兩份是病症，這一份是**好書**：`../` 走到封裝根而目標確實存在，
-    // 合規且解得開。分成兩條探針是因為兩者在 fixture 上不能互相頂替——把
-    // manifest 側的誤報擋住，靠的不是 TOC 側有沒有 `../`。
+    symptom: "a manifest href carries a ../ prefix",
+    // The two on the TOC side are ailments; this one is a **good book**: the `../` walks to
+    // the package root and the target really is there, conforming and resolvable. They are
+    // separate probes because neither fixture can stand in for the other — what blocks the
+    // false report on the manifest side is not whether the TOC side has a `../`.
     expectedIn: ["manifest-href-parent-prefix"],
     matches: (book) => book.manifest.some((item) => item.href.startsWith("../")),
   },
   {
-    symptom: "TOC 有第二層",
+    symptom: "the TOC has a second level",
     expectedIn: ["nested-toc", "nested-toc-epub2"],
     matches: (book) => book.tocTree.some((node) => node.children.length > 0),
   },
   {
-    symptom: "宣告了 page-progression-direction",
+    symptom: "a page-progression-direction is declared",
     expectedIn: ["ppd-rtl-vertical"],
     matches: (book) => book.pageProgressionDirection !== undefined,
   },
   {
-    symptom: "readingOrder 只有一個 Section",
+    symptom: "the readingOrder has only one Section",
     expectedIn: ["huge-single-section"],
     matches: (book) => book.readingOrder.length === 1,
   },
   {
-    symptom: "有空的或沒有文字的 Section",
+    symptom: "there is an empty or textless Section",
     expectedIn: ["empty-and-image-only-sections"],
     matches: (book) =>
       book.readingOrder.some((section) => !/<p[\s>]/.test(book.text(section.archivePath))),
   },
   {
-    symptom: "宣告了混淆過的資源",
+    symptom: "an obfuscated resource is declared",
     expectedIn: ["obfuscated-font-idpf"],
     matches: (book) => book.entryPaths.includes("META-INF/encryption.xml"),
   },
   {
-    symptom: "帶了骨架以外的資源",
-    // `manifest-href-parent-prefix` 也在這裡：它的單點差異需要一份真的存在於
-    // 封裝根的檔案來承載——「目標確實存在」正是那份 fixture 的重點，拿掉檔案
-    // 它就變成一本壞書了。混淆字型那一份同理：病症長在一份資源上，那份資源
-    // 必須真的在包裡。
+    symptom: "carries resources beyond the skeleton",
+    // `manifest-href-parent-prefix` is here too: its single point of difference needs a
+    // file that really exists at the package root to carry it — "the target really is
+    // there" is that fixture's whole point, and removing the file turns it into a broken
+    // book. The obfuscated font is the same: the ailment lives on a resource, and that
+    // resource has to really be in the package.
     expectedIn: [
       "empty-and-image-only-sections",
       "manifest-href-parent-prefix",
       "obfuscated-font-idpf",
       "plate-taller-than-page",
     ],
-    // 「不是 XHTML 也不是 CSS」不夠精確：NCX 與封面圖也落在那一格，於是這個探針
-    // 會被 EPUB 2 與封面的 fixture 一起命中，而它們帶的不是內文資源。要問的是
-    // 「除了骨架自己的東西之外，還有沒有多帶內容」。
+    // "Neither XHTML nor CSS" is not precise enough: the NCX and the cover image land in
+    // that slot too, so this probe would hit the EPUB 2 and cover fixtures as well, and
+    // what they carry is not body content. What has to be asked is "beyond the skeleton's
+    // own files, is there extra content".
     matches: (book) =>
       book.manifest.some(
         (item) =>
@@ -178,7 +189,7 @@ const PROBES: readonly Probe[] = [
       ),
   },
   {
-    symptom: "宣告了封面",
+    symptom: "a cover is declared",
     expectedIn: [
       "cover-image-property",
       "cover-meta-name",
@@ -187,36 +198,37 @@ const PROBES: readonly Probe[] = [
     matches: (book) => book.cover !== undefined,
   },
   {
-    symptom: "封面走 EPUB 3 的 properties=\"cover-image\"",
+    symptom: "the cover goes through EPUB 3's properties=\"cover-image\"",
     expectedIn: ["cover-image-property"],
     matches: (book) => book.cover?.foundBy === "cover-image-property",
   },
   {
-    symptom: "封面走 <meta name=\"cover\">",
-    // 兩個版本都在這裡，而這正是重點：ADR-0010 要求兩條路都走得通且**不按版本
-    // 分派**，所以舊寫法必須同時出現在 EPUB 2 與 EPUB 3 的 fixture 上（#24）。
+    symptom: "the cover goes through <meta name=\"cover\">",
+    // Both versions are here, and that is the point: ADR-0010 requires both routes to work
+    // and **without dispatching on version**, so the old form has to appear on both an
+    // EPUB 2 and an EPUB 3 fixture (#24).
     expectedIn: ["cover-meta-name", "cover-meta-name-epub2"],
     matches: (book) => book.cover?.foundBy === "meta-name",
   },
 ];
 
-describe("一個 fixture 只帶一個病症", () => {
-  test("ADR-0007 的 fixture 表與產生器的清單完全一致", () => {
+describe("one fixture carries one ailment", () => {
+  test("ADR-0007's fixture table matches the generator's list exactly", () => {
     const names = syntheticFixtures.map((fixture) => fixture.name);
 
     expect(
       [...names].sort(),
-      "ADR-0007 的 fixture 表與 REQUIRED_BY_ADR_0007 要跟著一起改。",
+      "ADR-0007's fixture table and REQUIRED_BY_ADR_0007 have to be updated along with it.",
     ).toEqual([...REQUIRED_BY_ADR_0007].sort());
   });
 
-  test("檔名就是病症名加 .epub", () => {
+  test("the filename is the ailment name plus .epub", () => {
     for (const fixture of syntheticFixtures) {
       expect(fixture.fileName).toBe(`${fixture.name}.epub`);
     }
   });
 
-  test.for(PROBES)("$symptom 只出現在指定的檔案裡", (probe: Probe) => {
+  test.for(PROBES)("$symptom appears only in the designated files", (probe: Probe) => {
     const matched = [...books]
       .filter(([, book]) => probe.matches(book))
       .map(([name]) => name);
@@ -226,20 +238,23 @@ describe("一個 fixture 只帶一個病症", () => {
 });
 
 /**
- * generic family（`serif` / `sans-serif` / …）在合成 fixture 裡是禁區。
+ * Generic families (`serif` / `sans-serif` / …) are off limits in synthetic fixtures.
  *
- * 三家瀏覽器對 generic family 的 CJK 解析並不一致（#4）——用 generic 的話量到
- * 的會是「瀏覽器挑了哪套字型」而不是「這本書排成什麼樣」。實際的書大多用 generic
- * 宣告，那是 #4 的範圍，不該污染合成 fixture 的可控性。
+ * The three browsers do not resolve generic families to CJK faces consistently (#4) —
+ * with a generic, what gets measured is "which font the browser picked" rather than "how
+ * this book lays out". Real books mostly declare generics, and that is #4's territory; it
+ * should not contaminate the controllability of a synthetic fixture.
  *
- * 連 fallback 都不寫：`"Noto Serif CJK JP", serif` 在字型缺席時會靜默落回
- * generic，而那正是要避免的那種「不知道量到什麼」。
+ * Not even a fallback is written: `"Noto Serif CJK JP", serif` silently falls back to the
+ * generic when the face is absent, and that is exactly the "no idea what was measured"
+ * this avoids.
  *
- * **看的是這本書裡每一份 CSS，不只 `<link>` 到的那一份。** 只看第一份的話，
- * 宣告搬進被 `@import` 的檔案（`writing-mode-behind-import` 就是這個形狀）之後
- * 這條檢查會靜默地什麼都沒查——而那份檔案裡照樣可以寫 generic family。
+ * **This looks at every CSS file in the book, not only the `<link>`ed one.** Looking only
+ * at the first would make this check silently examine nothing once a declaration moves
+ * into an `@import`ed file (`writing-mode-behind-import` is that shape) — and a generic
+ * family can be written in that file just as well.
  */
-describe("指名字面，不用 generic family", () => {
+describe("named faces only, no generic families", () => {
   const GENERIC_FAMILIES = [
     "serif",
     "sans-serif",
@@ -250,7 +265,7 @@ describe("指名字面，不用 generic family", () => {
   ];
 
   test.for(syntheticFixtures.map((fixture) => fixture.name))(
-    "%s 的 font-family 只指名字面",
+    "%s's font-family names faces only",
     (name: string) => {
       const book = books.get(name)!;
       const everyStylesheet = book.manifest
@@ -261,8 +276,8 @@ describe("指名字面，不用 generic family", () => {
 
       expect(declarations.length).toBeGreaterThan(0);
       for (const [, value] of declarations) {
-        // 先把引號括起來的字面拿掉，否則 "Noto Serif CJK JP" 裡的 Serif 會被
-        // 誤判成 generic family。
+        // Strip the quoted face names first, or the Serif inside "Noto Serif CJK JP" gets
+        // mistaken for a generic family.
         const withoutNamedFaces = value!.replaceAll(/"[^"]*"|'[^']*'/g, "");
         for (const generic of GENERIC_FAMILIES) {
           expect(withoutNamedFaces).not.toContain(generic);

@@ -8,19 +8,21 @@ import {
 } from "./support/handmade.ts";
 
 /**
- * metadata——一本書對自己的宣告。書櫃靠它排架，所以這一組是「拿到書名、作者、
- * 語言」那條驗收。
+ * metadata — what a book declares about itself. A bookshelf shelves by it, so this
+ * group is the "get the title, authors and language" acceptance criterion.
  *
- * ## 頁面推進方向不是書寫方向
+ * ## Page progression direction is not writing mode
  *
- * `page-progression-direction` 講的是**翻頁往哪個方向前進**，宣告在封裝文件裡，
- * 由 `EpubBook` 回報。**書寫方向（直排／橫排）不在這裡**——它寫在樣式表裡，要有
- * CSSOM 才判得準，所以由 `Renderer` 回報（ADR-0010、CONTEXT.md）。把兩者混成一個
- * 欄位，直排的 LTR 書與橫排的 RTL 書就會拿到同一個答案。
+ * `page-progression-direction` is about **which way turning pages advances**, is
+ * declared in the package document, and is reported by `EpubBook`. **Writing mode
+ * (vertical or horizontal) is not here** — it is written in the stylesheet and needs a
+ * CSSOM to be judged accurately, so `Renderer` reports it (ADR-0010, CONTEXT.md).
+ * Merging the two into one field would give a vertical LTR book and a horizontal RTL
+ * book the same answer.
  */
 
-describe("書名、語言、識別碼", () => {
-  test("EPUB 3 讀得到", async () => {
+describe("title, language, identifier", () => {
+  test("readable from an EPUB 3", async () => {
     const book = await EpubBook.open(await readFixture("vertical-japanese.epub"));
 
     expect(book.metadata.title).toBe("frond fixture — vertical-japanese");
@@ -28,9 +30,10 @@ describe("書名、語言、識別碼", () => {
     expect(book.metadata.identifier).toBe("urn:uuid:frond-fixture-vertical-japanese");
   });
 
-  test("EPUB 2 讀得到——identifier 帶著 opf:scheme 也一樣", async () => {
-    // EPUB 2 的 dc:identifier 寫成 `<dc:identifier opf:scheme="uuid">`。ADR-0010：
-    // 原樣取出，不解讀它自稱是哪一種識別碼，也不據此正規化。
+  test("readable from an EPUB 2 — including an identifier carrying opf:scheme", async () => {
+    // EPUB 2's dc:identifier is written `<dc:identifier opf:scheme="uuid">`. ADR-0010:
+    // take it verbatim, without interpreting which kind of identifier it claims to be and
+    // without normalizing on that basis.
     const book = await EpubBook.open(await readFixture("healthy-epub2.epub"));
 
     expect(book.metadata.title).toBe("frond fixture — healthy-epub2");
@@ -39,8 +42,8 @@ describe("書名、語言、識別碼", () => {
   });
 });
 
-describe("作者", () => {
-  test("多位作者依文件順序全部讀出來", async () => {
+describe("authors", () => {
+  test("multiple authors are all read out in document order", async () => {
     const book = await EpubBook.open(
       handmadeBook({
         packageDocument: packageDocument({
@@ -57,37 +60,41 @@ describe("作者", () => {
     expect(book.metadata.authors).toEqual(["佐藤 花子", "鈴木 太郎"]);
   });
 
-  test("沒宣告作者的書拿到空清單，不是丟錯", async () => {
-    // 合成 fixture 全部沒有 dc:creator。書沒說作者不是壞書。
+  test("a book declaring no author gets an empty list, not a throw", async () => {
+    // None of the synthetic fixtures has a dc:creator. A book that does not name an
+    // author is not a broken book.
     const book = await EpubBook.open(await readFixture("vertical-japanese.epub"));
 
     expect(book.metadata.authors).toEqual([]);
   });
 });
 
-describe("頁面推進方向", () => {
-  test("書宣告 rtl 就回報 rtl", async () => {
+describe("page progression direction", () => {
+  test("a book declaring rtl is reported as rtl", async () => {
     const book = await EpubBook.open(await readFixture("ppd-rtl-vertical.epub"));
 
     expect(book.metadata.pageProgressionDirection).toBe("rtl");
   });
 
-  test("EPUB 3 沒宣告時回報「書沒說」，不是 ltr", async () => {
-    // ADR-0010：把「書沒說」與「書說了 ltr」壓成同一個值，消費端就無法分辨——
-    // 而那正是它需要分辨的（spine 要據此決定左滑是上一頁還是下一頁）。
+  test("an EPUB 3 that does not declare is reported as \"the book did not say\", not ltr", async () => {
+    // ADR-0010: collapsing "the book did not say" and "the book said ltr" into one value
+    // leaves the consumer unable to tell them apart — and that is exactly the distinction
+    // it needs (spine decides from it whether swiping left is the previous or the next
+    // page).
     const book = await EpubBook.open(await readFixture("vertical-japanese.epub"));
 
     expect(book.metadata.pageProgressionDirection).toBeUndefined();
   });
 
-  test("EPUB 2 一律落在「書沒說」那一格", async () => {
-    // EPUB 2 根本沒有這個屬性。frond 不因此發明一個預設值（ADR-0010）。
+  test("EPUB 2 always lands in the \"the book did not say\" slot", async () => {
+    // EPUB 2 has no such attribute at all. frond does not invent a default because of
+    // that (ADR-0010).
     const book = await EpubBook.open(await readFixture("healthy-epub2.epub"));
 
     expect(book.metadata.pageProgressionDirection).toBeUndefined();
   });
 
-  test("書宣告 ltr 與書沒說是兩個不同的回答", async () => {
+  test("a book declaring ltr and a book saying nothing are two different answers", async () => {
     const declared = await EpubBook.open(
       handmadeBook({
         packageDocument: packageDocument({

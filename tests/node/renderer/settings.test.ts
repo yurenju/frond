@@ -8,47 +8,50 @@ import {
 } from "../../../packages/frond/src/renderer/settings.ts";
 
 /**
- * 讀者設定那一層。
+ * The reader settings layer.
  *
- * 這一組的重心不在「設了會怎樣」，而在**沒設會怎樣**——ADR-0003 的門檻是
- * 「讀者設定被書擋住」，沒有讀者設定就不成立，而漏掉那條的實作會在每一本書上
- * 都覆寫一輪，然後沒有人發現：畫面看起來正常，只是作者的設計被抹掉了。
+ * This group's weight is not on "what happens when something is set" but on **what
+ * happens when nothing is** — ADR-0003's threshold is "a reader setting is blocked by
+ * the book", which does not hold without a reader setting, and an implementation that
+ * misses that runs an override pass on every single book with nobody noticing: the
+ * screen looks fine, the author's design has simply been erased.
  */
 
 function settings(patch: Partial<ReaderSettings> = {}): ReaderSettings {
   return withSettings(DEFAULT_SETTINGS, patch);
 }
 
-describe("預設值", () => {
-  test("除了邊界，什麼都沒設", () => {
+describe("the defaults", () => {
+  test("nothing is set except the margin", () => {
     expect(DEFAULT_SETTINGS.fontFamily).toBeUndefined();
     expect(DEFAULT_SETTINGS.fontSize).toBeUndefined();
     expect(DEFAULT_SETTINGS.lineHeight).toBeUndefined();
     expect(DEFAULT_SETTINGS.theme).toBeUndefined();
   });
 
-  test("邊界有預設值——0 的話文字會貼著螢幕邊", () => {
+  test("the margin has a default — at 0 the text would sit against the screen edge", () => {
     expect(DEFAULT_SETTINGS.margin).toBeGreaterThan(0);
   });
 
-  test("什麼都沒設時，注入的樣式表是空的", () => {
-    // 這一條是 user story 45（沒有主動調整時，書的排版被完整保留）的機器版本。
+  test("with nothing set, the injected stylesheet is empty", () => {
+    // The machine-readable form of user story 45 (with no active adjustment, the book's
+    // layout is preserved intact).
     expect(readerStylesheet(DEFAULT_SETTINGS)).toBe("");
   });
 
-  test("什麼都沒設時，一個 !important 都不拿掉", () => {
+  test("with nothing set, not one !important is demoted", () => {
     expect(overriddenProperties(DEFAULT_SETTINGS).size).toBe(0);
   });
 });
 
-describe("介入的範圍", () => {
-  test("設了字級只碰字級（外加 font 縮寫）", () => {
+describe("the scope of an intervention", () => {
+  test("setting the size touches only the size (plus the font shorthand)", () => {
     const properties = overriddenProperties(settings({ fontSize: 24 }));
 
     expect([...properties].sort()).toEqual(["font", "font-size"]);
   });
 
-  test("設了主題碰的是顏色那幾格，不碰字級", () => {
+  test("setting the theme touches the colour slots, not the size", () => {
     const properties = overriddenProperties(
       settings({ theme: { foreground: "#eee", background: "#111" } }),
     );
@@ -58,28 +61,28 @@ describe("介入的範圍", () => {
     expect(properties.has("font-size")).toBe(false);
   });
 
-  test("font 縮寫一定包含進來——它一條就能寫死字級、行高與字面", () => {
+  test("the font shorthand is always included — one declaration can pin size, line height and family at once", () => {
     expect(overriddenProperties(settings({ lineHeight: 2 })).has("font")).toBe(true);
     expect(overriddenProperties(settings({ fontFamily: "X" })).has("font")).toBe(true);
   });
 });
 
-describe("注入的樣式表", () => {
-  test("字級只設在根元素——書自己的層次靠繼承保留", () => {
+describe("the injected stylesheet", () => {
+  test("the size is set on the root element only — the book's own hierarchy survives through inheritance", () => {
     const css = readerStylesheet(settings({ fontSize: 24 }));
 
     expect(css).toContain(":root { font-size: 24px !important; }");
-    // 設到每一個元素上的話，標題與正文會一樣大。
+    // Set on every element, headings and body text would come out the same size.
     expect(css).not.toContain(":root * { font-size");
   });
 
-  test("字面設到每一個元素上——書在後代元素上的宣告蓋不回來", () => {
+  test("the family is set on every element — the book's declarations on descendants cannot win it back", () => {
     const css = readerStylesheet(settings({ fontFamily: '"Noto Serif CJK JP"' }));
 
     expect(css).toContain(':root, :root * { font-family: "Noto Serif CJK JP" !important; }');
   });
 
-  test("主題的底色只給根元素，其餘一律透明", () => {
+  test("the theme's background goes on the root element only; everything else is transparent", () => {
     const css = readerStylesheet(
       settings({ theme: { foreground: "#eeeeee", background: "#111111" } }),
     );
@@ -89,18 +92,19 @@ describe("注入的樣式表", () => {
     expect(css).toContain("color: #eeeeee !important;");
   });
 
-  test("邊界不出現在注入的 CSS 裡——它在 iframe 外面", () => {
-    // 注入書的 CSS 去搶 body 的 padding，正是 spine 掛 MutationObserver 的原因。
+  test("the margin does not appear in the injected CSS — it lives outside the iframe", () => {
+    // Injecting into the book's CSS to fight over body's padding is exactly why spine
+    // hangs a MutationObserver.
     expect(readerStylesheet(settings({ margin: 48 }))).not.toContain("48");
   });
 
-  test("欄數不出現在讀者的樣式表裡——它是分頁那一層的參數", () => {
+  test("the column count does not appear in the reader stylesheet — it is a parameter of the pagination layer", () => {
     expect(readerStylesheet(settings({ columns: 2 }))).toBe("");
   });
 });
 
-describe("套用局部設定", () => {
-  test("沒提到的欄位保持原樣", () => {
+describe("applying a partial setting", () => {
+  test("fields not mentioned stay as they were", () => {
     const first = withSettings(DEFAULT_SETTINGS, { fontSize: 24 });
     const second = withSettings(first, { lineHeight: 2 });
 
@@ -109,7 +113,7 @@ describe("套用局部設定", () => {
     expect(second.margin).toBe(DEFAULT_SETTINGS.margin);
   });
 
-  test("設回 undefined 就是取消那一項", () => {
+  test("setting a field back to undefined cancels it", () => {
     const applied = withSettings(settings({ fontSize: 24 }), { fontSize: undefined });
 
     expect(applied.fontSize).toBeUndefined();

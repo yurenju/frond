@@ -1,24 +1,28 @@
 import { PNG } from "pngjs";
 
 /**
- * 像素層的分析工具。
+ * Pixel-level analysis tools.
  *
- * 為什麼冒煙測試需要看像素：DOM 斷言看不出字形取對了沒有。全形漢字多半等寬，
- * 所以「取到橫排字符而不是直排字符」與「取到錯誤區域的字面」這兩類缺陷，
- * computed style 會老實回報、幾何不變量會全數通過，只有畫出來的像素是錯的。
+ * Why smoke tests need to look at pixels: a DOM assertion cannot see whether the right
+ * glyph was picked. Full-width Han characters are mostly equal-width, so for the two
+ * defect classes "picked the horizontal glyph instead of the vertical one" and "picked a
+ * face from the wrong region", the computed style reports honestly and every geometric
+ * invariant passes — only the drawn pixels are wrong.
  *
- * 這裡刻意不做 golden 截圖比對。frond 沒有參考實作可以當 oracle，「這個字應該
- * 長這樣」的期望值不存在，捏造成 golden 只會製造維護負擔。斷言下在結構性質上
- * ——墨水落在哪個象限、兩次渲染是否相同——那些性質不需要知道正確答案。
+ * There is deliberately no golden-screenshot comparison here. frond has no reference
+ * implementation to serve as an oracle, so an expected value for "this character should
+ * look like this" does not exist, and inventing one as a golden only creates maintenance
+ * burden. The assertions are made on structural properties — which quadrant the ink falls
+ * in, whether two renders match — and those need no knowledge of the right answer.
  */
 
-/** 低於這個亮度的像素算是墨水。背景是純白，文字是純黑，中間留給抗鋸齒。 */
+/** A pixel below this luminance counts as ink. The background is pure white and the text pure black, leaving the middle to antialiasing. */
 const INK_LUMINANCE_THRESHOLD = 200;
 
 export interface InkAnalysis {
-  /** 有墨水的像素數。0 代表整塊空白——通常意味著字根本沒渲染出來。 */
+  /** The number of inked pixels. 0 means the whole block is blank — usually that the character never rendered at all. */
   readonly pixelCount: number;
-  /** 墨水重心，正規化到 [0, 1]，原點在左上角。沒有墨水時為 null。 */
+  /** The ink's centroid, normalized to [0, 1], with the origin at the top left. null when there is no ink. */
   readonly centroid: { readonly x: number; readonly y: number } | null;
 }
 
@@ -40,7 +44,8 @@ export function analyseInk(png: Buffer): InkAnalysis {
 
       if (alpha === 0) continue;
 
-      // Rec. 601 luma——這裡只需要一個穩定的深淺判準，不需要色彩精確度。
+      // Rec. 601 luma — all that is needed here is a stable light/dark criterion, not colour
+      // accuracy.
       const luminance = 0.299 * red + 0.587 * green + 0.114 * blue;
       if (luminance >= INK_LUMINANCE_THRESHOLD) continue;
 
@@ -63,10 +68,11 @@ export function analyseInk(png: Buffer): InkAnalysis {
 }
 
 /**
- * 解碼成原始 RGBA 位元組，供兩張截圖的逐像素比對使用。
+ * Decodes to raw RGBA bytes, for comparing two screenshots pixel by pixel.
  *
- * 比的是解碼後的像素而不是 PNG 位元組：PNG 的編碼結果可能帶有與畫面無關的
- * 差異（中繼資料、壓縮選擇），那會讓「兩次渲染是否相同」這個問題答錯。
+ * It compares decoded pixels rather than PNG bytes: a PNG's encoding may carry
+ * differences unrelated to what is on screen (metadata, compression choices), and those
+ * would give the wrong answer to "do these two renders match".
  */
 export function decodePixels(png: Buffer): Buffer {
   return PNG.sync.read(png).data;

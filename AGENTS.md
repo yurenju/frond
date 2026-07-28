@@ -14,6 +14,46 @@ packages/frond-react/   @yurenju/frond-react   unstyled React 元件（ADR-0011�
 靠 review 守的，三道機制寫在 ADR-0011。在那底下加一個 npm 相依，紅的是
 `npm run build`。
 
+## 程式碼一律用英文，文件用中文
+
+這條界線切在**檔案類型**上，不切在內容上：
+
+| | 語言 |
+| --- | --- |
+| 程式碼檔（`.ts` `.tsx` `.js` `.css` `.sh` `.html` `.json` `.yml` `.conf`、`Dockerfile`、`.gitignore`、`.dockerignore`） | **英文** |
+| 文件（`docs/`、`CONTEXT.md`、`AGENTS.md`、`README.md`） | 中文 |
+
+程式碼檔裡**每一種文字**都算：檔頭註解、行內註解、識別字、錯誤訊息、`console`
+輸出、以及 `describe` / `test` 的名稱。這個 repo 的公開面幾乎都靠檔頭註解在解釋
+自己（`scripts/finish-build.ts` 甚至為此要濾掉註解行），所以「註解是英文」不是
+表面功夫——它決定了消費端讀不讀得懂這個套件。
+
+`README.zh-TW.md` 是刻意的中文版本，`README.md` 是英文版本，兩者都留著。
+
+### 例外：CJK 本身就是被測對象的時候
+
+frond 排的是直排中日文，所以有些地方的 CJK **不是可以翻譯的文字，是資料**。這些
+一律原樣保留：
+
+- **fixture 的內容**——`test-fixtures/prose.ts` 的日文散文、Section 的 `title`、
+  `alt` 文字、`lang` 屬性、`SUBITEM_ORDINALS` 那種會寫進 EPUB 位元組的字串。
+- **排版的舉例**——註解裡為了說明而引用的字元（`。`、`、`、`骨`、`市松模様`），
+  以及引用實際書籍時的書名（`《入境大廳》`、`《我的公寓》`）與內文片段。
+
+判準是**換成英文之後那句話還成不成立**：`docker/fontconfig/75-frond-cjk.conf` 講
+「`骨` 在 TC / SC / JP 有不同字形」，把那個字換掉整句就沒有意義了；而
+`regional-faces.spec.ts` 的 `IDEOGRAPHIC_FULL_STOP` 是唯一有鑑別力的字元，換掉
+測試就失效。
+
+**committed fixture 的位元組是釘死的**（`determinism.test.ts`、
+`committed-fixtures.test.ts`）。任何會進到產出物裡的字串都不能改——改了整批幾何
+數字會漂，而漂動的原因與程式碼無關。改完跑一次 `npm run test:node` 就看得出來。
+
+### commit message 也用英文
+
+從現在起寫的 commit message 用英文。**既有的歷史不動**——重寫歷史的代價遠大於
+語言一致性的收益。
+
 ## 跑東西一律走 `npm run`
 
 根 `package.json` 的 `scripts` 是這個 repo 唯一的指令入口。**不要直接叫 `npx`、
@@ -27,8 +67,8 @@ packages/frond-react/   @yurenju/frond-react   unstyled React 元件（ADR-0011�
 需要縮小範圍時用 npm 的 `--` 傳參，而不是換一支指令：
 
 ```
-npm run test:node -- tests/node/test-fixtures/vehicles.test.ts
-npm run test:node -- -t "EPUB 2 的載體"
+npm run test:node -- tests/node/test-fixtures/epub-version.test.ts
+npm run test:node -- -t "the EPUB 2 version"
 npm run test:container -- --project=firefox
 ```
 

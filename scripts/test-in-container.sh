@@ -1,35 +1,40 @@
 #!/usr/bin/env bash
 #
-# 在測試容器內跑測試。CI 與本機共用同一個映像——這是刻意的，見
-# docs/test-environment.md。
+# Runs the tests inside the test container. CI and local machines share one image — this is
+# deliberate; see docs/test-environment.md.
 #
-# 兩個 runner 都在這裡跑（ADR-0009）：先 Vitest 的 Node 測試，再 Playwright 的
-# 三瀏覽器測試。Node 那半邊不依賴字型或瀏覽器，但仍然放進容器——一個入口、
-# 一套版本，本機與 CI 對「測試全綠」的定義才會是同一件事。
+# Both runners run here (ADR-0009): Vitest's Node tests first, then Playwright's
+# three-browser tests. The Node half depends on neither fonts nor browsers, but it still goes
+# in the container — one entry point and one set of versions is what makes "the tests are all
+# green" mean the same thing locally and in CI.
 #
-# 用法：
-#   ./scripts/test-in-container.sh                     # 兩個 runner 全跑
-#   ./scripts/test-in-container.sh --project=firefox   # 其餘參數原樣傳給 playwright
+# Usage:
+#   ./scripts/test-in-container.sh                     # run both runners
+#   ./scripts/test-in-container.sh --project=firefox   # remaining arguments pass through to playwright
 #
-# 要的是截圖而不是紅綠燈時，用 ./scripts/capture-evidence.sh：這一支以 --rm
-# 執行、也不掛任何可寫的目錄，容器裡產出的檔案跟著容器一起消失。
+# When what you want is screenshots rather than a red/green light, use
+# ./scripts/capture-evidence.sh: this one runs with --rm and mounts no writable directory, so
+# files produced inside the container disappear with it.
 set -euo pipefail
 
-# 挑引擎、確認連得到 daemon、建置映像。三件事與 capture-evidence.sh 共用。
+# Pick an engine, confirm the daemon is reachable, build the image. All three are shared with
+# capture-evidence.sh.
 source "$(dirname "${BASH_SOURCE[0]}")/container.sh"
 
 container_build
 
 # --- run -------------------------------------------------------------------
 #
-# 測試期完全不需要網路：所有頁面都由 page.setContent 供給，沒有外部資源。
-# 明確關掉網路，順便保證沒有測試偷偷依賴外部連線——那種依賴會在別人的環境
-# 變成無法重現的紅燈。
+# The tests need no network at all: every page is supplied by page.setContent, with no
+# external resources. Turning the network off explicitly also guarantees no test quietly
+# depends on an outside connection — such a dependency becomes an irreproducible red light in
+# someone else's environment.
 run_args=(--rm --init --network=none)
 
-# CI 要進得去容器，否則 playwright.config.ts 裡看 process.env.CI 的分支
-# （forbidOnly、github reporter、html reporter）在 CI 上全都是死的。
-# 報告寫在容器內，不掛出來的話 --rm 一收就沒了，CI 的 artifact 會永遠是空的。
+# CI has to reach inside the container, or the branches in playwright.config.ts that look at
+# process.env.CI (forbidOnly, the github reporter, the html reporter) are all dead in CI.
+# The report is written inside the container, and without mounting it out, --rm takes it away
+# and CI's artifact is empty forever.
 if [[ -n "${CI:-}" ]]; then
     mkdir -p "$REPO_ROOT/playwright-report"
     run_args+=(
@@ -38,11 +43,12 @@ if [[ -n "${CI:-}" ]]; then
     )
 fi
 
-# Node 測試先跑。它幾秒就結束，而且蓋的是瀏覽器測試所依賴的東西（例如合成
-# fixture 的結構）——那一層壞掉時，先看到「fixture 不是一本合規的書」比先看到
-# 三家瀏覽器一起紅要好查得多。
-echo "==> 執行 Node 測試（Vitest）"
+# The Node tests run first. They finish in seconds, and they cover what the browser tests
+# depend on (the structure of the synthetic fixtures, say) — when that layer is broken,
+# seeing "the fixture is not a conforming book" first is far easier to trace than seeing all
+# three browsers go red together.
+echo "==> running the Node tests (Vitest)"
 "$ENGINE" run "${run_args[@]}" "$IMAGE_NAME" npx vitest run
 
-echo "==> 執行瀏覽器測試（Playwright）"
+echo "==> running the browser tests (Playwright)"
 exec "$ENGINE" run "${run_args[@]}" "$IMAGE_NAME" npx playwright test "$@"

@@ -1,39 +1,47 @@
 /**
- * SHA-1，只做一件事：把位元組雜湊成 20 個位元組。
+ * SHA-1, doing exactly one thing: hashing bytes into 20 bytes.
  *
- * ## 為什麼是手寫的
+ * ## Why it is hand-written
  *
- * IDPF 的字型混淆用書的 unique identifier 推金鑰，而推導的第一步是 SHA-1
- * （`src/epub/font-obfuscation.ts`）。平台上現成的兩條路都不能用：
+ * IDPF font obfuscation derives its key from the book's unique identifier, and the
+ * first step of that derivation is SHA-1 (`src/epub/font-obfuscation.ts`). Neither
+ * of the platform's ready-made routes works:
  *
- * - **WebCrypto（`crypto.subtle.digest`）** 在瀏覽器裡只存在於 secure context。
- *   一個從 `http://` 開的閱讀器會拿到 `crypto.subtle === undefined`，於是一本
- *   帶混淆字型的書在那裡整本豆腐字——而部署在什麼 origin 上不是 frond 決定的。
- *   它還是非同步的，會把「取一份資源的位元組」這個同步動作整條染成 Promise。
- * - **`node:crypto`** 只有 Node 有。`EpubBook` 兩邊都要跑（ADR-0005）。
+ * - **WebCrypto (`crypto.subtle.digest`)** only exists in a secure context in the
+ *   browser. A reader opened over `http://` gets `crypto.subtle === undefined`, and
+ *   a book with obfuscated fonts renders as tofu from cover to cover — and frond
+ *   does not get to decide which origin it is deployed on. It is also async, which
+ *   would stain "take the bytes of a resource", a synchronous operation, into a
+ *   Promise all the way down.
+ * - **`node:crypto`** only exists in Node. `EpubBook` has to run on both sides
+ *   (ADR-0005).
  *
- * 手寫的第三個好處與 `src/test-fixtures/zip.ts` 手寫 CRC32 的理由相同：這個
- * 專案的正確性不該依賴某個實作在某個環境下的行為。
+ * The third benefit of writing it by hand is the same one that motivates the
+ * hand-written CRC32 in `src/test-fixtures/zip.ts`: this project's correctness
+ * should not depend on how some implementation behaves in some environment.
  *
- * **它不是加密，也不服務任何安全需求。** IDPF 的混淆是公開演算法、金鑰就寫在書
- * 裡，目的是讓字型不被當成獨立檔案取用，不是保密。所以這裡不需要（也不應該
- * 宣稱）常數時間或任何抗側通道的性質。
+ * **It is not encryption and serves no security requirement.** IDPF obfuscation is
+ * a public algorithm whose key is written inside the book itself; the point is to
+ * keep the font from being usable as a standalone file, not to keep it secret. So
+ * nothing here needs (or should claim) constant time or any side-channel resistance.
  *
- * 正確性由 `tests/node/sha1.test.ts` 對 `node:crypto` 逐筆比對——那是一份獨立
- * 的實作，拿它當 oracle 才擋得住「產生器與函式庫用同一份錯的雜湊，於是兩邊剛好
- * 對得起來」那種全綠的假象。
+ * Correctness is pinned entry by entry against `node:crypto` in
+ * `tests/node/sha1.test.ts` — that is an independent implementation, and only using
+ * it as an oracle guards against the all-green illusion where the generator and the
+ * library share one wrong hash and therefore agree with each other.
  *
- * ## 為什麼放在 src/ 底下而不在 epub/ 或 test-fixtures/ 裡
+ * ## Why it lives under src/ rather than in epub/ or test-fixtures/
  *
- * 兩邊都要用它：函式庫解混淆、fixture 產生器**製造**混淆（`epub.ts`）。放進
- * 任一側都會讓另一側反向依賴，而它自己不依賴任何東西。
+ * Both sides need it: the library de-obfuscates, the fixture generator **creates**
+ * obfuscation (`epub.ts`). Putting it on either side would make the other depend
+ * backwards, and it depends on nothing itself.
  */
 
-/** SHA-1 的初始狀態（FIPS 180-4）。 */
+/** SHA-1's initial state (FIPS 180-4). */
 const INITIAL_STATE = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0];
 
 const BLOCK_SIZE = 64;
-/** 尾端要塞得下 1 個 `0x80` 與 8 個位元組的長度。 */
+/** The tail has to fit one `0x80` plus eight bytes of length. */
 const PADDING_OVERHEAD = 9;
 
 export const SHA1_LENGTH = 20;
@@ -45,8 +53,9 @@ export function sha1(message: Uint8Array): Uint8Array {
   padded[message.length] = 0x80;
 
   const view = new DataView(padded.buffer);
-  // 長度以**位元**計，big-endian 的 64 位元。高位那半靠除法而不是位移：位移的
-  // 運算元先被轉成 32 位元，超過 512 MB 的輸入就會算錯。
+  // The length counts **bits**, as a big-endian 64-bit value. The high half comes
+  // from division rather than a shift: a shift's operands are coerced to 32 bits
+  // first, so any input over 512 MB would compute the wrong value.
   view.setUint32(padded.length - 8, Math.floor(message.length / 0x20000000), false);
   view.setUint32(padded.length - 4, (message.length * 8) >>> 0, false);
 

@@ -2,31 +2,35 @@ node_modules/
 test-results/
 playwright-report/
 
-# 商業真書不進 repo（ADR-0007）。本機驗證用的書放這裡。
+# Commercial books stay out of the repo (ADR-0007). Books for verifying locally go here.
 tests/books/commercial/
 
-# 產生 PR 證據圖用的一次性 spec。它服務單一次判讀，不是回歸測試——留在 repo 裡
-# 會變成沒有人維護、CI 卻要跑的東西（docs/agents/pull-requests.md）。
+# The one-off specs that produce evidence images for a PR. Each serves a single reading and
+# is not a regression test — left in the repo they become something nobody maintains and CI
+# still runs (docs/agents/pull-requests.md).
 tests/browser/evidence/
 
-# 出貨產物，每個套件各一份（packages/*/dist）。`npm run build` 產生——commit 進來
-# 只會讓兩份不同步。
+# The shipped artifacts, one per package (packages/*/dist). Produced by `npm run build` —
+# committing them would only let the two fall out of sync.
 dist/
 
-# demo 站在建置時把 packages/frond/dist 複製到這裡（scripts/build-site.sh）。
+# The demo site copies packages/frond/dist here at build time (scripts/build-site.sh).
 site/frond/
 
-# React 那一頁的產物：esbuild 的 bundle，以及從 packages/frond-react 複製過來的
-# 預設樣式。`site/react/index.html` 與 `app.tsx` 是原始碼，留在 repo 裡。
+# The React page's artifacts: esbuild's bundle, plus the default styles copied over from
+# packages/frond-react. `site/react/index.html` and `app.tsx` are source and stay in the
+# repo.
 site/react/bundle.js
 site/react/bundle.js.map
 site/react/frond-react.css
 
-# 展示用的合成書。`npm run demo:book` 隨時產得出來（決定性），內容與理由在
-# packages/frond/src/test-fixtures/demo-book.ts——產物不必進 repo。
+# The synthetic book for the demo. `npm run demo:book` produces it at any time
+# (deterministically), and its content and reasoning live in
+# packages/frond/src/test-fixtures/demo-book.ts — the artifact need not enter the repo.
 tests/books/demo-zh-tw.epub
 
-# 每個人各自的 Claude Code 本機設定與 worktree 工作目錄。前者是個人偏好、後者是
-# 暫時的 checkout——兩者都不該被別人的 clone 繼承。
+# Each person's own local Claude Code settings and worktree working directories. The former
+# is a personal preference and the latter a temporary checkout — neither should be inherited
+# by somebody else's clone.
 .claude/settings.local.json
 .claude/worktrees/

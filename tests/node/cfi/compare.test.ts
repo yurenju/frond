@@ -2,24 +2,27 @@ import { describe, expect, test } from "vitest";
 import { compareCfi, parseCfi, type Cfi } from "../../../packages/frond/src/epub/index.ts";
 
 /**
- * 兩個 CFI 在書中的先後（user story 22：把 annotation 依書中順序排列）。
+ * Which of two CFIs comes first in the book (user story 22: ordering annotations by
+ * their position in the book).
  *
- * foliate 的七組在隔壁那個檔案。這裡問的是那七組沒有問到的三件事：**排序真的
- * 用得上嗎**、**不可比表達得出來嗎**、以及**比較是不是自洽的**（反對稱、遞移）。
+ * foliate's seven groups are in the file next door. What is asked here is the three
+ * things those seven do not: **is the ordering actually usable**, **can
+ * incomparability be expressed**, and **is the comparison self-consistent**
+ * (antisymmetric, transitive).
  */
 
 function order(a: string, b: string): string {
   return compareCfi(parseCfi(a), parseCfi(b));
 }
 
-describe("同一份文件裡的先後", () => {
+describe("order within one document", () => {
   const PAIRS = [
-    { a: "/6/4!/4/2", b: "/6/4!/4/6", why: "同一層的兄弟，序號小的在前" },
-    { a: "/6/4!/4/2", b: "/6/4!/6/2", why: "祖先那一層就分出先後了" },
-    { a: "/6/4!/4/2/1:3", b: "/6/4!/4/2/1:9", why: "同一個文字節點，位移小的在前" },
-    { a: "/6/4!/4/2", b: "/6/4!/4/2/1:0", why: "節點本身在它的內容之前" },
-    { a: "/6/4!/4/2", b: "/6/4!/4/2/2", why: "祖先在後代之前" },
-    { a: "/6/2!/4", b: "/6/4!/2", why: "不同的 Section，封裝文件那一層決定" },
+    { a: "/6/4!/4/2", b: "/6/4!/4/6", why: "siblings at one level: the lower index comes first" },
+    { a: "/6/4!/4/2", b: "/6/4!/6/2", why: "the order is already settled at an ancestor level" },
+    { a: "/6/4!/4/2/1:3", b: "/6/4!/4/2/1:9", why: "one text node: the smaller offset comes first" },
+    { a: "/6/4!/4/2", b: "/6/4!/4/2/1:0", why: "a node itself comes before its content" },
+    { a: "/6/4!/4/2", b: "/6/4!/4/2/2", why: "an ancestor comes before its descendants" },
+    { a: "/6/2!/4", b: "/6/4!/2", why: "different Sections: the package document level decides" },
   ] as const;
 
   test.for(PAIRS)("$why", ({ a, b }: (typeof PAIRS)[number]) => {
@@ -27,21 +30,22 @@ describe("同一份文件裡的先後", () => {
     expect(order(b, a)).toBe("after");
   });
 
-  test("完全一樣的兩個是 equal", () => {
+  test("two identical ones are equal", () => {
     expect(order("/6/4!/4/2/1:3", "/6/4!/4/2/1:3")).toBe("equal");
   });
 
-  test("只差斷言的兩個也是 equal", () => {
-    // 規格說索引才是權威，斷言是書改版後回復位置用的冗餘。拿它當比較依據，
-    // 同一個位置會因為書換了一版就變成兩個位置。
+  test("two differing only in their assertions are equal too", () => {
+    // The spec says the indices are authoritative and the assertion is redundancy for
+    // recovering a position after a book is revised. Comparing on it would turn one
+    // position into two just because the book got a new edition.
     expect(order("/6/4[chapA]!/4/2", "/6/4[chapB]!/4/2")).toBe("equal");
   });
 });
 
-describe("annotation 排得起來", () => {
-  test("一串 CFI 排出來就是書中的順序", () => {
-    // 這是 user story 22 的樣子：消費端手上是一堆存下來的 annotation，要照書中
-    // 順序列出來。
+describe("annotations can be sorted", () => {
+  test("sorting a list of CFIs gives the order they appear in the book", () => {
+    // This is what user story 22 looks like: the consumer has a pile of saved annotations
+    // and wants to list them in the order they appear in the book.
     const shuffled = [
       "epubcfi(/6/8!/4/2/1:5)",
       "epubcfi(/6/4!/4/6)",
@@ -58,9 +62,10 @@ describe("annotation 排得起來", () => {
     ).toEqual([3, 12, undefined, 5]);
   });
 
-  test("重疊的兩段 highlight 仍然排得出先後", () => {
-    // 起點相同時比終點。重疊在 annotation 上是常態（畫重點常常疊著畫），這裡
-    // 若回「不可比」，消費端的清單就排不出來了。
+  test("two overlapping highlights still get an order", () => {
+    // With equal starts, the ends decide. Overlap is the norm for annotations (highlights
+    // are often drawn over each other), and answering "incomparable" here would leave the
+    // consumer's list unsortable.
     const shorter = parseCfi("epubcfi(/6/4!/4/2,/1:0,/1:5)");
     const longer = parseCfi("epubcfi(/6/4!/4/2,/1:0,/1:9)");
 
@@ -68,46 +73,51 @@ describe("annotation 排得起來", () => {
     expect(compareCfi(longer, shorter)).toBe("after");
   });
 
-  test("範圍與它自己的起點比得出先後", () => {
+  test("a range and its own start point get an order", () => {
     const point = parseCfi("epubcfi(/6/4!/4/2/1:0)");
     const range = parseCfi("epubcfi(/6/4!/4/2,/1:0,/1:9)");
 
-    // 起點相同、終點是那個點本身比較前面——所以點排在範圍前面。
+    // The starts are equal and the point's own end comes first — so the point sorts ahead
+    // of the range.
     expect(compareCfi(point, range)).toBe("before");
   });
 });
 
-describe("不可比表達得出來", () => {
-  test("一邊跨進另一份文件，另一邊往子節點走", () => {
-    // `/6/4!/2`：走到 /6/4，跟著它的引用進到另一份文件，那裡的 /2。
-    // `/6/4/2`：封裝文件裡 /6/4 的子節點 /2。
-    // 兩個位置根本不在同一份文件裡，這個字串本身講不出誰先誰後——硬回一個
-    // 大小就是編的。
+describe("incomparability is expressible", () => {
+  test("one side steps into another document while the other walks to a child", () => {
+    // `/6/4!/2`: walk to /6/4, follow its reference into another document, and take /2
+    // there.
+    // `/6/4/2`: the child /2 of /6/4 inside the package document.
+    // The two positions are not even in the same document, and these strings alone cannot
+    // say which comes first — forcing an ordering out would be making one up.
     expect(order("/6/4!/2", "/6/4/2")).toBe("incomparable");
     expect(order("/6/4/2", "/6/4!/2")).toBe("incomparable");
   });
 
-  test("一邊落在文字裡，另一邊落在子節點上", () => {
-    // `/4/2:5` 是節點 /4/2 的文字裡第 5 個字元；`/4/2/6` 是它的子節點。誰先誰
-    // 後取決於那個子節點在內容裡的位置，而那要有文件才知道。
+  test("one side lands in text while the other lands on a child node", () => {
+    // `/4/2:5` is the 5th character in node /4/2's text; `/4/2/6` is a child of it. Which
+    // comes first depends on where that child sits within the content, and that takes a
+    // document to know.
     expect(order("/4/2:5", "/4/2/6")).toBe("incomparable");
     expect(order("/4/2/6", "/4/2:5")).toBe("incomparable");
   });
 
-  test("不可比不會退化成 equal", () => {
-    // 這是這個回傳型別存在的全部理由：`-1／0／1` 的 API 沒有位置講「沒有先後」，
-    // 於是它會被靜默地說成 0，而消費端的排序看起來是對的、順序卻是編的。
+  test("incomparable does not degrade into equal", () => {
+    // This is the entire reason this return type exists: a `-1/0/1` API has nowhere to say
+    // "there is no order", so it gets silently said as 0, and the consumer's sort looks
+    // right while the order is invented.
     expect(order("/6/4!/2", "/6/4/2")).not.toBe("equal");
   });
 
-  test("差異在前面就分出來時，後面的不相容不影響答案", () => {
-    // 不可比只在**兩者對同一個節點的說法不相容**時發生。序號在更前面就分開的
-    // 兩條路徑，後面長什麼樣都不重要。
+  test("when the difference is settled earlier, a later incompatibility does not change the answer", () => {
+    // Incomparability only arises when **the two make incompatible claims about the same
+    // node**. For two paths that already diverge at an earlier index, what follows does
+    // not matter.
     expect(order("/6/2!/2", "/6/4/2")).toBe("before");
   });
 });
 
-describe("比較自己要自洽", () => {
+describe("the comparison has to be self-consistent", () => {
   const SAMPLE = [
     "/6/4",
     "/6/4!/2",
@@ -118,7 +128,7 @@ describe("比較自己要自洽", () => {
     "/6/4!/2,/1:0,/1:3",
   ];
 
-  test("反對稱：a 在 b 前，等於 b 在 a 後", () => {
+  test("antisymmetry: a before b is the same as b after a", () => {
     for (const a of SAMPLE) {
       for (const b of SAMPLE) {
         const forward = order(a, b);
@@ -126,20 +136,21 @@ describe("比較自己要自洽", () => {
         const mirrored =
           forward === "before" ? "after" : forward === "after" ? "before" : forward;
 
-        expect(backward, `${a} 與 ${b}`).toBe(mirrored);
+        expect(backward, `${a} and ${b}`).toBe(mirrored);
       }
     }
   });
 
-  test("自己跟自己一定是 equal", () => {
+  test("anything compared with itself is equal", () => {
     for (const cfi of SAMPLE) {
       expect(order(cfi, cfi), cfi).toBe("equal");
     }
   });
 
-  test("遞移：a 在 b 前、b 在 c 前，則 a 在 c 前", () => {
-    // 排序要能用，遞移性就不能破。這一組全部落在同一份文件裡，所以沒有不可比
-    // 的格子——遞移在有不可比時本來就不成立，那是那個答案的意義。
+  test("transitivity: a before b and b before c means a before c", () => {
+    // For the sort to be usable, transitivity cannot break. This set all lives in one
+    // document, so there are no incomparable slots — transitivity does not hold in the
+    // presence of incomparability by construction, and that is what that answer means.
     const comparable = SAMPLE.filter((cfi) => !cfi.includes(","));
     for (const a of comparable) {
       for (const b of comparable) {

@@ -1,154 +1,170 @@
 name: release
 
-# 升版、打 tag、發到 npm。手動觸發，因為「要不要發一版」是一個決定，不是一個事件。
+# Bump the version, tag it, publish to npm. Triggered manually, because "should we cut a
+# release" is a decision rather than an event.
 #
-# ## 這條流程最後那一步收不回來
+# ## The last step of this workflow cannot be taken back
 #
-# 這個 repo 發兩個套件，**同版號一起發**（ADR-0008、ADR-0011）：
+# This repo publishes two packages, **released together at the same version** (ADR-0008,
+# ADR-0011):
 #
 #     npm install @yurenju/frond
 #     npm install @yurenju/frond-react
 #
-# **npm 上的版本收不回來。** unpublish 只有 72 小時的窗口，而且撤掉會弄壞已經裝了
-# 的人。git tag 打錯可以刪掉重打，一個發出去的版本不行——所以下面所有驗證都排在
-# `npm publish` 之前，而 `publish` 是整條流程的最後一步。
+# **A version on npm cannot be taken back.** unpublish has only a 72-hour window, and pulling
+# a version breaks everyone who already installed it. A mistyped git tag can be deleted and
+# redone; a published version cannot — so every verification below is ordered before
+# `npm publish`, and `publish` is the workflow's last step.
 #
-# 那幾個驗證步驟不是為了證明程式碼是對的（那是 `test.yml` 在 main 上每次推送都做
-# 的事），是為了證明**消費端拿到的那包東西是好的**。
+# Those verification steps are not there to prove the code is correct (that is what
+# `test.yml` does on every push to main); they are there to prove **the package a consumer
+# receives is sound**.
 #
-# `npm install github:yurenju/frond#<tag>` 這條路**不通了**：repo 根目錄現在是一個
-# `private: true` 的 workspace 容器（ADR-0011）。npm 是唯一的安裝方式。
+# The `npm install github:yurenju/frond#<tag>` route **no longer works**: the repo root is now
+# a `private: true` workspace container (ADR-0011). npm is the only way to install.
 on:
   workflow_dispatch:
     inputs:
       bump:
-        description: "要動哪一格"
+        description: "which component to move"
         type: choice
         required: true
         default: patch
         options:
-          # 0.1.0 → 0.1.1。修正、文件、內部重構。
+          # 0.1.0 → 0.1.1. Fixes, documentation, internal refactoring.
           - patch
-          # 0.1.0 → 0.2.0。API 有變動——0.x 期間這是常態（ADR-0008）。
+          # 0.1.0 → 0.2.0. The API changed — during 0.x that is the norm (ADR-0008).
           - minor
-          # 0.1.0 → 1.0.0。**這一格不只是一個數字。**
+          # 0.1.0 → 1.0.0. **This one is more than a number.**
           #
-          # 0.x 在 semver 裡等於「什麼都不保證」，而 1.0 收回那句話。要跨過去之前
-          # 先去改 ADR-0008，不要先打 tag——tag 刪得掉，發出去的 npm 版本不行。
+          # In semver, 0.x means "nothing is guaranteed", and 1.0 withdraws that sentence.
+          # Before crossing it, go and change ADR-0008 first; do not tag first — a tag can be
+          # deleted, a published npm version cannot.
           - major
       dry_run:
-        description: "只驗不發（不升版、不打 tag、不 publish）"
+        description: "verify only, do not release (no bump, no tag, no publish)"
         type: boolean
         required: false
         default: false
 
-# 同時跑兩次會各自算出同一個版本號，然後第二個推不上去（tag 已存在）。排隊而不是
-# 取消：被取消的那一個可能已經 push 了 commit、打了 tag，甚至已經 publish。
+# Two concurrent runs would each compute the same version number, and the second could not
+# push (the tag already exists). Queue rather than cancel: a cancelled run may already have
+# pushed a commit, tagged, or even published.
 concurrency:
   group: release
   cancel-in-progress: false
 
 permissions:
   contents: write
-  # npm 的 trusted publishing：publish 時用這個 OIDC token 向 registry 證明「我是
-  # 這個 repo 的這條 workflow」，所以不必存一顆 NPM_TOKEN。它同時是 provenance
-  # （package.json 的 publishConfig.provenance）的來源。
+  # npm's trusted publishing: at publish time this OIDC token proves to the registry "I am
+  # this workflow of this repo", so no NPM_TOKEN has to be stored. It is also the source of
+  # provenance (package.json's publishConfig.provenance).
   id-token: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      # Action 一律釘 commit SHA，不用 tag——理由與 test.yml 同一條：tag 是可移動
-      # 的參照，只有 SHA 是真的釘死。版本寫在註解裡給人看。
+      # Actions are always pinned to a commit SHA, never a tag — the same reasoning as in
+      # test.yml: a tag is a movable reference, and only a SHA is really pinned. The version
+      # is written in a comment for people to read.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # `npm version` 要看得到既有的 tag 才不會撞號。
+          # `npm version` has to see the existing tags to avoid colliding.
           fetch-depth: 0
 
-      # 只從 main 發版。
+      # Release only from main.
       #
-      # `workflow_dispatch` 的下拉選單裡每一個分支都選得到，而從功能分支打出來的
-      # tag 指向一個沒有進 main 的 commit——那個 tag 之後永遠對不上任何一段歷史，
-      # 而發現的方式通常是某個消費端裝到了一份不存在於 main 的程式碼。
-      - name: 確認在 main 上
+      # `workflow_dispatch`'s dropdown offers every branch, and a tag cut from a feature
+      # branch points at a commit that never entered main — that tag then never corresponds to
+      # any piece of history, and the way it is usually discovered is a consumer installing
+      # code that does not exist on main.
+      - name: Confirm we are on main
         if: github.ref != 'refs/heads/main'
         run: |
-          echo "::error::release 只能從 main 跑，現在在 ${{ github.ref }}"
+          echo "::error::release can only run from main; currently on ${{ github.ref }}"
           exit 1
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
-          # 這一行寫出 `.npmrc` 並把 registry 指向 npmjs。trusted publishing 不需
-          # 要 NODE_AUTH_TOKEN，但 publish 仍然要知道往哪個 registry 送。
+          # This line writes an `.npmrc` and points the registry at npmjs. Trusted publishing
+          # needs no NODE_AUTH_TOKEN, but publish still has to know which registry to send to.
           registry-url: "https://registry.npmjs.org"
 
-      # trusted publishing（OIDC）要 npm >= 11.5.1 與 Node >= 22.14.0。上面釘的
-      # node24 兩者都滿足，但內建的 npm 版本會隨映像漂移——版本一旦退回去，症狀是
-      # publish 要一顆不存在的 token，而錯誤訊息只會說沒登入。顯式裝一版，順便把
-      # 實際版本印在 log 裡。
-      - name: 確保 npm 夠新（trusted publishing 需要 >= 11.5.1）
+      # Trusted publishing (OIDC) requires npm >= 11.5.1 and Node >= 22.14.0. The node24
+      # pinned above satisfies both, but the built-in npm version drifts with the image — and
+      # if that version regresses, the symptom is publish asking for a token that does not
+      # exist, with an error message that only says you are not logged in. Install a version
+      # explicitly, and print the actual version into the log while we are at it.
+      - name: Ensure npm is new enough (trusted publishing needs >= 11.5.1)
         run: |
           npm install -g npm@latest
           npm --version
 
-      # `--ignore-scripts` 擋掉根 package.json 的 `prepare`。下面會顯式跑一次
-      # build，那一次的失敗訊息指得準；混在 `npm ci` 裡的話，紅燈長得像相依裝不
-      # 起來。
+      # `--ignore-scripts` blocks the root package.json's `prepare`. A build is run explicitly
+      # below, and that run's failure message points precisely; mixed into `npm ci`, the red
+      # light looks like a dependency that would not install.
       - run: npm ci --ignore-scripts
 
       - run: npm run typecheck
 
-      # --- 消費端那條路 ---------------------------------------------------
+      # --- the consumer's route --------------------------------------------
       #
-      # 到這裡為止驗的都是 repo 內部。下面兩步驗的是**別人拿到的東西**。
+      # Everything up to here verifies the inside of the repo. The two steps below verify
+      # **what other people receive**.
 
-      # 兩個套件依序建置（frond 先，frond-react 後——後者的建置會去解析前者出貨的
-      # `.d.ts`）。這一步同時檢查每個 dist/ 的兩條不變式：無 .ts specifier，以及
-      # bare specifier 沒有超出該套件宣告過的相依，見 scripts/finish-build.ts。
+      # Both packages are built in order (frond first, frond-react second — the latter's build
+      # resolves the former's shipped `.d.ts`). This step also checks each dist/'s two
+      # invariants: no .ts specifiers, and no bare specifier beyond what that package declared
+      # as a dependency; see scripts/finish-build.ts.
       #
-      # **沒有任何生命週期腳本會替補這一步。** 改成 workspace 之後套件本身沒有
-      # `prepare`（理由見 ADR-0008），所以 `npm pack` 拿到的是這裡建出來的東西——
-      # 漏掉這一行，打包出去的會是一個沒有 dist/ 的空殼。
+      # **No lifecycle script stands in for this step.** Since the move to workspaces the
+      # packages have no `prepare` of their own (for the reason see ADR-0008), so what
+      # `npm pack` picks up is what was built here — omit this line and what gets packed is an
+      # empty shell with no dist/.
       - run: npm run build
 
-      # 打包、安裝、import。
+      # Pack, install, import.
       #
-      # 這一步抓的是 `npm run build` 抓不到的那一類錯：`exports` 的路徑打錯、
-      # `files` 漏掉東西、`.d.ts` 指到不存在的檔案。它們的共同點是**在這個 repo
-      # 裡怎麼跑都是綠的**——因為我們自己的程式碼走相對路徑，從來不經過 exports。
-      - name: 裝成消費端的樣子，確認每個進入點都通
+      # This step catches the class of mistake `npm run build` cannot: a wrong path in
+      # `exports`, `files` missing something, a `.d.ts` pointing at a file that does not
+      # exist. What they have in common is that **they are green however you run things inside
+      # this repo** — because our own code goes through relative paths and never passes through
+      # exports.
+      - name: Install as a consumer would, and confirm every entry point resolves
         run: |
           set -euo pipefail
 
-          # 兩個套件各自打包到自己的目錄。
+          # Each package is packed into its own directory.
           #
-          # 分目錄不是潔癖：`yurenju-frond-*.tgz` 這個 glob 會同時命中
-          # `yurenju-frond-0.3.0.tgz` 與 `yurenju-frond-react-0.3.0.tgz`，而那個
-          # 錯誤的形狀是「安裝了兩份、其中一份是意料之外的套件」——不會報錯，只會
-          # 讓後面每一條斷言都在驗錯的東西。
+          # Separate directories is not fastidiousness: the glob `yurenju-frond-*.tgz` matches
+          # both `yurenju-frond-0.3.0.tgz` and `yurenju-frond-react-0.3.0.tgz`, and the shape
+          # of that mistake is "two packages installed, one of them unexpected" — which raises
+          # no error and merely makes every assertion afterwards verify the wrong thing.
           #
-          # 也不用 `tarball="$(npm pack)"` 取檔名：任何 build 腳本的 stdout 都會
-          # 跟著進同一條管道，`--silent` 也擋不掉。丟進一個乾淨的目錄再用 glob 取，
-          # 檔名怎麼組成的就不必猜。
+          # Nor is `tarball="$(npm pack)"` used to get the filename: any build script's stdout
+          # flows into the same pipe, and `--silent` does not stop it. Dropping into a clean
+          # directory and using a glob means the filename's composition never has to be
+          # guessed.
           rm -rf /tmp/pack /tmp/consumer
           mkdir -p /tmp/pack/core /tmp/pack/react
           npm pack --workspace @yurenju/frond --pack-destination /tmp/pack/core > /dev/null
           npm pack --workspace @yurenju/frond-react --pack-destination /tmp/pack/react > /dev/null
           core="$(ls /tmp/pack/core/*.tgz)"
           react_pkg="$(ls /tmp/pack/react/*.tgz)"
-          echo "打包出：$core"
-          echo "打包出：$react_pkg"
+          echo "packed: $core"
+          echo "packed: $react_pkg"
 
           mkdir -p /tmp/consumer
           cd /tmp/consumer
           npm init -y > /dev/null
           npm pkg set type=module
-          # react 從 registry 裝，因為消費端本來就是這樣拿到它的。範圍寫寬的
-          # （`^19`）而不是釘死：這裡驗的是「我們的 peer 範圍宣告得對不對」，釘死
-          # 反而會讓那個問題永遠問不出來。
+          # react is installed from the registry, because that is how a consumer gets it. The
+          # range is written broadly (`^19`) rather than pinned: what is being verified here is
+          # whether our peer range is declared correctly, and pinning would mean that question
+          # could never be asked.
           npm install --ignore-scripts "$core" "$react_pkg" react@^19 react-dom@^19 @types/react@^19
 
           cat > check.js <<'JS'
@@ -157,33 +173,35 @@ jobs:
           import * as Reader from "@yurenju/frond-react";
 
           for (const [name, value] of Object.entries({ EpubBook, Renderer, MemoryBook })) {
-            if (typeof value !== "function") throw new Error(`${name} 沒有從進入點出來`);
+            if (typeof value !== "function") throw new Error(`${name} did not come out of the entry point`);
           }
 
-          // `forwardRef` 包出來的東西 `typeof` 是 "object" 不是 "function"，所以
-          // 這裡只驗「有東西出來」。要驗它是不是一個能用的元件，得渲染它——而那件
-          // 事在 tests/browser/react/ 已經對著三家瀏覽器做過了。
+          // What `forwardRef` wraps has `typeof` "object" rather than "function", so this only
+          // verifies that something came out. Verifying it is a usable component takes
+          // rendering it — and that has already been done against all three browsers in
+          // tests/browser/react/.
           for (const name of ["Root", "Viewport", "NextTrigger", "PreviousTrigger", "Progress", "useReader", "useKeyboardPaging", "useSwipePaging", "Slot"]) {
-            if (Reader[name] === undefined) throw new Error(`frond-react 的 ${name} 沒有從進入點出來`);
+            if (Reader[name] === undefined) throw new Error(`frond-react's ${name} did not come out of the entry point`);
           }
-          console.log("執行期進入點：OK");
+          console.log("runtime entry points: OK");
           JS
           node check.js
 
-          # `./styles.css` 是一個 exports 進入點，而打包器解析它的方式與 JS 相同。
-          # `files` 漏掉那個檔案的話，消費端的 build 會紅在一個看起來像他們自己
-          # 設定錯誤的地方。
+          # `./styles.css` is an exports entry point, and bundlers resolve it the same way they
+          # resolve JS. If `files` misses that file, a consumer's build turns red somewhere that
+          # looks like their own misconfiguration.
           node --input-type=module <<'JS'
           import { existsSync } from "node:fs";
           if (!existsSync("node_modules/@yurenju/frond-react/styles.css")) {
-            throw new Error("styles.css 不在 tarball 裡——檢查 package.json 的 files");
+            throw new Error("styles.css is not in the tarball — check package.json's files");
           }
-          console.log("styles.css：OK");
+          console.log("styles.css: OK");
           JS
 
-          # 型別那一半要分開驗。`.d.ts` 壞掉的時候 import 照樣跑得動，只是每一個
-          # 型別都變成 any——那正是最難發現的一種壞法（TypeScript 7.0.2 的
-          # rewriteRelativeImportExtensions 不改寫 .d.ts，見 tsconfig.build.json）。
+          # The type half has to be verified separately. When a `.d.ts` is broken the import
+          # still runs, and every type merely becomes any — which is exactly the hardest kind of
+          # breakage to notice (TypeScript 7.0.2's rewriteRelativeImportExtensions does not
+          # rewrite .d.ts; see tsconfig.build.json).
           cat > check.tsx <<'TSX'
           import { EpubBook, type BookMetadata } from "@yurenju/frond/epub";
           import { Renderer, type RenderLocation } from "@yurenju/frond/renderer";
@@ -199,20 +217,21 @@ jobs:
             return meta.epubVersion;
           }
 
-          // frond-react 的型別要能**跨過套件邊界**接上 frond 的型別：`book` 這個
-          // prop 收的是 frond 的 `RenderableBook`。兩份 .d.ts 各自解得開但接不起
-          // 來的時候，紅的是這一行。
+          // frond-react's types have to connect to frond's types **across the package
+          // boundary**: the `book` prop takes frond's `RenderableBook`. When the two .d.ts
+          // resolve individually but will not join up, this line is what turns red.
           export function Ui({ book }: { book: EpubBook }) {
             return (
               <Reader.Root book={book} settings={{ fontSize: 18 }}>
                 <Reader.Viewport className="page" />
-                <Reader.NextTrigger onClick={() => undefined}>下一頁</Reader.NextTrigger>
+                <Reader.NextTrigger onClick={() => undefined}>Next</Reader.NextTrigger>
               </Reader.Root>
             );
           }
           TSX
 
-          # skipLibCheck 關掉：開著的話，出貨的 .d.ts 就算解析不到也不會紅。
+          # skipLibCheck is off: with it on, a shipped .d.ts that fails to resolve would not turn
+          # anything red.
           cat > tsconfig.json <<'JSON'
           {
             "compilerOptions": {
@@ -228,20 +247,22 @@ jobs:
             "files": ["check.tsx"]
           }
           JSON
-          # 直接叫 repo 裡那支 tsc，而不是 npx 另外裝一份。這是 AGENTS.md「一律走
-          # npm run」的例外，而例外的理由要說清楚：被檢查的是 /tmp 底下一個假的
-          # 消費端專案，不是這個 repo，所以沒有一支 npm script 該負責它。用 repo
-          # 釘死的那個版本，量到的才是消費端拿到的 .d.ts 在我們宣稱支援的
-          # TypeScript 上解不解得開。
+          # The repo's own tsc is invoked directly rather than installing another copy with npx.
+          # This is an exception to AGENTS.md's "always go through npm run", and the reason has
+          # to be stated: what is being checked is a fake consumer project under /tmp, not this
+          # repo, so no npm script should be responsible for it. Using the version the repo pins
+          # is what makes the measurement "does the .d.ts a consumer receives resolve on the
+          # TypeScript we claim to support".
           "$GITHUB_WORKSPACE/node_modules/.bin/tsc" -p tsconfig.json
-          echo "型別進入點：OK"
+          echo "type entry points: OK"
 
-          # map 檔的 sources 指到的原始碼要真的在包裡。
+          # The sources a map file points at have to actually be in the package.
           #
-          # `.d.ts.map` 是「跳到定義會落在原始碼上」這件事的依據
-          # （tsconfig.build.json），而它指的是 `../../src/*.ts`——`files` 沒把
-          # `src/` 帶進 tarball 的話那些路徑全是空的。**這種壞法沒有任何東西會
-          # 紅**：import 跑得動、型別是對的，只有跳定義會掉進虛空。
+          # `.d.ts.map` is what makes "jump to definition lands on the source" true
+          # (tsconfig.build.json), and it points at `../../src/*.ts` — if `files` did not bring
+          # `src/` into the tarball, all those paths are empty. **Nothing turns red for this
+          # kind of breakage**: the import runs, the types are right, and only jump-to-definition
+          # falls into the void.
           node --input-type=module <<'JS'
           import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
           import { join, dirname, resolve } from "node:path";
@@ -261,7 +282,7 @@ jobs:
 
           for (const pkg of ["@yurenju/frond", "@yurenju/frond-react"]) {
             const maps = mapsUnder(join("node_modules", pkg, "dist"));
-            if (maps.length === 0) throw new Error(`${pkg} 一個 .map 都沒有，檢查漏掉了`);
+            if (maps.length === 0) throw new Error(`${pkg} has no .map at all; the check missed something`);
             counted += maps.length;
 
             for (const map of maps) {
@@ -274,45 +295,47 @@ jobs:
           }
 
           if (missing.length > 0) {
-            throw new Error(`map 指到不存在的原始碼：\n  ${missing.join("\n  ")}`);
+            throw new Error(`maps point at sources that do not exist:\n  ${missing.join("\n  ")}`);
           }
-          console.log(`map 的 sources：OK（${counted} 個 map）`);
+          console.log(`map sources: OK (${counted} maps)`);
           JS
 
-      # --- 打版 -------------------------------------------------------------
+      # --- cutting the version ----------------------------------------------
       #
-      # 到這裡為止一個副作用都還沒發生，所以 dry run 在這裡收手。
+      # Not one side effect has happened up to here, so a dry run stops at this point.
 
-      - name: dry run 到此為止
+      - name: dry run stops here
         if: inputs.dry_run
         run: |
           {
-            echo "## dry run：驗過了，沒有發"
+            echo "## dry run: verified, nothing released"
             echo
-            echo "兩個套件的 build、進入點（執行期與型別）、styles.css、map 的"
-            echo "sources 都通過。沒有升版、沒有打 tag、沒有 publish。"
+            echo "Both packages' build, entry points (runtime and types), styles.css and map"
+            echo "sources all passed. No version bump, no tag, no publish."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: 設定提交身分
+      - name: Set the commit identity
         if: ${{ !inputs.dry_run }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      # 兩個套件同版號一起發（ADR-0008）。
+      # Both packages are released together at the same version (ADR-0008).
       #
-      # ## 為什麼不是一行 `npm version`
+      # ## Why this is not one line of `npm version`
       #
-      # `npm version --workspaces --include-workspace-root` 會把三份 package.json
-      # 的 `version` 一起升，但它**不會改跨套件的相依範圍**——frond-react 的
-      # `peerDependencies["@yurenju/frond"]` 會停在舊版號上。那個漏掉的形狀很惡劣：
-      # 安裝得起來（範圍還涵蓋得到新版），只是它宣告的相容範圍是一句過期的話。
+      # `npm version --workspaces --include-workspace-root` bumps `version` in all three
+      # package.json files, but it **does not change cross-package dependency ranges** —
+      # frond-react's `peerDependencies["@yurenju/frond"]` would stay on the old number. That
+      # omission has a nasty shape: it installs fine (the range still covers the new version),
+      # and the compatibility range it declares is simply an out-of-date statement.
       #
-      # 所以拆成三步：先升版（`--no-git-tag-version`，不碰 git），改 peer 範圍，
-      # 更新 lockfile，最後自己 commit 與 tag。`npm version` 本來替我們做的那兩件
-      # 事（commit、tag）在這裡是手寫的，換來的是那一行 `npm pkg set` 有地方放。
+      # So it is split into three steps: bump first (`--no-git-tag-version`, touching no git),
+      # change the peer range, update the lockfile, and finally commit and tag by hand. The two
+      # things `npm version` would have done for us (commit, tag) are written out here, and what
+      # that buys is somewhere to put that one `npm pkg set`.
       - id: version
-        name: 升版並打 tag
+        name: Bump the version and tag it
         if: ${{ !inputs.dry_run }}
         run: |
           set -euo pipefail
@@ -323,18 +346,20 @@ jobs:
           number="$(npm pkg get version | tr -d '"')"
           tag="v${number}"
 
-          # peer 範圍跟著走。`^` 在 0.x 是「同一個 minor 之內」，那正好是我們願意
-          # 給的保證——0.x 的每一個 minor 都可能改 API（ADR-0008）。
+          # The peer range follows. In 0.x, `^` means "within the same minor", which is exactly
+          # the guarantee we are willing to give — every 0.x minor may change the API
+          # (ADR-0008).
           #
-          # frond-react 的 `devDependencies["@yurenju/frond"]` 刻意是 `*`，所以這
-          # 裡不必動它。那一格存在的唯一目的是讓 npm 把 workspace 連起來，寫成一個
-          # 具體範圍的話它會停在某一版，而 peer 範圍每次發版都往前走——兩者拉開到
-          # 涵蓋不到彼此的那一天，`npm install` 會改成去 registry 抓一份舊的
-          # @yurenju/frond 回來，而 repo 裡的改動從此不會反映在 frond-react 上。
+          # frond-react's `devDependencies["@yurenju/frond"]` is deliberately `*`, so it need
+          # not be touched here. That entry exists solely to make npm link the workspaces, and
+          # written as a concrete range it would stay on some version while the peer range moves
+          # forward with every release — on the day the two drift out of covering each other,
+          # `npm install` would start fetching an old @yurenju/frond from the registry, and
+          # changes in the repo would stop being reflected in frond-react from then on.
           npm pkg set "peerDependencies.@yurenju/frond=^${number}" --workspace @yurenju/frond-react
 
-          # lockfile 裡也有這幾個版本號，而那份檔案是 `npm ci` 的依據。漏掉的話
-          # 下一次 `npm ci` 會抱怨 lock 與 manifest 對不上。
+          # The lockfile carries these version numbers too, and it is what `npm ci` works from.
+          # Omitted, the next `npm ci` complains that the lock and the manifest disagree.
           npm install --package-lock-only --ignore-scripts
 
           git add package.json package-lock.json packages/frond/package.json packages/frond-react/package.json
@@ -343,88 +368,98 @@ jobs:
 
           echo "version=$tag" >> "$GITHUB_OUTPUT"
           echo "number=$number" >> "$GITHUB_OUTPUT"
-          echo "升到 $tag"
+          echo "bumped to $tag"
 
-      # `--follow-tags` 只推帶訊息的 tag，也就是上一步剛打的那一個。commit 與 tag
-      # 一起推是重點：分兩次推的話，中間失敗會留下一個推上去卻沒有 tag 的 commit。
+      # `--follow-tags` pushes only annotated tags, which is the one just created. Pushing the
+      # commit and the tag together is the point: pushed separately, a failure in between leaves
+      # a pushed commit with no tag.
       #
-      # 兩件與這一步有關、但不在這個檔案裡的事：
+      # Two things relevant to this step that are not in this file:
       #
-      #   1. main 若開了「必須經 PR」的分支保護，這一行會被擋下來。要嘛給
-      #      github-actions[bot] 一個 bypass，要嘛改成開 PR 的流程。
-      #   2. 用 GITHUB_TOKEN 推上去的 commit **不會觸發其他 workflow**，所以這一
-      #      次推送不會跑 test.yml 也不會重新部署 pages。兩者在這裡都無所謂：升版
-      #      的 commit 只動那幾份 package.json 與 package-lock.json，站的內容沒
-      #      變，而程式碼本身在打 tag 之前已經驗過。
-      - name: 推上去
+      #   1. If main has branch protection requiring a PR, this line is rejected. Either give
+      #      github-actions[bot] a bypass, or switch to a PR-opening flow.
+      #   2. A commit pushed with GITHUB_TOKEN **does not trigger other workflows**, so this push
+      #      runs neither test.yml nor a pages redeploy. Neither matters here: the version commit
+      #      only touches those package.json files and package-lock.json, the site's content is
+      #      unchanged, and the code itself was verified before the tag was cut.
+      - name: Push
         if: ${{ !inputs.dry_run }}
         run: git push --follow-tags origin main
 
-      # --- 發布 -------------------------------------------------------------
+      # --- publishing -------------------------------------------------------
 
-      # publish 排在 push 後面，而不是前面。
+      # publish comes after push, not before.
       #
-      # 兩者都可能失敗，但失敗的代價不對稱：推上去了卻沒 publish，補跑一次
-      # `npm publish` 就好；publish 了卻沒推上去，npm 上就有一個對不到任何 commit
-      # 的版本，而那個版本收不回來。所以把可回復的那一步放前面。
+      # Both can fail, but the costs are asymmetric: pushed without publishing is fixed by
+      # re-running `npm publish`; published without pushing leaves a version on npm that
+      # corresponds to no commit, and that version cannot be taken back. So the recoverable step
+      # goes first.
       #
-      # 沒有 NODE_AUTH_TOKEN：認證走 trusted publishing（OIDC），憑的是 job 開的
-      # `id-token: write` 與 npmjs 那邊設定的 trusted publisher。
+      # There is no NODE_AUTH_TOKEN: authentication goes through trusted publishing (OIDC),
+      # backed by the job's `id-token: write` and the trusted publisher configured on npmjs.
       #
-      # ## 每個套件的第一版都不能由這條 workflow 發
+      # ## Each package's first version cannot be released by this workflow
       #
-      # trusted publisher 的設定頁掛在套件底下，而 npm **不接受**對一個還不存在於
-      # registry 的套件預先設定（npm/cli#8544；PyPI 可以，npm 不行）。所以
-      # `@yurenju/frond` 的 `0.2.0` 是在本機手動發的，把套件在 registry 上生出來，
-      # 之後才設得了 trusted publisher。`0.2.1` 起都走這一步，不再需要任何 token。
+      # A trusted publisher's settings page hangs off the package, and npm **does not accept**
+      # configuring one in advance for a package that does not yet exist in the registry
+      # (npm/cli#8544; PyPI allows it, npm does not). So `@yurenju/frond`'s `0.2.0` was published
+      # manually from a local machine to bring the package into existence in the registry, after
+      # which a trusted publisher could be configured. Everything from `0.2.1` on goes through
+      # this step and needs no token at all.
       #
-      # **`@yurenju/frond-react` 還沒走過那一次。** 它的第一版一樣得在本機用一顆臨
-      # 時 token 發：
+      # **`@yurenju/frond-react` has not been through that once yet.** Its first version likewise
+      # has to be published locally with a temporary token:
       #
       #     npm run build
       #     npm publish --workspace @yurenju/frond-react
       #
-      # 然後去 npmjs 上把 trusted publisher 掛到這條 workflow 上。做完之前，下面那
-      # 一行對 frond-react 會失敗（訊息看起來像沒登入），而**那一次失敗發生在
-      # frond 已經 publish 成功之後**——收不回來。所以第一次發兩個套件的版本之前，
-      # 先確認這件事做完了。
+      # and then a trusted publisher has to be attached to this workflow on npmjs. Until that is
+      # done, the line below fails for frond-react (with a message that looks like not being
+      # logged in), and **that failure happens after frond has already published successfully** —
+      # which cannot be taken back. So before the first release of both packages, confirm this
+      # has been done.
       #
-      # ## provenance 不必顯式要求
+      # ## provenance need not be requested explicitly
       #
-      # 走 trusted publishing 時 npm 會自動產生 provenance attestation，不需要
-      # `--provenance` 也不需要 `publishConfig.provenance`。**而且不該設**：上面那
-      # 次手動發布是在本機跑的，沒有 OIDC 可用，顯式要求 provenance 會讓它直接失
-      # 敗。（`0.2.0` 因此沒有 attestation，這一步發出去的版本則都會有。）
+      # Under trusted publishing npm generates a provenance attestation automatically, with no
+      # `--provenance` and no `publishConfig.provenance` required. **And it should not be set**:
+      # that manual publish above ran on a local machine with no OIDC available, and explicitly
+      # requesting provenance would have made it fail outright. (`0.2.0` therefore has no
+      # attestation, while every version released by this step does.)
       #
-      # `--access public` 則相反，寫在每個套件的 publishConfig 裡：scoped 套件預設
-      # 是 private，漏掉的話 registry 回一個看起來像付費方案問題的錯誤。
+      # `--access public` is the opposite, and lives in each package's publishConfig: scoped
+      # packages default to private, and omitting it makes the registry return an error that
+      # looks like a billing-plan problem.
       #
-      # ## 順序：frond 先
+      # ## Order: frond first
       #
-      # 逐一 publish 而不是 `--workspaces`，因為要控制順序。frond-react 宣告了對
-      # frond 的 peer 相依，先發它的話，registry 上會有一段時間存在一個指向不存在
-      # 版本的套件——`npm install` 在那段時間會警告。反過來則只是「新的核心還沒有
-      # 對應的 React 層」，那是無害的。
-      - name: 發到 npm
+      # Published one at a time rather than with `--workspaces`, because the order matters.
+      # frond-react declares a peer dependency on frond, and publishing it first would leave a
+      # window in which the registry holds a package pointing at a version that does not exist —
+      # `npm install` warns during that window. The other way round is merely "the new core does
+      # not have its matching React layer yet", which is harmless.
+      - name: Publish to npm
         if: ${{ !inputs.dry_run }}
         run: |
           set -euo pipefail
           npm publish --workspace @yurenju/frond
           npm publish --workspace @yurenju/frond-react
 
-      # --- 這一版改了什麼 -----------------------------------------------------
+      # --- what changed in this version --------------------------------------
 
-      # release notes 由 GitHub 從「上一個 tag 到這一個 tag 之間合併的 PR」自己產
-      # 生，所以這個 repo 不維護 CHANGELOG。
+      # The release notes are generated by GitHub from "the PRs merged between the previous tag
+      # and this one", so this repo maintains no CHANGELOG.
       #
-      # 那不只是懶。手寫的 CHANGELOG 是第二份要跟 commit 保持同步的紀錄，而它腐爛
-      # 的方式很惡劣：停在某一版的 CHANGELOG 會讓人以為後面幾版沒有破壞性變更，
-      # 而那是假的。`--generate-notes` 讀的是 PR 標題——一個本來就會被 review 的東
-      # 西，不會有人「忘記更新」它。
+      # That is not just laziness. A hand-written CHANGELOG is a second record that has to stay
+      # in sync with the commits, and it rots nastily: a CHANGELOG stuck at some version makes
+      # people believe the versions after it had no breaking changes, and that is false.
+      # `--generate-notes` reads PR titles — something that gets reviewed anyway, and that nobody
+      # "forgets to update".
       #
-      # 排在 publish 後面：release notes 是一則公告，而公告一個沒發成功的版本，比
-      # 晚一點才有公告糟。這一步失敗的話補跑一次 `gh release create` 就好。
-      - name: 產生 release notes
+      # Ordered after publish: release notes are an announcement, and announcing a version that
+      # failed to publish is worse than announcing a little late. If this step fails, re-running
+      # `gh release create` is enough.
+      - name: Generate the release notes
         if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ github.token }}
@@ -433,19 +468,19 @@ jobs:
             --verify-tag \
             --generate-notes
 
-      - name: 寫進執行摘要
+      - name: Write the run summary
         if: ${{ !inputs.dry_run }}
         run: |
           {
-            echo "## ${{ steps.version.outputs.version }} 發出去了"
+            echo "## ${{ steps.version.outputs.version }} is out"
             echo
             echo '```bash'
             echo "npm install @yurenju/frond@${{ steps.version.outputs.number }}"
             echo "npm install @yurenju/frond-react@${{ steps.version.outputs.number }}"
             echo '```'
             echo
-            echo "消費端拿到的那包東西（build、每個進入點的執行期與型別、map 的"
-            echo "sources）在 publish 之前驗過。"
+            echo "The package consumers receive (build, each entry point's runtime and types,"
+            echo "map sources) was verified before publishing."
             echo
-            echo "這一版改了什麼：<${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }}>"
+            echo "What changed in this version: <${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }}>"
           } >> "$GITHUB_STEP_SUMMARY"

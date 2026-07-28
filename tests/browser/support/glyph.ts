@@ -2,39 +2,44 @@ import type { Browser, Page } from "@playwright/test";
 import { documentWith } from "./document.js";
 
 /**
- * 單一字元的渲染與截圖。
+ * Rendering and screenshotting a single character.
  *
- * 直排字符與區域字面兩組測試都需要「把一個字放進一個字面方框、截圖、看像素」，
- * 差別只在事後怎麼分析。共用一份可以保證兩邊的方框大小、行高、溢出處理一致
- * ——這些值若在兩個檔案裡各自宣告，會無聲地飄開，而飄開之後兩組結論就不再
- * 可比。
+ * Both the vertical-glyph and the regional-face test groups need to "put one character
+ * in an em box, screenshot it, look at the pixels", and differ only in how they analyse
+ * the result afterwards. Sharing one implementation guarantees the box size, line height
+ * and overflow handling are the same on both sides — declared separately in two files,
+ * those values drift apart silently, and once they have, the two sets of conclusions are
+ * no longer comparable.
  */
 
-/** 字面方框的邊長。取得大，讓抗鋸齒相對於字面尺寸可以忽略。 */
+/** The em box's edge length. Taken large, so that antialiasing is negligible relative to the glyph. */
 export const GLYPH_BOX_PX = 200;
 
 export interface GlyphRequest {
   readonly char: string;
-  /** 文件宣告的語言。區域字面的選用就是由它驅動的。 */
+  /** The language the document declares. Regional face selection is driven by it. */
   readonly lang: string;
-  /** 預設走 generic family，讓 fontconfig 的綁定決定結果。 */
+  /** Defaults to a generic family, letting fontconfig's bindings decide the outcome. */
   readonly fontFamily?: string;
   readonly writingMode?: "horizontal-tb" | "vertical-rl";
   /**
-   * OpenType 特性。用於顯式要求直排字符——WebKit 不會自動套用，
-   * 見 docs/browser-quirks.md。
+   * OpenType features. Used to request vertical glyphs explicitly — WebKit does not apply
+   * them automatically, see docs/browser-quirks.md.
    */
   readonly fontFeatureSettings?: string;
 }
 
 /**
- * 一個字面方框的標記。獨立出來是為了讓 iframe 內的版本（見
- * regional-faces.spec.ts 的 Chromium fallback 快取那組）與這裡走同一份樣式。
+ * The markup for one em box. Split out so the in-iframe version (see the Chromium
+ * fallback-cache group in regional-faces.spec.ts) goes through the same styles as this
+ * one.
  *
- * 樣式走 <style> 而不是 style="..." 屬性。字型名稱帶引號是常態
- * （font-family: "Noto Serif CJK JP"），塞進雙引號的 HTML 屬性裡會把屬性
- * 截斷，於是整條宣告連同 width / height / writing-mode 一起消失，只剩 lang
- * 還活著——而畫面仍然畫得出字，測試仍然跑得完，只是量到的是別的東西。
+ * The styles go through a <style> element rather than a style="..." attribute. Quoted
+ * font names are the norm (font-family: "Noto Serif CJK JP"), and pushing one into a
+ * double-quoted HTML attribute truncates the attribute — so the whole declaration
+ * disappears along with width / height / writing-mode, leaving only lang alive. And the
+ * page still draws a character and the test still runs to completion; it just measures
+ * something else.
  */
 export function glyphMarkup(request: GlyphRequest): string {
   const {
@@ -73,15 +78,17 @@ export async function screenshotGlyph(
 }
 
 /**
- * 同上，但每次量測都給一個全新的 page。
+ * As above, but each measurement gets a brand-new page.
  *
- * **量 generic family 時必須用這個。** Chromium 的字元 fallback 結果是一頁一次
- * 的：某個碼位第一次需要 fallback 時解析出來的字面，會被那一頁記住，後續文件
- * 即使換了 lang 也拿到同一個字面（見 docs/browser-quirks.md）。共用一個 page
- * 連續量好幾個 lang，量到的會是第一個 lang 的答案，而且看起來很像「Chromium
- * 不理會 lang」——那是量測方法造成的，不是瀏覽器的行為。
+ * **This is mandatory when measuring generic families.** Chromium's character fallback
+ * result is once-per-page: the face resolved the first time a code point needs fallback
+ * is remembered by that page, and subsequent documents get the same face even with a
+ * different lang (see docs/browser-quirks.md). Measuring several langs in a row on one
+ * shared page measures the first lang's answer, and it looks a great deal like "Chromium
+ * ignores lang" — which is an artefact of the measurement, not the browser's behaviour.
  *
- * 指名字面時不需要這個：字面自己涵蓋該碼位，根本不會走 fallback。
+ * Not needed with a named face: the face covers the code point itself, so fallback is
+ * never reached.
  */
 export async function screenshotGlyphInIsolation(
   browser: Browser,
@@ -90,7 +97,7 @@ export async function screenshotGlyphInIsolation(
   return withFreshPage(browser, (page) => screenshotGlyph(page, request));
 }
 
-/** 一個用完就丟的 context 與 page。同上，理由是那份 fallback 快取。 */
+/** A throwaway context and page. Same reason as above: that fallback cache. */
 export async function withFreshPage<T>(
   browser: Browser,
   use: (page: Page) => Promise<T>,

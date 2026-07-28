@@ -5,60 +5,69 @@ import { parseXml, type XmlElement } from "./xml.ts";
 import type { Resource } from "./resources.ts";
 
 /**
- * TOC——書的目錄：有層次的標題與位置對照（CONTEXT.md）。
+ * The TOC — a book's table of contents: a hierarchy of titles paired with locations
+ * (CONTEXT.md).
  *
- * **TOC 是概念，導覽文件是承載它的那份檔案**，而 frond 支援兩種載體：EPUB 3 的
- * `nav.xhtml` 與 EPUB 2 的 `toc.ncx`。這個模組把兩者讀成同一棵樹，於是消費端的
- * 目錄程式碼不必分兩套（user story 14）。
+ * **The TOC is the concept; the navigation document is the file carrying it**, and
+ * frond supports two vehicles: EPUB 3's `nav.xhtml` and EPUB 2's `toc.ncx`. This
+ * module reads both into the same tree, so a consumer's table-of-contents code does
+ * not need two versions (user story 14).
  *
- * 兩種載體表達同一棵樹的形狀不同，錯法也不同：
+ * The two vehicles express the same tree in different shapes, and go wrong in
+ * different ways:
  *
  * | | `nav.xhtml` | `toc.ncx` |
  * | --- | --- | --- |
- * | 標籤與位置 | 同一個 `<a>` 帶著兩者 | `<navLabel><text>` 與 `<content src>` 是兩個子元素 |
- * | 層次 | `<ol>` 開在 `<li>` **裡面** | navPoint 直接套 navPoint |
+ * | Label and location | one `<a>` carries both | `<navLabel><text>` and `<content src>` are two child elements |
+ * | Hierarchy | the `<ol>` opens **inside** the `<li>` | a navPoint nests directly in a navPoint |
  *
- * 所以底下兩個 collect 函式各自獨立——把它們合成一個「遞迴找標籤」的通用實作
- * 會同時失去兩件事：`<nav>` 之外的 `<a>`（landmarks）會被收進 TOC，而子清單
- * 放錯位置（`<li>` 的兄弟而不是裡面）的導覽文件會靜默地變成一串平的。
+ * So the two collect functions below stand alone — merging them into one generic
+ * "recursively find labels" implementation would lose two things at once: `<a>`
+ * elements outside the `<nav>` (landmarks) would be gathered into the TOC, and a
+ * navigation document that puts its sub-list in the wrong place (as a sibling of the
+ * `<li>` rather than inside it) would silently flatten.
  *
- * ## href 走的是與 manifest 同一條正規化
+ * ## hrefs go through the same normalization as the manifest
  *
- * 每一項的 href 都交給 `resolveHref()`，基底是**導覽文件自己**在壓縮檔內的位置
- * ——不是封裝文件的位置，兩者不一定在同一個目錄裡（`toc-href-parent-prefix`）。
- * `%2c` 與 `../` 兩種病症因此由同一份實作處理，這裡不做任何字串處理。
+ * Every item's href is handed to `resolveHref()`, with the **navigation document
+ * itself** as the base position in the archive — not the package document's position;
+ * the two are not necessarily in the same directory (`toc-href-parent-prefix`). The
+ * `%2c` and `../` ailments are therefore handled by one shared implementation, and
+ * there is no string manipulation here at all.
  */
 
-/** 承載 TOC 的那份檔案是哪一種。 */
+/** Which kind of file carries the TOC. */
 export type NavigationVehicle = "nav" | "ncx";
 
 /**
- * TOC 讀自哪一份導覽文件（user story 15）。
+ * Which navigation document the TOC was read from (user story 15).
  *
- * 兩份都在是常態（樣本裡 31 本 EPUB 3 全部都有），而 ADR-0010 規定不合併、不
- * 交叉驗證——所以「用了哪一份」是消費端唯一能據以查證不一致的線索。frond 給
- * 事實，要不要提示讀者是消費端的政策（ADR-0002）。
+ * Having both is the norm (all 31 EPUB 3 books in the sample do), and ADR-0010
+ * mandates no merging and no cross-validation — so "which one was used" is the only
+ * clue a consumer has for investigating an inconsistency. frond supplies the fact;
+ * whether to warn the reader is the consumer's policy (ADR-0002).
  */
 export interface NavigationDocument {
   readonly vehicle: NavigationVehicle;
-  /** 在壓縮檔內的路徑。 */
+  /** The path inside the archive. */
   readonly path: string;
 }
 
-/** TOC 的一個項目。子項目在 `children` 底下，深度不限。 */
+/** One TOC entry. Sub-entries live under `children`, to unlimited depth. */
 export interface TocItem {
-  /** 目錄上顯示的標題。 */
+  /** The title shown in the table of contents. */
   readonly label: string;
-  /** 導覽文件裡原樣照抄的 href，供診斷——病症就寫在這裡。 */
+  /** The href copied verbatim from the navigation document, for diagnostics — the ailment is written right here. */
   readonly href: string;
   /**
-   * href 解析之後指向哪裡。落在封裝內時帶著 `path` 與 `fragment`，那就是消費端
-   * 跳轉要的兩個值。
+   * Where the href points once resolved. When it lands inside the package it carries
+   * `path` and `fragment`, which are the two values a consumer needs to jump.
    *
-   * 型別直接沿用解析器的產物，而不是攤成 `path?` 與 `fragment?`：TOC 指到遠端
-   * （書裡放了外部連結）或指到封裝外（書寫壞了）都不該讓一本書開不起來，而把
-   * 那兩種都壓成 `undefined` 會讓消費端分不出「這是外部連結」與「這本書的目錄
-   * 寫壞了」。
+   * The type reuses the resolver's product directly rather than flattening it into
+   * `path?` and `fragment?`: a TOC pointing at something remote (the book contains an
+   * external link) or outside the package (the book is written wrong) should not keep
+   * a book from opening, and collapsing both into `undefined` would leave the consumer
+   * unable to tell "this is an external link" from "this book's TOC is written wrong".
    */
   readonly target: ResolvedHref;
   readonly children: readonly TocItem[];
@@ -66,13 +75,13 @@ export interface TocItem {
 
 export interface Toc {
   readonly items: readonly TocItem[];
-  /** 一份導覽文件都找不到時是 `undefined`，此時 `items` 是空的。 */
+  /** `undefined` when no navigation document is found at all, in which case `items` is empty. */
   readonly readFrom: NavigationDocument | undefined;
 }
 
 const NCX_MEDIA_TYPE = "application/x-dtbncx+xml";
 
-/** 空的 TOC。一本沒有目錄的書仍然讀得完（ADR-0010）。 */
+/** An empty TOC. A book with no table of contents still reads through to the end (ADR-0010). */
 const NO_TOC: Toc = { items: [], readFrom: undefined };
 
 export function readToc(
@@ -97,28 +106,36 @@ export function readToc(
 }
 
 /**
- * 哪一份檔案承載這本書的 TOC。順序照 ADR-0010〈導覽文件的優先順序〉：
+ * Which file carries this book's TOC. The order follows ADR-0010's "priority of
+ * navigation documents":
  *
- * 1. 宣告 3.x 時 `properties="nav"` 贏，NCX 完全忽略
- * 2. 宣告 2.x 時只有 NCX 這條路
- * 3. 宣告 3.x 卻找不到 nav 時**退回 NCX**，不丟錯
+ * 1. When 3.x is declared, `properties="nav"` wins and the NCX is ignored entirely
+ * 2. When 2.x is declared, the NCX is the only route
+ * 3. When 3.x is declared but no nav is found, **fall back to the NCX** rather than
+ *    throwing
  *
- * 「找得到」的意思包含**那一項真的在壓縮檔裡**：宣告了卻缺檔的導覽文件與沒有
- * 宣告是同一格（少的是目錄不是內容），所以這裡繼續往下找而不是丟錯。
+ * "Found" includes **that item actually being in the archive**: a navigation document
+ * that is declared but whose file is missing lands in the same case as one that was
+ * never declared (what is missing is the table of contents, not content), so this
+ * keeps looking rather than throwing.
  *
- * ## NCX 的兩種指法
+ * ## The two ways to point at an NCX
  *
- * `<spine toc>` 是封裝文件對 NCX 的正式指法，但**書不一定寫**：那 33 本書全部
- * 在 manifest 上宣告了 NCX，只有 27 本用 `<spine toc>` 指向它——6 本只能靠
- * media type 找到。那 6 本都有 nav 所以實際上走不到第 3 條，但少了 media type
- * 這條後援，一本「宣告 3.x、沒有 nav、NCX 也沒被指到」的書就會沒有目錄，而它的
- * 每一個零件在野外都是常態。
+ * `<spine toc>` is the package document's formal way of pointing at an NCX, but
+ * **books do not always write it**: all 33 books declare an NCX in their manifest,
+ * and only 27 point at it with `<spine toc>` — the other 6 can only be found by media
+ * type. All 6 have a nav, so rule 3 is never actually reached for them, but without
+ * the media type fallback a book that "declares 3.x, has no nav, and never points at
+ * its NCX" would have no table of contents, and every component of that is normal in
+ * the wild.
  *
- * media type 不是在發明第四條規則：ADR-0010 說的是「哪一份載體贏」，沒有說
- * 「怎麼在 manifest 裡認出它」，而 `application/x-dtbncx+xml` 是 NCX 的註冊
- * media type，一本書裡不會有第二個候選。（`tests/node/support/epub-archive.ts`
- * 刻意**不**做這條後援，理由相反：那一層讀的是我們自己產的 fixture，寬容會讓
- * 產生器漏寫 `<spine toc>` 時沒有東西亮紅燈。）
+ * The media type is not inventing a fourth rule: ADR-0010 says which vehicle wins, and
+ * says nothing about how to recognise it in the manifest, and
+ * `application/x-dtbncx+xml` is the NCX's registered media type — no book will have a
+ * second candidate. (`tests/node/support/epub-archive.ts` deliberately does **not**
+ * implement this fallback, for the opposite reason: that layer reads fixtures we
+ * generate ourselves, and being lenient would mean nothing turns red when the
+ * generator forgets to write `<spine toc>`.)
  */
 function pickNavigationDocument(
   packageDocument: PackageDocument,
@@ -148,18 +165,23 @@ function pickNavigationDocument(
 }
 
 /**
- * `nav.xhtml` 裡的哪一個 `<nav>` 是 TOC。
+ * Which `<nav>` inside `nav.xhtml` is the TOC.
  *
- * 靠 `epub:type="toc"` 認（命名空間前綴由 `xml.ts` 剝掉，所以屬性名是 `type`）。
- * 量到的：31 本有 nav 的書裡 **27 本的導覽文件不只一個 `<nav>`**（多半還有
- * landmarks 與 page-list），而 31 本全部都在 TOC 那一個上宣告了 `epub:type`。
- * 拿第一個 `<nav>` 當 TOC 的實作會在那 27 本上有機會撿到別的清單。
+ * It is recognised by `epub:type="toc"` (the namespace prefix is stripped by
+ * `xml.ts`, so the attribute name is `type`). Measured: of the 31 books that have a
+ * nav, **27 have more than one `<nav>` in their navigation document** (usually also
+ * landmarks and a page-list), and all 31 declare `epub:type` on the TOC one. An
+ * implementation taking the first `<nav>` as the TOC stands a chance of picking up a
+ * different list in those 27.
  *
- * 找不到宣告時退回第一個 `<nav>`——那是「書沒說」而不是「書沒有目錄」，而樣本
- * 裡沒有一本落在這一格，所以這條後援是為了未量到的書留的，不是為了樣本。
+ * When no such declaration is found, this falls back to the first `<nav>` — that is
+ * "the book did not say" rather than "the book has no table of contents", and not one
+ * book in the sample lands there, so this fallback is kept for books not yet measured,
+ * not for the sample.
  *
- * `<nav>` 一律當成 `<body>` 的直接子元素找（量到的：31/31 都是）。往下遞迴找
- * 的話會多收到內容文件裡的清單，那不是 TOC。
+ * `<nav>` is always looked for as a direct child of `<body>` (measured: 31/31 are).
+ * Recursing further down would also gather lists inside content documents, and those
+ * are not the TOC.
  */
 function pickTocNav(document: XmlElement): XmlElement | undefined {
   const navs = document.child("html")?.child("body")?.children("nav") ?? [];
@@ -169,7 +191,7 @@ function pickTocNav(document: XmlElement): XmlElement | undefined {
   );
 }
 
-/** 尚未解析 href 的一個節點。 */
+/** One node whose href has not been resolved yet. */
 interface RawTocItem {
   readonly label: string;
   readonly href: string;
@@ -177,14 +199,18 @@ interface RawTocItem {
 }
 
 /**
- * `nav.xhtml` 的 TOC：`<ol>` 裡的每個 `<li>` 是一項，標籤與位置同在 `<a>` 上，
- * 子清單是**開在 `<li>` 裡面**的另一個 `<ol>`。
+ * The `nav.xhtml` TOC: every `<li>` in an `<ol>` is one entry, the label and the
+ * location both live on the `<a>`, and a sub-list is another `<ol>` opened **inside
+ * the `<li>`**.
  *
- * 「裡面」是重點：放成 `<li>` 的兄弟時 XHTML 一樣良構、瀏覽器一樣畫得出來，但
- * 那棵樹是平的。照 `<li>` 的邊界收子項目，放錯位置的書就會在深度上看得出來。
+ * "Inside" is the point: placed as a sibling of the `<li>` the XHTML is equally
+ * well-formed and the browser draws it just the same, but that tree is flat.
+ * Gathering children by the `<li>`'s boundary makes a book that puts them in the
+ * wrong place visible in the depth.
  *
- * 沒有 `<a>` 的 `<li>`（EPUB 3 允許用 `<span>` 表示不可跳轉的標題）跳過不收：
- * 樣本裡一個都沒有，而收了它就要發明一個「沒有位置的目錄項目」的表述。
+ * An `<li>` with no `<a>` (EPUB 3 permits a `<span>` for a non-navigable heading) is
+ * skipped: not one appears in the sample, and taking it would mean inventing a
+ * representation for "a TOC entry with no location".
  */
 function collectNav(nav: XmlElement | undefined): readonly RawTocItem[] {
   const items = (list: XmlElement | undefined): readonly RawTocItem[] =>
@@ -204,13 +230,16 @@ function collectNav(nav: XmlElement | undefined): readonly RawTocItem[] {
 }
 
 /**
- * NCX 的 TOC：標籤在 `<navLabel><text>`，位置在 `<content src>`，兩者是 navPoint
- * 的兩個**不同**子元素——湊錯（例如拿 navPoint 的 id 當標籤）在平的 TOC 上看
- * 不出來。層次是 navPoint 直接套 navPoint，中間沒有容器元素。
+ * The NCX TOC: the label is in `<navLabel><text>`, the location in `<content src>`,
+ * and they are two **different** children of the navPoint — pairing them wrongly (for
+ * instance taking the navPoint's id as the label) is invisible in a flat TOC. The
+ * hierarchy is a navPoint nested directly in a navPoint, with no container element in
+ * between.
  *
- * `playOrder` 不讀：frond 依文件順序，而 ADR-0010 把 NCX 的 `pageList` 與
- * `navList` 排除在 v1 之外，`playOrder` 同理——它是 NCX 自己宣告的順序，與文件
- * 順序在合規的書裡一致，不一致時沒有理由相信它。
+ * `playOrder` is not read: frond goes by document order, and ADR-0010 rules NCX's
+ * `pageList` and `navList` out of v1 for the same reason `playOrder` is left out — it
+ * is an ordering the NCX declares for itself, which agrees with document order in a
+ * conforming book, and when it disagrees there is no reason to believe it.
  */
 function collectNcx(navMap: XmlElement | undefined): readonly RawTocItem[] {
   return (navMap?.children("navPoint") ?? []).map((navPoint) => ({
@@ -220,7 +249,7 @@ function collectNcx(navMap: XmlElement | undefined): readonly RawTocItem[] {
   }));
 }
 
-/** 把每一項的 href 解析成壓縮檔內的位置，層次原樣保留。 */
+/** Resolves every item's href into a position inside the archive, leaving the hierarchy untouched. */
 function resolveTargets(
   items: readonly RawTocItem[],
   navigationPath: string,

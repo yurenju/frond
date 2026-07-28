@@ -1,29 +1,34 @@
 /**
- * frond-react 的展示頁。
+ * frond-react's demo page.
  *
- * ## 它示範的三件事，都是可以現場切換的
+ * ## The three things it demonstrates are all switchable live
  *
- * 1. **零件怎麼組**——`Root` / `Viewport` / 兩個 Trigger / `Progress` 攤在下面
- *    `App()` 那一個函式裡，沒有再包一層抽象。
- * 2. **預設樣式是可選的**——工具列那個開關切的是一個 `<link>` 的 `disabled`。關掉
- *    之後零件回到瀏覽器原生的樣子，那正是「不 import 就完全不存在」。
- * 3. **政策是可選的**——鍵盤與滑動翻頁由另一個開關決定要不要叫那兩個 hook。關掉
- *    之後方向鍵與滑動一點反應都沒有，翻頁只剩按鈕。
+ * 1. **How the parts compose** — `Root` / `Viewport` / the two Triggers / `Progress` laid
+ *    out in the single `App()` function below, with no further layer of abstraction.
+ * 2. **The default styles are optional** — the switch in the toolbar toggles a `<link>`'s
+ *    `disabled`. Turned off, the parts fall back to the browser's native appearance, which
+ *    is exactly what "without the import it does not exist at all" means.
+ * 3. **Policy is optional** — another switch decides whether the keyboard and swipe paging
+ *    hooks are called. Turned off, arrow keys and swipes do nothing at all, and only the
+ *    buttons turn pages.
  *
- * 第二與第三點做成開關而不是寫在文件裡，是因為它們是這個套件最容易被當成客套話的
- * 兩個設計主張。一句「樣式是可選的」讀起來像場面話，一個切下去就變樣的開關不是。
+ * The second and third are switches rather than sentences in the documentation because they
+ * are the two design claims this package is most likely to be read as platitudes. "Styling is
+ * optional" reads like a nicety; a switch that visibly changes things does not.
  *
- * ## 只有一個 Root
+ * ## There is only one Root
  *
- * 工具列、目錄、書、狀態列全部是同一個 `<Reader.Root>` 的子孫。這不是為了省事——
- * **一個 `Root` 就是一個 `Renderer`，也就是一本掛在畫面上的書**，開兩個會得到兩個
- * iframe。`Root` 自己不渲染任何元素（連 `<div>` 都沒有），所以把整頁包起來不會多
- * 出任何一層 box，版面仍然完全由這裡的 CSS 決定。
+ * The toolbar, the table of contents, the book and the status line are all descendants of
+ * one `<Reader.Root>`. That is not for convenience — **one `Root` is one `Renderer`, which
+ * is one book mounted on screen**, and opening two would give two iframes. `Root` renders no
+ * element of its own (not even a `<div>`), so wrapping the whole page adds no layer of box
+ * and the layout is still entirely decided by the CSS here.
  *
- * ## 這個檔案本身也是文件
+ * ## This file is documentation too
  *
- * 頁面上「用起來長這樣」那一段程式碼與下面的 `<Reader.Root>` 那一段是同一件事。
- * 抄過去改，不必先讀一份 API 說明。
+ * The "this is what using it looks like" code block on the page and the `<Reader.Root>`
+ * section below are the same thing. Copy it across and modify it, without reading an API
+ * reference first.
  */
 
 import { StrictMode, useCallback, useEffect, useState } from "react";
@@ -32,7 +37,7 @@ import * as Reader from "@yurenju/frond-react";
 import { EpubBook } from "@yurenju/frond/epub";
 import type { TocItem } from "@yurenju/frond/epub";
 
-// --- 開書 -------------------------------------------------------------------
+// --- opening a book ---------------------------------------------------------
 
 interface OpenBook {
   readonly book: EpubBook;
@@ -63,7 +68,7 @@ function useOpener(): {
   return { opened, failure, open };
 }
 
-// --- 整頁 -------------------------------------------------------------------
+// --- the whole page ---------------------------------------------------------
 
 function App() {
   const { opened, failure, open } = useOpener();
@@ -79,7 +84,7 @@ function App() {
 
   return (
     <Reader.Root book={opened.book} settings={{ fontSize, margin: 32 }}>
-      {/* 政策：要不要吃鍵盤與滑動。不掛這個元件的話一個手勢都不吃。 */}
+      {/* Policy: whether keyboard and swipe input is consumed. Without this component, not one gesture is. */}
       {paging ? <Paging /> : null}
 
       <div className="workspace-bar">
@@ -90,7 +95,7 @@ function App() {
         <TableOfContents toc={opened.book.toc} />
 
         <label>
-          字級
+          Font size
           <input
             type="range"
             min={12}
@@ -103,8 +108,9 @@ function App() {
         </label>
 
         {/*
-          兩個開關。它們切的不是外觀選項，是這個套件的兩個設計主張——切下去馬上
-          看得到差別，比讀一段文字有說服力。
+          Two switches. What they toggle is not an appearance option but two of this
+          package's design claims — the difference is visible the moment you flip them, which
+          is more convincing than a paragraph of text.
         */}
         <label className="switch">
           <input
@@ -113,7 +119,7 @@ function App() {
             data-testid="toggle-styles"
             onChange={(event) => setStyled(event.currentTarget.checked)}
           />
-          預設樣式
+          Default styles
         </label>
         <label className="switch">
           <input
@@ -122,11 +128,11 @@ function App() {
             data-testid="toggle-paging"
             onChange={(event) => setPaging(event.currentTarget.checked)}
           />
-          鍵盤與滑動翻頁
+          Keyboard and swipe paging
         </label>
 
         <label className="file-button small">
-          換一本
+          Another book
           <input
             type="file"
             accept=".epub,application/epub+zip"
@@ -139,11 +145,11 @@ function App() {
       </div>
 
       <div className="reader-stage">
-        <Reader.PreviousTrigger className="page-turn" aria-label="上一頁" data-testid="previous">
+        <Reader.PreviousTrigger className="page-turn" aria-label="Previous page" data-testid="previous">
           ‹
         </Reader.PreviousTrigger>
         <Reader.Viewport className="reader-viewport" data-testid="viewport" />
-        <Reader.NextTrigger className="page-turn" aria-label="下一頁" data-testid="next">
+        <Reader.NextTrigger className="page-turn" aria-label="Next page" data-testid="next">
           ›
         </Reader.NextTrigger>
       </div>
@@ -155,10 +161,11 @@ function App() {
 }
 
 /**
- * 政策掛在一個什麼都不畫的元件上。
+ * Policy hangs off a component that draws nothing.
  *
- * hook 不能寫在條件裡，所以「可以關掉」這件事的形狀是「條件式地渲染一個掛著它們
- * 的元件」——這也是 `paging.ts` 檔頭建議的寫法。
+ * Hooks cannot go inside conditions, so the shape of "it can be turned off" is
+ * "conditionally render a component that holds them" — which is also the notation
+ * `paging.ts`'s file header recommends.
  */
 function Paging() {
   Reader.useKeyboardPaging();
@@ -166,14 +173,14 @@ function Paging() {
   return null;
 }
 
-/** 狀態列。它示範的是 `useReader()`——零件沒提供的東西全部從那裡拿。 */
+/** The status line. What it demonstrates is `useReader()` — everything the parts do not provide comes from there. */
 function StatusLine() {
   const { location, writingMode, status } = Reader.useReader();
 
   if (status !== "ready" || location === undefined) {
     return (
       <p className="reader-status" data-testid="status">
-        {status === "error" ? "這一節排不出來" : "排版中…"}
+        {status === "error" ? "This section will not render" : "Laying out…"}
       </p>
     );
   }
@@ -181,15 +188,15 @@ function StatusLine() {
   return (
     <p className="reader-status" data-testid="status">
       <span data-testid="status-writing-mode">
-        {writingMode === "vertical-rl" ? "直排" : "橫排"}
+        {writingMode === "vertical-rl" ? "Vertical" : "Horizontal"}
       </span>
       <span data-testid="status-page">
-        第 {location.page + 1} / {location.pageCount} 頁
+        Page {location.page + 1} / {location.pageCount}
       </span>
       <span data-testid="status-fraction">
         {location.fraction === undefined
-          ? "索引建置中…"
-          : `全書 ${(location.fraction * 100).toFixed(1)}%`}
+          ? "Building the index…"
+          : `Book progress ${(location.fraction * 100).toFixed(1)}%`}
       </span>
       <code data-testid="status-cfi">{location.cfi}</code>
     </p>
@@ -197,11 +204,11 @@ function StatusLine() {
 }
 
 /**
- * 目錄。
+ * The table of contents.
  *
- * 做成頁面自己的一個 `<select>` 而不是一個零件，是因為「目錄要畫成下拉、側欄還是
- * 抽屜」是政策（ADR-0002）。frond 給的是事實——`TocItem.target` 指向哪裡——跳過去
- * 只是一行 `goTo()`。
+ * It is the page's own `<select>` rather than a part, because "whether the table of contents
+ * is a dropdown, a sidebar or a drawer" is policy (ADR-0002). frond supplies the fact — where
+ * `TocItem.target` points — and jumping there is one line of `goTo()`.
  */
 function TableOfContents({ toc }: { readonly toc: readonly TocItem[] }) {
   const { goTo, status } = Reader.useReader();
@@ -220,7 +227,7 @@ function TableOfContents({ toc }: { readonly toc: readonly TocItem[] }) {
   return (
     <select
       className="toc"
-      aria-label="目錄"
+      aria-label="Table of contents"
       data-testid="toc"
       disabled={status !== "ready"}
       value=""
@@ -228,15 +235,15 @@ function TableOfContents({ toc }: { readonly toc: readonly TocItem[] }) {
         const chosen = flat[Number(event.currentTarget.value)];
         const target = chosen?.item.target;
 
-        // `target` 是一個 union，不是兩個可有可無的欄位。目錄指到外部連結
-        // （`remote`）或指到封裝外（書寫壞了）都是實際會遇到的形狀，而它們的處置
-        // 不是跳轉——這裡就是不動作。
+        // `target` is a union, not two optional fields. A TOC pointing at an external link
+        // (`remote`) or outside the package (the book is written wrong) are both shapes that
+        // really occur, and the response to them is not to navigate — here, nothing happens.
         if (target?.kind === "in-container") {
           void goTo({ path: target.path, fragment: target.fragment });
         }
       }}
     >
-      <option value="">目錄…</option>
+      <option value="">Contents…</option>
       {flat.map((entry, index) => (
         <option key={index} value={index}>
           {"　".repeat(entry.depth)}
@@ -248,10 +255,11 @@ function TableOfContents({ toc }: { readonly toc: readonly TocItem[] }) {
 }
 
 /**
- * 預設樣式的開關。
+ * The default stylesheet switch.
  *
- * 切的是 `<link>` 的 `disabled`，而不是把 CSS import 進 bundle——後者會讓它變成
- * 「一定會生效」，而這一頁要示範的正好是它可以完全不生效。
+ * What it toggles is a `<link>`'s `disabled` rather than importing the CSS into the bundle —
+ * the latter would make it "always in effect", and what this page demonstrates is precisely
+ * that it can have no effect at all.
  */
 function useDefaultStylesheet(enabled: boolean): void {
   useEffect(() => {
@@ -285,10 +293,10 @@ function Dropzone({
         if (file !== undefined) onFile(file);
       }}
     >
-      <p className="dropzone-headline">把 EPUB 拖進這裡</p>
-      <p className="dropzone-sub">或者</p>
+      <p className="dropzone-headline">Drop an EPUB here</p>
+      <p className="dropzone-sub">or</p>
       <label className="file-button">
-        選一個檔案
+        Choose a file
         <input
           type="file"
           accept=".epub,application/epub+zip"
@@ -301,7 +309,7 @@ function Dropzone({
       </label>
       {failure === undefined ? null : (
         <p className="error" data-testid="open-error">
-          這本書開不起來：{failure}
+          This book will not open: {failure}
         </p>
       )}
     </div>
@@ -309,10 +317,11 @@ function Dropzone({
 }
 
 const container = document.getElementById("app");
-if (container === null) throw new Error("頁面上沒有 #app");
+if (container === null) throw new Error("there is no #app on the page");
 
-// StrictMode 是刻意的。它會把每個 effect 掛、卸、再掛一次，而那正是薄包裝最容易
-// 出錯的地方——展示站自己開著它，等於每一次部署都在走那條路。
+// StrictMode is deliberate. It mounts, unmounts and remounts every effect, which is exactly
+// where a thin wrapper is most likely to go wrong — the demo site keeping it on means every
+// deploy walks that path.
 createRoot(container).render(
   <StrictMode>
     <App />

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-/** committed fixture 所在的目錄。`tests/fixtures/` 是唯一的來源。 */
+/** The directory the committed fixtures live in. `tests/fixtures/` is the single source. */
 export const FIXTURE_DIRECTORY = join(
   dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -11,11 +11,11 @@ export const FIXTURE_DIRECTORY = join(
 );
 
 /**
- * 讀一份 committed fixture 的位元組。
+ * Reads a committed fixture's bytes.
  *
- * 回傳 `Uint8Array<ArrayBuffer>` 而不是 `Buffer`：`Buffer` 的 backing store 在
- * 型別上是 `ArrayBufferLike`（可能是 `SharedArrayBuffer`），而 `Blob` 與
- * `ArrayBuffer` 那兩條輸入路徑都要求 `ArrayBuffer`。
+ * Returns `Uint8Array<ArrayBuffer>` rather than `Buffer`: a `Buffer`'s backing store is
+ * typed as `ArrayBufferLike` (possibly a `SharedArrayBuffer`), while both the `Blob` and the
+ * `ArrayBuffer` input routes require an `ArrayBuffer`.
  */
 export async function readFixture(
   fileName: string,

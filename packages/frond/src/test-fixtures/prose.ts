@@ -1,10 +1,12 @@
 /**
- * fixture 用的散文。全部是為這個專案寫的合成文字——**絕不 commit 版權內的
- * 書**（ADR-0007），而合成內容沒有這個問題。
+ * The prose used by the fixtures. All of it is synthetic text written for this project —
+ * **copyrighted books are never committed** (ADR-0007), and synthetic content does not
+ * have that problem.
  *
- * 日文的理由有兩個：直排是它的原生形態（也是最難的一格），而且句讀點
- * （`、` `。`）在直排下必須取到旋轉過的字符，那是測試環境唯一有牙齒的
- * 鑑別點（見 docs/test-environment.md）。段落刻意都放進句讀點。
+ * There are two reasons for Japanese: vertical is its native form (and the hardest case),
+ * and the punctuation marks (`、` `。`) have to resolve to rotated glyphs when vertical,
+ * which is the only discriminator in the test environment with any teeth (see
+ * docs/test-environment.md). Every paragraph deliberately contains punctuation.
  */
 
 export interface Prose {
@@ -40,19 +42,21 @@ export const PROSE: readonly Prose[] = [
 ];
 
 /**
- * 把一段散文組成 XHTML 的 `<body>` 內容。
+ * Assembles a piece of prose into the content of an XHTML `<body>`.
  *
- * `anchorIds` 把段落編號（從 1 起算）對到要掛上去的 `id`。**只有被指到的那幾
- * 段會長出 id**，其餘逐字元不變。它服務的是巢狀 TOC：第二層指的是 Section
- * **裡面**的位置，而指向不存在的 id 會讓那份 fixture 除了「TOC 有兩層」之外
- * 多帶一個病症。
+ * `anchorIds` maps a paragraph number (counting from 1) to the `id` to attach. **Only
+ * the paragraphs named grow an id**, and the rest are character-for-character unchanged.
+ * It serves the nested TOC: the second level points at a position **inside** a Section,
+ * and pointing at a non-existent id would give that fixture a second ailment beyond "the
+ * TOC has two levels".
  *
- * 整份都掛 id 也能達到同樣效果，但那讓 fixture 與健康骨架的差異比單點差異需要
- * 的更大，而多出來的 id 沒有任何東西指得到——實際的書（Sigil）也只在被目錄指
- * 到的那個位置放 id。
+ * Attaching ids throughout would achieve the same effect, but it would make the fixture
+ * differ from the healthy skeleton by more than a single-point difference requires, and
+ * the surplus ids would have nothing pointing at them — real books (Sigil) likewise only
+ * put an id at the position the table of contents points to.
  *
- * 省略時輸出與加入這個參數之前逐字元相同——既有 fixture 的位元組不因為它而
- * 漂掉。
+ * When omitted the output is character-for-character identical to what it was before this
+ * parameter was added — existing fixtures' bytes do not drift because of it.
  */
 export function proseBody(
   prose: Prose,

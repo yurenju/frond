@@ -1,32 +1,38 @@
 /**
- * EPUB CFI（Canonical Fragment Identifier）的**文法層**：字串與結構之間的來回，
- * 以及兩個 CFI 的先後比較。
+ * The **grammar layer** of EPUB CFI (Canonical Fragment Identifier): the round trip
+ * between string and structure, plus ordering two CFIs.
  *
- * CFI 是書中的精確位置或範圍（CONTEXT.md），讀者的閱讀進度與 annotation 都靠它
- * 定位。
+ * A CFI is an exact position or range within a book (CONTEXT.md), and it is what
+ * locates a reader's progress and their annotations.
  *
- * CONTEXT.md 說「CFI 精確但不可比大小，fraction 可比大小但粗」——那句話講的是
- * **距離**：兩個 CFI 之間沒有「差多少」，也算不出百分比，那是 fraction 的事。
- * **先後仍然問得出來**，而且非問不可（user story 22：把 annotation 依書中順序
- * 排列）。所以這裡有 `compareCfi()` 而沒有任何相減。
+ * CONTEXT.md says "a CFI is exact but not orderable by magnitude; a fraction is
+ * orderable but coarse" — that sentence is about **distance**: there is no "how far
+ * apart" between two CFIs, and no percentage to compute, which is what fractions are
+ * for. **Which comes first is still answerable**, and has to be (user story 22:
+ * ordering annotations by their place in the book). So there is a `compareCfi()` here
+ * and no subtraction anywhere.
  *
- * ## 這個模組的界線
+ * ## This module's boundary
  *
- * **CFI ↔ DOM 位置的對應不在這裡。** 那需要真的有一份渲染好的文件——把 CFI 走
- * 成一個 `Range`、或把讀者選取的一段文字寫成 CFI，都要數節點、要處理被過濾掉的
- * 節點、要合併相鄰的文字節點。那些屬於 `Renderer`（ADR-0005 的雙層切分）。
+ * **Mapping between a CFI and a DOM position is not here.** That needs an actually
+ * rendered document — walking a CFI into a `Range`, or writing a reader's selection
+ * out as a CFI, both mean counting nodes, handling filtered-out nodes, and merging
+ * adjacent text nodes. Those belong to `Renderer` (ADR-0005's two-layer split).
  *
- * 這樣切的收穫是這一層落在測試金字塔的底層：零 DOM，Vitest 在 Node 裡跑得完
- * （ADR-0009），而且它是 `Renderer` 定位那張票的 blocker，早做就不必回頭等。
+ * What that cut buys is that this layer sits at the base of the test pyramid: zero
+ * DOM, and Vitest runs it in Node (ADR-0009). It is also the blocker for the
+ * `Renderer` positioning issue, so doing it early avoids waiting later.
  *
- * ## oracle 是規格，不是 foliate
+ * ## The oracle is the spec, not foliate
  *
- * 這一層的正確性對 EPUB CFI 規格量，foliate 在這裡沒有特殊知識（ADR-0001 的
- * 測試金字塔第 1 層）。它的 `tests/epubcfi-tests.js` 當**驗收表**跑過一遍，
- * 逐條的結果記在 `tests/node/cfi/foliate-acceptance.test.ts`——那是讀它的案例，
- * 不是讀它的程式碼。
+ * This layer's correctness is measured against the EPUB CFI specification; foliate has
+ * no special knowledge here (layer 1 of ADR-0001's test pyramid). Its
+ * `tests/epubcfi-tests.js` was run once as an **acceptance table**, and the
+ * entry-by-entry results are recorded in
+ * `tests/node/cfi/foliate-acceptance.test.ts` — that is reading its cases, not
+ * reading its code.
  *
- * ## 文法（規格的 ABNF，只留這一層要的部分）
+ * ## The grammar (the spec's ABNF, keeping only what this layer needs)
  *
  * ```
  * fragment   = "epubcfi(" ( path | range ) ")"
@@ -36,80 +42,84 @@
  * offset     = ":" integer [ "[" assertion "]" ]
  * ```
  *
- * `!` 是**間接引用**：跨過它就換了一份文件（封裝文件 → 內容文件）。所以一條
- * 路徑在這裡表述成「被 `!` 切開的數段」（`CfiSegment`），而不是一串扁平的
- * step——那個邊界正是 compare 唯一會回答「不可比」的地方。
+ * `!` is an **indirection**: crossing it switches to a different document (package
+ * document → content document). So a path is represented here as "several segments
+ * split by `!`" (`CfiSegment`) rather than one flat run of steps — that boundary is
+ * the only place compare ever answers "incomparable".
  */
 
-/** 一個 CFI：書中的一個位置，或一段範圍。 */
+/** One CFI: a position within a book, or a range. */
 export type Cfi = CfiPoint | CfiRange;
 
-/** 單一位置。 */
+/** A single position. */
 export interface CfiPoint {
   readonly kind: "point";
   readonly path: CfiPath;
 }
 
 /**
- * 一段範圍——annotation 要用它標一段文字。
+ * A range — what an annotation uses to mark a stretch of text.
  *
- * 規格的形狀是「共同前綴 + 起 + 訖」（`parent,start,end`）而不是兩個完整的
- * CFI，因為一段 highlight 幾乎總是落在同一份文件裡，共用前綴讓它短得多。
+ * The spec's shape is "common prefix + start + end" (`parent,start,end`) rather than
+ * two complete CFIs, because a highlight almost always falls inside one document, and
+ * sharing the prefix makes it far shorter.
  */
 export interface CfiRange {
   readonly kind: "range";
-  /** 起訖共用的前半段。 */
+  /** The first half, shared by start and end. */
   readonly parent: CfiPath;
-  /** 接在 `parent` 之後的起點。 */
+  /** The start, appended after `parent`. */
   readonly start: CfiPath;
-  /** 接在 `parent` 之後的終點。 */
+  /** The end, appended after `parent`. */
   readonly end: CfiPath;
 }
 
 /**
- * 一條路徑，依間接引用（`!`）切成數段。
+ * A path, split into segments at each indirection (`!`).
  *
- * 第一段落在封裝文件裡，之後每一段落在前一段最後一步所指的那份文件裡。至少
- * 一段。
+ * The first segment lies in the package document, and each later one lies in the
+ * document the previous segment's last step points at. At least one segment.
  */
 export type CfiPath = readonly CfiSegment[];
 
-/** 同一份文件內的一串 step，可能以一個字元位移收尾。 */
+/** A run of steps within one document, optionally ending in a character offset. */
 export interface CfiSegment {
   readonly steps: readonly CfiStep[];
-  /** 段尾的字元位移。沒有位移時是 `undefined`——那指的是節點本身。 */
+  /** The character offset at the end of the segment. `undefined` when there is none — that refers to the node itself. */
   readonly offset: CfiOffset | undefined;
 }
 
 export interface CfiStep {
   /**
-   * 子節點的序號。**偶數指元素、奇數指文字節點**，這是 CFI 的定址規則，不是
-   * 陣列索引。
+   * The child's ordinal. **Even numbers address elements, odd numbers address text
+   * nodes** — that is CFI's addressing rule, not an array index.
    */
   readonly index: number;
-  /** `[…]`。step 上的斷言是 id。 */
+  /** `[…]`. An assertion on a step is an id. */
   readonly assertion: CfiAssertion | undefined;
 }
 
-/** 字元位移（`:N`）——落在文字節點裡第 N 個字元之前。 */
+/** A character offset (`:N`) — before the Nth character inside a text node. */
 export interface CfiOffset {
   readonly characters: number;
-  /** `[…]`。位移上的斷言是前後文（`[前,後]`）。 */
+  /** `[…]`. An assertion on an offset is context (`[before,after]`). */
   readonly assertion: CfiAssertion | undefined;
 }
 
 /**
- * `[…]` 裡的斷言。**規格說索引才是權威，斷言是書改版之後用來回復位置的冗餘**
- * ——所以 frond 讀得出它、寫得回去，但 `compareCfi()` 不看它。
+ * The assertion inside `[…]`. **The spec says the index is authoritative and the
+ * assertion is redundancy for recovering the position after the book is revised** —
+ * so frond reads it and writes it back, but `compareCfi()` does not look at it.
  *
- * 欄位以逗號分隔：step 上只有一個（那是 id），字元位移上有兩個（`[前,後]` 的
- * 前後文）。攤成 `id` 與 `before`/`after` 兩組欄位的話，同一個 `[…]` 就要有
- * 兩種型別，而它們在文法上是同一個東西。
+ * Fields are comma-separated: a step has just one (an id), while a character offset
+ * has two (the `[before,after]` context). Flattening it into an `id` field and a
+ * `before`/`after` pair would mean two types for the same `[…]`, and grammatically
+ * they are one thing.
  */
 export interface CfiAssertion {
-  /** 逗號分隔的各欄位，`^` 逃逸已解開。 */
+  /** The comma-separated fields, with `^` escapes already undone. */
   readonly fields: readonly string[];
-  /** `;name=value`，依出現順序。 */
+  /** `;name=value`, in order of appearance. */
   readonly parameters: readonly CfiParameter[];
 }
 
@@ -119,37 +129,40 @@ export interface CfiParameter {
 }
 
 /**
- * 兩個 CFI 的先後。
+ * The ordering of two CFIs.
  *
- * **`"incomparable"` 不是錯誤，是答案。** 回一個 `-1`／`0`／`1` 的 API 沒有位置
- * 講這件事，於是消費端會把「這兩個位置沒有先後」靜默地當成「相等」或「在前
- * 面」——annotation 的排序看起來是對的，只是順序是編出來的。回字串而不是數字
- * 也是刻意的：`sort(compareCfi)` 這種寫法會直接型別錯誤，而不是在執行期把
- * `undefined` 當成 0。
+ * **`"incomparable"` is not an error, it is an answer.** An API returning
+ * `-1`/`0`/`1` has nowhere to say this, so a consumer silently treats "these two
+ * positions have no order" as "equal" or "earlier" — the annotation ordering looks
+ * right, it is just made up. Returning a string rather than a number is deliberate
+ * too: writing `sort(compareCfi)` becomes a type error outright, instead of treating
+ * `undefined` as 0 at runtime.
  */
 export type CfiComparison = "before" | "equal" | "after" | "incomparable";
 
-/** CFI 字串壞在哪裡。 */
+/** How a CFI string is broken. */
 export type CfiParseFailure =
-  /** 不是 `epubcfi(…)`，也不是一條以 `/` 開頭的路徑。 */
+  /** Neither `epubcfi(…)` nor a path starting with `/`. */
   | "not-a-cfi"
-  /** `/` 後面沒有接數字。 */
+  /** No digits after a `/`. */
   | "malformed-step"
-  /** `:` 後面沒有接數字。 */
+  /** No digits after a `:`. */
   | "malformed-offset"
-  /** `[` 沒有對應的 `]`。 */
+  /** A `[` with no matching `]`. */
   | "unterminated-assertion"
-  /** 逗號的數量不對——範圍必須是 `parent,start,end` 三段。 */
+  /** The wrong number of commas — a range has to be exactly `parent,start,end`. */
   | "malformed-range"
   /**
-   * 時間位移（`~`）與空間位移（`@`）。文法認得它們，frond v1 不做——它們定位
-   * 的是影音的時間點與圖片上的座標，而 v1 只渲染 XHTML 內容文件。
+   * Temporal (`~`) and spatial (`@`) offsets. The grammar recognises them; frond v1
+   * does not do them — they locate a moment in audio/video and a coordinate on an
+   * image, and v1 only renders XHTML content documents.
    *
-   * 這一格**明確拒絕而不是忽略**：忽略掉位移之後剩下的路徑是一個合法但指到
-   * 別處的 CFI，而那正是「靜默回一個半對的結構」。
+   * This case is **explicitly rejected rather than ignored**: the path left after
+   * dropping the offset is a valid CFI that points somewhere else, and that is exactly
+   * "silently returning a half-right structure".
    */
   | "unsupported-offset"
-  /** 出現了文法裡沒有的字元。 */
+  /** A character appeared that is not in the grammar. */
   | "unexpected-character";
 
 export class CfiParseError extends Error {
@@ -165,19 +178,19 @@ export class CfiParseError extends Error {
 const WRAPPER_PREFIX = "epubcfi(";
 const WRAPPER_SUFFIX = ")";
 
-/** 斷言裡必須逃逸的字元（規格 2.3）。 */
+/** The characters that must be escaped inside an assertion (spec 2.3). */
 const MUST_ESCAPE = new Set(["^", "[", "]", "(", ")", ",", ";", "="]);
 
 const ESCAPE = "^";
 
 /**
- * 把 CFI 字串讀成結構。
+ * Reads a CFI string into a structure.
  *
- * 輸入可以帶 `epubcfi(…)` 也可以不帶：實際的書把它寫在 URL 的 fragment 裡
- * （`#epubcfi(/6/4!/4/2)`），而規格的例子與程式裡傳來傳去的常常是裸的路徑。
- * 輸出一律帶（見 `serializeCfi`）。
+ * The input may carry `epubcfi(…)` or not: real books write it in a URL fragment
+ * (`#epubcfi(/6/4!/4/2)`), while the spec's examples and the values passed around in
+ * code are often bare paths. The output always carries it (see `serializeCfi`).
  *
- * @throws CfiParseError 壞掉的字串給明確錯誤，不回一個半對的結構
+ * @throws CfiParseError a broken string gets an explicit error rather than a half-right structure
  */
 export function parseCfi(source: string): Cfi {
   const parts = splitTopLevel(unwrap(source));
@@ -195,21 +208,23 @@ export function parseCfi(source: string): Cfi {
   }
   throw new CfiParseError(
     "malformed-range",
-    `${source} 有 ${parts.length - 1} 個逗號；範圍必須恰好是 parent,start,end 三段`,
+    `${source} has ${parts.length - 1} commas; a range has to be exactly parent,start,end`,
   );
 }
 
 /**
- * 把結構寫回字串。
+ * Writes the structure back to a string.
  *
- * `parseCfi` → `serializeCfi` 是 identity，**除了四種正規化**——四者都是「同一個
- * 位置的兩種寫法」收斂成一種，不是資訊遺失：
+ * `parseCfi` → `serializeCfi` is the identity, **except for four normalizations** —
+ * all four collapse two spellings of the same position into one, and lose no
+ * information:
  *
- * 1. **一律補上 `epubcfi(…)`**。裸的路徑進來，帶包裝出去。
- * 2. **多餘的逃逸被丟掉**。`^/` 與 `/` 在斷言裡是同一個字元（規格只要求逃逸
- *    `^ [ ] ( ) , ; =` 那幾個），輸出只逃逸該逃逸的。
- * 3. **前導零被丟掉**。`/06` 與 `/6` 是同一步。
- * 4. **沒有值的參數補上 `=`**。`[a;b]` 寫回去是 `[a;b=]`。
+ * 1. **`epubcfi(…)` is always added.** A bare path goes in, a wrapped one comes out.
+ * 2. **Surplus escapes are dropped.** `^/` and `/` are the same character inside an
+ *    assertion (the spec only requires escaping `^ [ ] ( ) , ; =`), and the output
+ *    escapes only what must be escaped.
+ * 3. **Leading zeros are dropped.** `/06` and `/6` are the same step.
+ * 4. **Valueless parameters gain an `=`.** `[a;b]` is written back as `[a;b=]`.
  */
 export function serializeCfi(cfi: Cfi): string {
   const body =
@@ -221,35 +236,45 @@ export function serializeCfi(cfi: Cfi): string {
 }
 
 /**
- * 兩個 CFI 在書中的先後（user story 22：把 annotation 依書中順序排列）。
+ * Which of two CFIs comes first in the book (user story 22: ordering annotations by
+ * their place in the book).
  *
- * 範圍以「先比起點，起點相同再比終點」定序——與點的比較是同一套，因為一個點就是
- * 起訖相同的範圍。落在別人範圍裡的位置因此仍然排得出先後，而不是「不可比」：
+ * Ranges are ordered by start first, then by end when the starts match — the same
+ * scheme as for points, because a point is a range whose start and end coincide. A
+ * position falling inside someone else's range therefore still gets an order rather
+ * than "incomparable":
  *
- * - 點在範圍的起點**之後**（範圍已經開始了）→ 點排在範圍後面，起點就分出來了
- * - 點**正好在**範圍的起點上 → 起點相同，比終點；點的終點是自己，比範圍的終點
- *   前面，所以點排在範圍前面
+ * - The point is **after** the range's start (the range has already begun) → the point
+ *   sorts after the range, decided by the start alone
+ * - The point is **exactly on** the range's start → the starts match, so compare ends;
+ *   the point's end is itself, which is before the range's end, so the point sorts
+ *   first
  *
- * 讀者要的是一份穩定的排序，而重疊的 annotation（畫重點常常疊著畫）在書中確實
- * 有一個共同的起點。
+ * What the reader wants is a stable ordering, and overlapping annotations (highlights
+ * are often drawn on top of one another) really do share a start in the book.
  *
- * ## 斷言不參與比較
+ * ## Assertions take no part in the comparison
  *
- * 兩個 CFI 的索引相同、`[…]` 不同時，答案是 `"equal"`。規格說索引才是權威，
- * 斷言是書改版後用來回復位置的冗餘——拿它當比較的依據，會讓同一個位置因為書
- * 換了一版就變成兩個不同的位置。
+ * When two CFIs have matching indices and differing `[…]`, the answer is `"equal"`.
+ * The spec says the index is authoritative and the assertion is redundancy for
+ * recovering a position after the book is revised — using it as grounds for comparison
+ * would turn one position into two different positions just because the book got a new
+ * edition.
  *
- * ## 什麼時候不可比
+ * ## When it is incomparable
  *
- * 兩者對**同一個節點**的說法不相容時，這一層沒有辦法排序，也不該猜：
+ * When the two make incompatible claims about the **same node**, this layer has no way
+ * to order them, and must not guess:
  *
- * - 一邊在那個節點上跨進另一份文件（`!`），另一邊繼續往它的子節點走。兩個位置
- *   落在不同的文件裡，而文件之間的先後不是這個字串講得出來的。
- * - 一邊落在那個節點的文字裡（`:N`），另一邊落在它的某個子節點上。誰先誰後
- *   取決於那個子節點在內容裡的位置，而那要有文件才知道。
+ * - One crosses into a different document at that node (`!`) while the other keeps
+ *   walking into its children. The two positions lie in different documents, and the
+ *   order between documents is not something this string can state.
+ * - One lands in that node's text (`:N`) while the other lands on one of its children.
+ *   Which comes first depends on where that child sits in the content, and that takes
+ *   a document to know.
  *
- * 兩種都得等 `Renderer` 把文件解出來才有答案，所以在文法層它們是
- * `"incomparable"`，不是 `"equal"`。
+ * Both need `Renderer` to have parsed the document before there is an answer, so at
+ * the grammar layer they are `"incomparable"`, not `"equal"`.
  */
 export function compareCfi(a: Cfi, b: Cfi): CfiComparison {
   const byStart = comparePaths(startOf(a), startOf(b));
@@ -265,10 +290,11 @@ function endOf(cfi: Cfi): CfiPath {
 }
 
 /**
- * 把範圍的起（訖）接到共同前綴後面，得到一條完整的路徑。
+ * Appends a range's start (or end) to the common prefix, giving one complete path.
  *
- * 接的位置是**前綴的最後一段裡面**：`/6/4!/4` 加上 `/10` 是 `/6/4!/4/10`，不是
- * 多一段。接錯的話那個位置會跑到另一份文件裡去。
+ * It joins **inside the prefix's last segment**: `/6/4!/4` plus `/10` is `/6/4!/4/10`,
+ * not an extra segment. Joining it wrongly would move that position into a different
+ * document.
  */
 function concat(parent: CfiPath, local: CfiPath): CfiPath {
   const [first, ...rest] = local;
@@ -288,7 +314,8 @@ function comparePaths(a: CfiPath, b: CfiPath): CfiComparison {
   for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
     const left = a[index];
     const right = b[index];
-    // 一邊先走完：短的那一條是長的那一條的前綴，也就是它的祖先，排在前面。
+    // One side ran out first: the shorter is a prefix of the longer, hence its
+    // ancestor, and sorts first.
     if (left === undefined) return "before";
     if (right === undefined) return "after";
 
@@ -301,7 +328,7 @@ function comparePaths(a: CfiPath, b: CfiPath): CfiComparison {
   return "equal";
 }
 
-/** 這一段之後還有沒有下一段——也就是這一段的結尾有沒有跨進另一份文件。 */
+/** Whether another segment follows this one — that is, whether this segment's end crosses into a different document. */
 interface Continuation {
   readonly leftContinues: boolean;
   readonly rightContinues: boolean;
@@ -326,8 +353,9 @@ function compareSegments(
       ? continuation.leftContinues
       : continuation.rightContinues;
 
-    // 短的那一條在這個節點上換了文件，或落進了它的文字裡，而長的那一條往它的
-    // 子節點走——兩種都要有文件才排得出先後。
+    // The shorter one switches documents at this node, or lands inside its text, while
+    // the longer one walks into its children — either way it takes a document to
+    // order them.
     if (shorterContinues || shorter.offset !== undefined) return "incomparable";
     return shorterIsLeft ? "before" : "after";
   }
@@ -336,8 +364,9 @@ function compareSegments(
 }
 
 /**
- * 位移的先後。**沒有位移的排在有位移的前面**：`/2` 指的是節點本身，`/2:0` 指的
- * 是它裡面的第一個字元，而節點的開頭在它的內容之前。
+ * The ordering of offsets. **No offset sorts before an offset**: `/2` refers to the
+ * node itself and `/2:0` to the first character inside it, and a node's start comes
+ * before its content.
  */
 function compareOffsets(
   a: CfiOffset | undefined,
@@ -352,18 +381,19 @@ function compareOffsets(
 
 function unwrap(source: string): string {
   if (source.startsWith(WRAPPER_PREFIX) && source.endsWith(WRAPPER_SUFFIX)) {
-    // 裡面的 `)` 一定是逃逸過的（規格要求），所以最後一個字元就是收尾。
+    // Any `)` inside is necessarily escaped (the spec requires it), so the last
+    // character is the closer.
     return source.slice(WRAPPER_PREFIX.length, -WRAPPER_SUFFIX.length);
   }
   if (source.startsWith("/")) return source;
 
   throw new CfiParseError(
     "not-a-cfi",
-    `${JSON.stringify(source)} 不是 CFI——要嘛是 epubcfi(…)，要嘛是一條以 / 開頭的路徑`,
+    `${JSON.stringify(source)} is not a CFI — it has to be either epubcfi(…) or a path starting with /`,
   );
 }
 
-/** 依**不在斷言裡**的逗號切開。斷言裡的逗號是欄位分隔，不是範圍分隔。 */
+/** Splits on commas that are **not inside an assertion**. A comma inside an assertion separates fields, not range parts. */
 function splitTopLevel(body: string): readonly string[] {
   const parts: string[] = [];
   let current = "";
@@ -372,7 +402,8 @@ function splitTopLevel(body: string): readonly string[] {
   for (let index = 0; index < body.length; index += 1) {
     const character = body[index]!;
     if (character === ESCAPE) {
-      // 逃逸序列整組原樣搬過去，解逃逸留到讀斷言的時候。
+      // The whole escape sequence is carried over verbatim; unescaping waits until the
+      // assertion is read.
       current += character + (body[index + 1] ?? "");
       index += 1;
       continue;
@@ -391,7 +422,7 @@ function splitTopLevel(body: string): readonly string[] {
   return parts;
 }
 
-/** 讀的位置。用一個游標而不是一路回傳新索引，讓每個 read 函式只回傳它讀到的東西。 */
+/** The reading position. A cursor rather than threading new indices through, so each read function returns only what it read. */
 interface Cursor {
   readonly text: string;
   index: number;
@@ -401,7 +432,7 @@ function parsePath(text: string, source: string): CfiPath {
   if (!text.startsWith("/") && !text.startsWith("!")) {
     throw new CfiParseError(
       "not-a-cfi",
-      `${source} 裡的 ${JSON.stringify(text)} 不是一條路徑——路徑要以 / 或 ! 開頭`,
+      `${JSON.stringify(text)} in ${source} is not a path — a path has to start with / or !`,
     );
   }
 
@@ -415,10 +446,11 @@ function parsePath(text: string, source: string): CfiPath {
 
     if (character === "/") {
       if (offset !== undefined) {
-        // `:5/2` ——位移之後不可能再往下走，字元沒有子節點。
+        // `:5/2` — there is no walking further after an offset; characters have no
+        // children.
         throw new CfiParseError(
           "malformed-step",
-          `${source} 在字元位移之後還有 step，位移只能收尾`,
+          `${source} has a step after a character offset; an offset can only end a segment`,
         );
       }
       steps.push(readStep(cursor, source));
@@ -437,7 +469,7 @@ function parsePath(text: string, source: string): CfiPath {
       if (offset !== undefined) {
         throw new CfiParseError(
           "malformed-offset",
-          `${source} 的同一段裡有兩個字元位移`,
+          `${source} has two character offsets in one segment`,
         );
       }
       offset = readOffset(cursor, source);
@@ -447,13 +479,13 @@ function parsePath(text: string, source: string): CfiPath {
     if (character === "~" || character === "@") {
       throw new CfiParseError(
         "unsupported-offset",
-        `${source} 帶著${character === "~" ? "時間" : "空間"}位移（${character}），frond v1 只做 XHTML 內容文件的字元位移`,
+        `${source} carries a ${character === "~" ? "temporal" : "spatial"} offset (${character}); frond v1 only does character offsets in XHTML content documents`,
       );
     }
 
     throw new CfiParseError(
       "unexpected-character",
-      `${source} 的第 ${cursor.index + 1} 個字元 ${JSON.stringify(character)} 不在 CFI 的文法裡`,
+      `character ${cursor.index + 1} of ${source}, ${JSON.stringify(character)}, is not in the CFI grammar`,
     );
   }
 
@@ -467,7 +499,7 @@ function readStep(cursor: Cursor, source: string): CfiStep {
   if (digits === undefined) {
     throw new CfiParseError(
       "malformed-step",
-      `${source} 的 / 後面沒有接數字`,
+      `${source} has no digits after its /`,
     );
   }
   return { index: digits, assertion: readAssertion(cursor, source) };
@@ -479,7 +511,7 @@ function readOffset(cursor: Cursor, source: string): CfiOffset {
   if (digits === undefined) {
     throw new CfiParseError(
       "malformed-offset",
-      `${source} 的 : 後面沒有接數字`,
+      `${source} has no digits after its :`,
     );
   }
   return { characters: digits, assertion: readAssertion(cursor, source) };
@@ -491,7 +523,8 @@ function readDigits(cursor: Cursor): number | undefined {
     cursor.index += 1;
   }
   if (cursor.index === start) return undefined;
-  // 前導零在這裡收掉，`/06` 與 `/6` 是同一步（見 serializeCfi 的正規化規則）。
+  // Leading zeros are absorbed here; `/06` and `/6` are the same step (see
+  // serializeCfi's normalization rules).
   return Number(cursor.text.slice(start, cursor.index));
 }
 
@@ -500,11 +533,12 @@ function isDigit(character: string): boolean {
 }
 
 /**
- * `[…]`。不在 `[` 上就是沒有斷言。
+ * `[…]`. Not being on a `[` means there is no assertion.
  *
- * 切欄位與解逃逸**必須在同一趟裡做**：`,` 是欄位分隔而 `^,` 是逗號本身，先整
- * 段解完逃逸再切的話兩者就分不出來了——而「id 裡有逗號」是規格明文允許、
- * foliate 的驗收表也演到的形狀。
+ * Splitting fields and undoing escapes **have to happen in the same pass**: `,`
+ * separates fields while `^,` is a comma itself, and unescaping the whole segment
+ * before splitting makes the two indistinguishable — and "an id containing a comma" is
+ * a shape the spec explicitly permits and foliate's acceptance table demonstrates.
  */
 function readAssertion(cursor: Cursor, source: string): CfiAssertion | undefined {
   if (cursor.text[cursor.index] !== "[") return undefined;
@@ -513,9 +547,9 @@ function readAssertion(cursor: Cursor, source: string): CfiAssertion | undefined
   const fields: string[] = [];
   const parameters: CfiParameter[] = [];
   let current = "";
-  /** 這個參數的名字，也就是它的 `=` 已經讀過了。 */
+  /** This parameter's name, meaning its `=` has already been read. */
   let parameterName: string | undefined;
-  /** 已經讀到 `;` 之後了嗎——也就是現在讀的是參數而不是欄位。 */
+  /** Whether reading has passed a `;` — that is, whether what is being read now is a parameter rather than a field. */
   let inParameters = false;
 
   const finish = (): void => {
@@ -524,8 +558,9 @@ function readAssertion(cursor: Cursor, source: string): CfiAssertion | undefined
     } else if (parameterName !== undefined) {
       parameters.push({ name: parameterName, value: current });
     } else if (current !== "") {
-      // `;name` 沒有帶值。補一個空的而不是丟掉它——寫回去時會多一個 `=`，
-      // 那是 serializeCfi 記著的正規化之一。
+      // `;name` came with no value. An empty one is supplied rather than dropping it —
+      // writing it back adds an `=`, which is one of the normalizations serializeCfi
+      // records.
       parameters.push({ name: current, value: "" });
     }
     current = "";
@@ -536,7 +571,7 @@ function readAssertion(cursor: Cursor, source: string): CfiAssertion | undefined
     if (cursor.index >= cursor.text.length) {
       throw new CfiParseError(
         "unterminated-assertion",
-        `${source} 的 [ 沒有對應的 ]`,
+        `${source} has a [ with no matching ]`,
       );
     }
     const character = cursor.text[cursor.index]!;
@@ -600,10 +635,11 @@ function writeAssertion(assertion: CfiAssertion | undefined): string {
 }
 
 /**
- * 只逃逸規格點名的那幾個字元。
+ * Escapes only the characters the spec names.
  *
- * 「只」是重點：多逃逸幾個不會讓別人讀不懂，但會讓 roundtrip 不再是 identity
- * ——而 identity 是這一層唯一能自我驗證的性質。
+ * "Only" is the point: escaping a few extra would not stop anyone reading it, but it
+ * would stop the round trip being the identity — and identity is the one property this
+ * layer can verify about itself.
  */
 function escape(text: string): string {
   return [...text]

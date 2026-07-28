@@ -1,25 +1,26 @@
-// frond 的展示頁。
+// frond's demo page.
 //
-// 這個檔案同時是**純 HTML 的使用範例**——沒有打包器、沒有轉譯、沒有框架，
-// `<script type="module">` 直接 import 建置產物。frond 出貨的模組圖裡一個 bare
-// specifier 都沒有，所以這件事成立；`scripts/finish-build.ts` 會在建置時把它釘住。
+// This file is also **a plain-HTML usage example** — no bundler, no transpilation, no
+// framework; a `<script type="module">` imports the build output directly. That works
+// because frond's shipped module graph contains not one bare specifier, and
+// `scripts/finish-build.ts` pins that down at build time.
 //
-// 讀這個檔案的時候，值得注意的是 frond **不做**的那些決定：
+// While reading this file, what is worth noticing is the decisions frond **does not** make:
 //
-//   - 翻頁綁哪個按鍵、往左滑算上一頁還是下一頁 —— 在這裡（見 `onKeyDown`）
-//   - 點了書裡的連結要不要跳過去 —— 在這裡（見 `linkactivate`）
-//   - 目錄要畫成下拉還是側欄 —— 在這裡
+//   - which key turns the page, and whether swiping left is previous or next — here (see `onKeyDown`)
+//   - whether activating a link inside the book navigates — here (see `linkactivate`)
+//   - whether the table of contents is drawn as a dropdown or a sidebar — here
 //
-// frond 給的是事實（現在在第幾頁、這一節排成什麼方向、那個連結指向哪一節），
-// 政策留給消費端。這是 ADR-0002 的分工，也是為什麼 `next()` 是一個動作而不是
-// 一個事件處理器。
+// frond supplies facts (which page we are on, which direction this section laid out in,
+// which section that link points at) and leaves policy to the consumer. That is ADR-0002's
+// division of labour, and it is why `next()` is an action rather than an event handler.
 
 import { EpubBook } from "./frond/epub/index.js";
 import { Renderer } from "./frond/renderer/index.js";
 
 const $ = (id) => document.getElementById(id);
 
-/** 讀者設定的目前值。`undefined` 表示「沒設」——那與「設成書的預設值」不同。 */
+/** The reader settings' current values. `undefined` means "not set" — which differs from "set to the book's default". */
 const settings = {
   fontSize: undefined,
   lineHeight: undefined,
@@ -35,22 +36,23 @@ const THEMES = {
   dark: { foreground: "#d6d6d6", background: "#16181c" },
 };
 
-/** 目前開著的書與 renderer。換書時舊的要收掉。 */
+/** The currently open book and renderer. On a book change the old one has to be torn down. */
 let book;
 let renderer;
 
-// --- 開書 -------------------------------------------------------------------
+// --- opening a book ---------------------------------------------------------
 
 async function openBook(file) {
   $("open-error").hidden = true;
 
   try {
-    // `EpubBook.open()` 收 Blob、ArrayBuffer 或 Uint8Array。`File` 是 `Blob`，
-    // 所以拖進來的東西可以直接餵進去，不必自己讀成位元組。
+    // `EpubBook.open()` takes a Blob, an ArrayBuffer or a Uint8Array. A `File` is a `Blob`,
+    // so whatever was dragged in can be fed straight through without reading it into bytes.
     book = await EpubBook.open(file);
   } catch (cause) {
-    // 開不起來時丟 `EpubOpenError`，實例不會出現——不存在一個半開的 EpubBook。
-    $("open-error").textContent = `這個檔案開不起來：${cause.message}`;
+    // When it will not open it throws `EpubOpenError` and no instance appears — there is no
+    // such thing as a half-opened EpubBook.
+    $("open-error").textContent = `This file will not open: ${cause.message}`;
     $("open-error").hidden = false;
     return;
   }
@@ -72,18 +74,20 @@ async function attachRenderer() {
   try {
     renderer = await Renderer.attach(book, $("viewer"), {
       settings,
-      // listener 掛在 `attach()` **裡面**，不是事後 `on()`。
+      // The listeners are attached **inside** `attach()`, not with an `on()` afterwards.
       //
-      // `attach()` 回傳的時候第一節已經排好了，也就是說那一次的 load 與
-      // relocate 已經送出去了——事後才掛的 listener 收不到它們，而症狀是
-      // 「狀態列一開始是空的，翻一頁之後才正常」。
+      // By the time `attach()` returns the first section has already laid out, which means
+      // that run's load and relocate have already been emitted — listeners attached
+      // afterwards never receive them, and the symptom is "the status bar is empty at first
+      // and only correct after turning a page".
       on: {
         relocate: showLocation,
         load: showWritingMode,
-        // `attach()` 是先排好第一節、再把整書索引丟到背景去建的，所以 `indexed`
-        // 有可能在 `attach()` 回傳之前就送出來——那時候下面的 `renderer` 還沒被
-        // 指派。漏掉這一次沒關係：`attach()` 回傳之後還會再讀一次 location，而
-        // 那時候索引已經建好了。
+        // `attach()` lays out the first section first and then throws the whole-book index
+        // into the background, so `indexed` may be emitted before `attach()` returns — at
+        // which point the `renderer` below has not been assigned yet. Missing that one is
+        // fine: location is read once more after `attach()` returns, and by then the index
+        // is built.
         indexed: () => {
           if (renderer !== undefined) showLocation(renderer.location);
         },
@@ -92,7 +96,7 @@ async function attachRenderer() {
       },
     });
   } catch (cause) {
-    $("render-error").textContent = `這本書排不出來：${cause.message}`;
+    $("render-error").textContent = `This book will not render: ${cause.message}`;
     $("render-error").hidden = false;
     return;
   }
@@ -103,20 +107,20 @@ async function attachRenderer() {
   showWritingMode({ writingMode: renderer.writingMode });
 }
 
-// --- 讀 ---------------------------------------------------------------------
+// --- reading ----------------------------------------------------------------
 
 function showLocation(at) {
-  $("status-section").textContent = `第 ${at.sectionIndex + 1} / ${
+  $("status-section").textContent = `Section ${at.sectionIndex + 1} / ${
     book.readingOrder.length
-  } 節`;
-  $("status-page").textContent = `第 ${at.page + 1} / ${at.pageCount} 頁`;
+  }`;
+  $("status-page").textContent = `Page ${at.page + 1} / ${at.pageCount}`;
 
-  // 整書索引建好之前 fraction 是 undefined。拿一個錯的值畫上去比留白更糟——
-  // 所以這裡顯示「索引中」而不是 0%。
+  // fraction is undefined until the whole-book index is built. Drawing a wrong value is
+  // worse than leaving it blank — so this shows "indexing" rather than 0%.
   $("status-fraction").textContent =
     at.fraction === undefined
-      ? "全書進度：索引中…"
-      : `全書進度 ${(at.fraction * 100).toFixed(1)}%`;
+      ? "Book progress: indexing…"
+      : `Book progress ${(at.fraction * 100).toFixed(1)}%`;
 
   $("status-cfi").textContent = at.cfi;
   $("previous").disabled = at.atStart;
@@ -125,23 +129,25 @@ function showLocation(at) {
 
 function showWritingMode(event) {
   const vertical = event.writingMode === "vertical-rl";
-  $("status-writing-mode").textContent = vertical ? "直排" : "橫排";
-  // 直排一律單欄，欄數的選擇在那時候沒有意義——停用它比讓它看起來可按但沒反應好。
+  $("status-writing-mode").textContent = vertical ? "Vertical" : "Horizontal";
+  // Vertical is always single-column, so the column choice is meaningless then — disabling
+  // it beats leaving it looking pressable but inert.
   $("columns").disabled = vertical;
 }
 
 function showRenderError(event) {
-  $("render-error").textContent = `第 ${event.sectionIndex + 1} 節（${
+  $("render-error").textContent = `Section ${event.sectionIndex + 1} (${
     event.sectionPath
-  }）排不出來：${event.message}`;
+  }) will not render: ${event.message}`;
   $("render-error").hidden = false;
 }
 
 /**
- * 讀者點了書裡的一個連結。
+ * The reader activated a link inside the book.
  *
- * frond 擋下瀏覽器的預設行為（讓 iframe 自己導航過去會把渲染狀態丟掉），但
- * **不自己跳**——跳不跳、外部連結要不要開新分頁，都是這一層的決定。
+ * frond prevents the browser's default behaviour (letting the iframe navigate there would
+ * throw away the rendering state), but **does not navigate itself** — whether to navigate,
+ * and whether an external link opens in a new tab, are decisions for this layer.
  */
 function followLink(event) {
   if (event.externalUrl !== undefined) {
@@ -162,15 +168,17 @@ function buildToc(items) {
   const select = $("toc");
   select.replaceChildren();
 
-  const placeholder = new Option("目錄…", "");
+  const placeholder = new Option("Contents…", "");
   placeholder.disabled = true;
   placeholder.selected = true;
   select.append(placeholder);
 
-  // TOC 的深度不限，這裡壓平成一層並用縮排表示層次——畫成什麼樣子是這一層的事。
+  // The TOC has unlimited depth; this flattens it to one level and expresses the hierarchy
+  // with indentation — how it is drawn is this layer's business.
   const flatten = (nodes, depth) => {
     for (const item of nodes) {
-      // 指到遠端或指到封裝外的項目跳過：那兩種都不是「這本書裡的一個位置」。
+      // Skip entries pointing at something remote or outside the package: neither is "a
+      // position inside this book".
       if (item.target.kind === "in-container") {
         const option = new Option(
           `${"　".repeat(depth)}${item.label}`,
@@ -189,7 +197,7 @@ function buildToc(items) {
   select.disabled = select.options.length <= 1;
 }
 
-// --- 讀者設定 ---------------------------------------------------------------
+// --- reader settings --------------------------------------------------------
 
 function syncControls() {
   $("font-size").value = settings.fontSize ?? 18;
@@ -203,7 +211,7 @@ async function apply(patch) {
   await renderer?.applySettings(patch);
 }
 
-// --- 事件 -------------------------------------------------------------------
+// --- events -----------------------------------------------------------------
 
 for (const input of [$("file-input"), $("file-input-again")]) {
   input.addEventListener("change", () => {
@@ -213,8 +221,9 @@ for (const input of [$("file-input"), $("file-input-again")]) {
   });
 }
 
-// 拖曳。整個視窗都是放置目標，不只那個框——把書拖到框外一點點就沒反應，是這種
-// 頁面最常見的挫折。
+// Drag and drop. The whole window is the drop target, not just that box — dragging a book
+// slightly outside the box and getting no response is the most common frustration with this
+// kind of page.
 for (const type of ["dragenter", "dragover"]) {
   window.addEventListener(type, (event) => {
     event.preventDefault();
@@ -258,8 +267,9 @@ $("theme").addEventListener("change", (event) =>
 );
 
 $("reset-settings").addEventListener("click", () =>
-  // 每一項設回 undefined，而不是設回某個「預設值」。沒設的欄位 frond 一個字都
-  // 不覆寫，書自己的宣告原封不動——這兩件事在 frond 是不同的狀態。
+  // Each item is set back to undefined rather than to some "default value". For an unset
+  // field frond overrides not one character and the book's own declarations stand untouched
+  // — those are two different states in frond.
   apply({
     fontSize: undefined,
     lineHeight: undefined,
@@ -273,11 +283,12 @@ $("reset-settings").addEventListener("click", () =>
 );
 
 /**
- * 鍵盤翻頁。
+ * Keyboard page turning.
  *
- * **哪個方向鍵算「下一頁」是這一層的決定**，frond 不碰它。判準用的是書宣告的
- * 頁面推進方向：rtl 的書（直排中日文書、RTL 語言的橫排書）往左是往前。
- * frond 只回報 `pageProgressionDirection` 這個事實。
+ * **Which arrow key counts as "next page" is this layer's decision**, and frond does not
+ * touch it. The criterion used is the page progression direction the book declares: in an
+ * rtl book (vertical Chinese and Japanese books, horizontal books in RTL languages) leftward
+ * is forward. frond only reports the `pageProgressionDirection` fact.
  */
 function onKeyDown(event) {
   if (renderer === undefined) return;
@@ -303,7 +314,7 @@ function onKeyDown(event) {
 
 window.addEventListener("keydown", onKeyDown);
 
-// --- 分頁切換 ---------------------------------------------------------------
+// --- panel switching --------------------------------------------------------
 
 function showPanel(which) {
   const reading = which === "read";
@@ -311,75 +322,78 @@ function showPanel(which) {
   $("panel-inspect").hidden = reading;
   $("tab-read").setAttribute("aria-selected", String(reading));
   $("tab-inspect").setAttribute("aria-selected", String(!reading));
-  // iframe 在隱藏的時候量不到尺寸，切回來要重排一次。
+  // An iframe cannot be measured while hidden, so switching back requires a re-layout.
   if (reading) void renderer?.resize();
 }
 
 $("tab-read").addEventListener("click", () => showPanel("read"));
 $("tab-inspect").addEventListener("click", () => showPanel("inspect"));
 
-// --- 檢查 -------------------------------------------------------------------
+// --- inspection -------------------------------------------------------------
 //
-// 這一整段只用到 `EpubBook`，一行 DOM 渲染的程式碼都沒有牽涉進來（ADR-0005 的
-// 雙層切分：這一層零 DOM 依賴，在 Node 裡也跑得動）。它回答的是「frond 從這本
-// 書讀到了什麼」——那是評估一個函式庫撐不撐得住自己那批書時，最先想知道的事。
+// This whole section uses nothing but `EpubBook`, with not one line of DOM rendering code
+// involved (ADR-0005's two-layer split: this layer has zero DOM dependency and runs in Node
+// too). What it answers is "what did frond read from this book" — the first thing anyone
+// wants to know when evaluating whether a library holds up against their own set of books.
 
 function renderInspection(book) {
   const missing = book.resources.filter((r) => r.location.kind === "missing");
   const remote = book.resources.filter((r) => r.location.kind === "remote");
 
   const rows = [
-    ["書名", book.metadata.title ?? "—（書沒宣告）"],
-    ["作者", book.metadata.authors.join("、") || "—（書沒宣告）"],
-    ["語言", book.metadata.language ?? "—（書沒宣告）"],
-    ["識別碼", book.metadata.identifier ?? "—（書沒宣告）"],
-    ["EPUB 版本", book.metadata.epubVersion === "epub3" ? "EPUB 3" : "EPUB 2"],
+    ["Title", book.metadata.title ?? "— (the book did not declare one)"],
+    ["Authors", book.metadata.authors.join(", ") || "— (the book did not declare any)"],
+    ["Language", book.metadata.language ?? "— (the book did not declare one)"],
+    ["Identifier", book.metadata.identifier ?? "— (the book did not declare one)"],
+    ["EPUB version", book.metadata.epubVersion === "epub3" ? "EPUB 3" : "EPUB 2"],
     [
-      "頁面推進方向",
-      // 「書沒說」與「宣告成 ltr」是兩件事。EPUB 2 一律落在前者——那個版本根本
-      // 沒有這個屬性，而把它補成預設值會讓消費端分不出兩者（ADR-0010）。
+      "Page progression direction",
+      // "The book did not say" and "declared as ltr" are two different things. EPUB 2 always
+      // lands in the former — that version has no such attribute at all, and filling in a
+      // default would leave the consumer unable to tell the two apart (ADR-0010).
       book.metadata.pageProgressionDirection ??
-        "—（書沒說。EPUB 2 沒有這個屬性）",
+        "— (the book did not say. EPUB 2 has no such attribute)",
     ],
-    ["readingOrder", `${book.readingOrder.length} 節`],
+    ["readingOrder", `${book.readingOrder.length} sections`],
     [
-      "非線性的節",
-      // linear=false 的節（封面頁、版權頁）frond 不濾掉——濾掉是政策不是事實。
-      `${book.readingOrder.filter((s) => !s.linear).length} 節（frond 不濾掉它們）`,
+      "Non-linear sections",
+      // frond does not filter out linear=false sections (cover pages, copyright pages) —
+      // filtering them is policy, not fact.
+      `${book.readingOrder.filter((s) => !s.linear).length} (frond does not filter them out)`,
     ],
     [
-      "導覽文件",
+      "Navigation document",
       book.navigationDocument === undefined
-        ? "—（一份都沒有。那不是錯誤）"
+        ? "— (there is none. That is not an error)"
         : `${
             book.navigationDocument.vehicle === "nav"
-              ? "nav.xhtml（EPUB 3）"
-              : "toc.ncx（EPUB 2）"
+              ? "nav.xhtml (EPUB 3)"
+              : "toc.ncx (EPUB 2)"
           } — ${book.navigationDocument.path}`,
     ],
-    ["目錄項目", `${countToc(book.toc)} 項，最深 ${depthOfToc(book.toc)} 層`],
+    ["TOC entries", `${countToc(book.toc)} entries, ${depthOfToc(book.toc)} levels deep`],
     [
-      "封面",
+      "Cover",
       book.cover === undefined
-        ? "—（兩種宣告寫法都找不到。那不是錯誤）"
-        : `${book.cover.path}（${book.cover.mediaType}），由 ${
+        ? "— (neither notation declares one. That is not an error)"
+        : `${book.cover.path} (${book.cover.mediaType}), found by ${
             book.cover.foundBy === "cover-image-property"
               ? 'properties="cover-image"'
               : '<meta name="cover">'
-          } 找到`,
+          }`,
     ],
-    ["manifest 宣告的資源", `${book.resources.length} 項`],
+    ["Resources declared in the manifest", `${book.resources.length}`],
     [
-      "書宣告了但不在包裡",
+      "Declared but not in the package",
       missing.length === 0
-        ? "0 項"
-        : `${missing.length} 項 — ${missing
+        ? "0"
+        : `${missing.length} — ${missing
             .map((r) => r.location.path)
-            .join("、")}`,
+            .join(", ")}`,
     ],
     [
-      "遠端資源",
-      remote.length === 0 ? "0 項" : `${remote.length} 項（frond 不下載它們）`,
+      "Remote resources",
+      remote.length === 0 ? "0" : `${remote.length} (frond does not download them)`,
     ],
   ];
 
@@ -396,13 +410,13 @@ function renderInspection(book) {
   const heading = document.createElement("p");
   heading.className = "note";
   heading.textContent =
-    "以下全部只用到 EpubBook——這一層零 DOM 依賴，同一段程式碼在 Node 裡也跑得出同樣的答案。";
+    "Everything below uses nothing but EpubBook — this layer has zero DOM dependency, and the same code produces the same answers in Node.";
 
   const cover = document.createElement("div");
   if (book.cover !== undefined) {
     const image = document.createElement("img");
     image.className = "cover";
-    image.alt = "封面";
+    image.alt = "Cover";
     image.src = URL.createObjectURL(
       new Blob([book.cover.bytes], { type: book.cover.mediaType }),
     );

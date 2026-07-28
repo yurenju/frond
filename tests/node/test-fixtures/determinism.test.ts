@@ -10,15 +10,18 @@ import {
 } from "../../../packages/frond/src/test-fixtures/index.ts";
 
 /**
- * 決定性是硬需求，不是可重現性衛生。
+ * Determinism is a hard requirement, not reproducibility hygiene.
  *
- * fixture 一重新產生，所有幾何數字都會跟著漂，而漂動的原因與 frond 的程式碼
- * 無關——跨瀏覽器差分與不變量會同時變色，查不出原因，然後沒有人再相信這套
- * 測試。所以這裡**產兩次、比 hash**，而不是宣稱它是決定性的。
+ * The moment a fixture is regenerated, every geometric number drifts with it — and the
+ * cause of that drift has nothing to do with frond's code: the cross-browser diffs and
+ * the invariants change colour at once, the cause cannot be traced, and then nobody
+ * trusts this test suite again. So this **builds twice and compares hashes** rather than
+ * asserting determinism.
  *
- * ZIP 的 mtime 是最常見的破口，但不是唯一的：`dcterms:modified`、UUID 形式的
- * identifier、以及 deflate 在不同 zlib 版本下的輸出差異都會讓位元組漂掉。
- * 這條斷言蓋住前三個；第四個由 `zip.ts` 一律 stored 從根上移除。
+ * A ZIP mtime is the most common leak, but not the only one: `dcterms:modified`, a
+ * UUID-shaped identifier, and deflate's output differing across zlib versions all make
+ * the bytes drift. These assertions cover the first three; the fourth is removed at the
+ * root by `zip.ts` always storing.
  */
 
 const temporaryDirectories: string[] = [];
@@ -35,18 +38,19 @@ async function temporaryDirectory(): Promise<string> {
   return directory;
 }
 
-describe("決定性", () => {
+describe("determinism", () => {
   test.for(syntheticFixtures.map((fixture) => fixture.name))(
-    "%s 產兩次是逐位元組相同的",
+    "building %s twice gives byte-identical output",
     (name) => {
       expect(sha256(buildFixture(name))).toBe(sha256(buildFixture(name)));
     },
   );
 
-  test("寫進兩個不同的目錄，內容仍逐位元組相同", async () => {
-    // 中間隔開一個毫秒刻度。這條抓的是毫秒解析度的破口——典型的是有人把
-    // `dcterms:modified` 改成 `new Date().toISOString()`。ZIP 的時間戳是
-    // 兩秒解析度，等不起，由下一條直接釘住位元組。
+  test("written into two different directories, the contents are still byte-identical", async () => {
+    // A millisecond tick separates the two. This catches millisecond-resolution leaks —
+    // typically someone changing `dcterms:modified` to `new Date().toISOString()`. A ZIP
+    // timestamp has two-second resolution and cannot be waited out, so the next case pins
+    // those bytes directly.
     const first = await temporaryDirectory();
     const second = await temporaryDirectory();
 
@@ -64,10 +68,11 @@ describe("決定性", () => {
     }
   });
 
-  test("產出物裡沒有任何時間戳指向現在", async () => {
-    // ZIP 的每個項目都帶 MS-DOS 時間戳。取「現在」是最常見的破口，而它只在
-    // 跨越一秒之後才看得出來——上面那條靠等待抓，這條直接把時間戳釘在 DOS
-    // 時間的原點上，讓破口在同一次執行內就可見。
+  test("no timestamp in the output points at now", async () => {
+    // Every ZIP entry carries an MS-DOS timestamp. Taking "now" is the most common leak,
+    // and it only becomes visible once a second boundary is crossed — the case above
+    // catches it by waiting, and this one pins the timestamp at the DOS epoch so the leak
+    // is visible within a single run.
     const archive = buildFixture(syntheticFixtures[0]!.name);
     const view = new DataView(archive.buffer, archive.byteOffset, archive.byteLength);
 

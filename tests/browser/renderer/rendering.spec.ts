@@ -2,19 +2,20 @@ import { expect, test } from "@playwright/test";
 import { mountFixture, openHarness, VIEWPORT_ID } from "../support/harness.js";
 
 /**
- * 把書渲染進容器，並認出它的書寫方向。
+ * Rendering a book into a container, and recognizing its writing mode.
  *
- * 書寫方向這一格是這支 spec 的重心，理由是它**只有在瀏覽器裡才問得出答案**：判準
- * 是 CSSOM，而字串比對會漏掉書實際的寫法（ADR-0010、`docs/browser-quirks.md`）。
- * 三個宣告寫法各有一份 fixture，彼此是對照組。
+ * Writing mode is this spec's centre of gravity, because it is **only answerable inside a
+ * browser**: the criterion is the CSSOM, and string matching misses the forms books
+ * actually use (ADR-0010, `docs/browser-quirks.md`). Each of the three declaration forms
+ * has its own fixture, and they act as each other's controls.
  */
 
 test.beforeEach(async ({ page }) => {
   await openHarness(page);
 });
 
-test.describe("渲染進容器", () => {
-  test("掛上去就排得出第一頁", async ({ page }) => {
+test.describe("rendering into the container", () => {
+  test("mounting lays out the first page", async ({ page }) => {
     const location = await mountFixture(page, "vertical-japanese");
 
     expect(location.sectionIndex).toBe(0);
@@ -24,21 +25,21 @@ test.describe("渲染進容器", () => {
     expect(location.cfi).toMatch(/^epubcfi\(/);
   });
 
-  test("內容真的在畫面上——iframe 有一份載好的文件", async ({ page }) => {
+  test("the content really is on screen — the iframe holds a loaded document", async ({ page }) => {
     await mountFixture(page, "vertical-japanese");
 
     const html = await page.evaluate(() => window.frond.html());
 
     expect(html).toContain("朝の光");
-    // frond 自己那兩份樣式表都掛上去了。
+    // Both of frond's own stylesheets are attached.
     expect(html).toContain('id="frond-layout"');
     expect(html).toContain('id="frond-reader"');
   });
 
-  test("書內的腳本不會進到文件裡（ADR-0006）", async ({ page }) => {
-    // `manifest-href-parent-prefix` 帶了一份 js 資源。書內腳本一律拿掉——
-    // iframe 為了讓 parent 收得到事件必須帶 allow-scripts，所以擋得住書內程式碼
-    // 的只有這一步。
+  test("scripts in the book never enter the document (ADR-0006)", async ({ page }) => {
+    // `manifest-href-parent-prefix` carries a js resource. Scripts in the book are always
+    // stripped — the iframe has to carry allow-scripts for the parent to receive events, so
+    // this step is the only thing standing between the book's code and execution.
     await mountFixture(page, "manifest-href-parent-prefix");
 
     const html = await page.evaluate(() => window.frond.html());
@@ -48,19 +49,23 @@ test.describe("渲染進容器", () => {
 });
 
 /**
- * 容器裡永遠只有一個 iframe——**包括還有載入在飛的時候**。
+ * There is only ever one iframe in the container — **including while loads are in
+ * flight**.
  *
- * 掛新的那一節要 await（掛 iframe、等字型），而消費端不會等：拖邊界滑桿時
- * `input` 一格發一次，每一格都是一次 `applySettings`，也就是一次重建。曾經漏掉的
- * 那一版在 await **之前**就決定要拆哪一個，於是中間那幾個沒有任何人拆它們——
- * iframe 是絕對定位、底色透明的，殘留的會從目前這一個的邊緣露出來，畫面上是「拖
- * 邊界的時候底下疊著書的其他內容」。
+ * Mounting a new section is awaited (attaching the iframe, waiting for fonts), and a
+ * consumer does not wait: dragging a margin slider fires `input` at every notch, and every
+ * notch is an `applySettings`, which is a rebuild. The version that once got this wrong
+ * decided which one to tear down **before** the await, so nothing tore down the ones in
+ * between — the iframes are absolutely positioned with transparent backgrounds, so the
+ * leftovers peek out from the edges of the current one, and on screen that reads as "other
+ * parts of the book stacked underneath while dragging the margin".
  *
- * 斷言放在 iframe 的**個數**而不是畫面上：多出來的那幾個只在邊緣露出幾個像素，
- * 截圖比對量不到，而個數是這件事的因。
+ * The assertion is on the **number** of iframes rather than on the screen: the surplus ones
+ * only show a few pixels at the edge, which screenshot comparison cannot measure, and the
+ * count is the cause of the thing.
  */
-test.describe("載入在飛的時候，容器裡仍然只有一份文件", () => {
-  test("連續換設定不等前一次做完", async ({ page }) => {
+test.describe("with loads in flight, the container still holds one document", () => {
+  test("changing settings repeatedly without waiting for the previous one", async ({ page }) => {
     await mountFixture(page, "vertical-japanese");
 
     const frames = await page.evaluate(async (id) => {
@@ -75,10 +80,11 @@ test.describe("載入在飛的時候，容器裡仍然只有一份文件", () =>
     expect(frames).toBe(1);
   });
 
-  test("連續換節不等前一次做完", async ({ page }) => {
-    // 快速連點翻頁走的是同一條路，而且它多守一件事：**贏的要是最後發出的那一次，
-    // 不是最快跑完的那一次**。三節的長度差很多（空的、只有圖的、有文字的），所以
-    // 「誰先跑完」與「誰最後發出」在這裡真的會分岔。
+  test("changing sections repeatedly without waiting for the previous one", async ({ page }) => {
+    // Rapid page-turn taps go down the same route, and guard one thing more: **the winner
+    // has to be the last one issued, not the first one to finish**. The three sections
+    // differ greatly in length (empty, image-only, text), so "who finished first" and "who
+    // was issued last" really do diverge here.
     await mountFixture(page, "empty-and-image-only-sections");
 
     const result = await page.evaluate(async (id) => {
@@ -93,41 +99,46 @@ test.describe("載入在飛的時候，容器裡仍然只有一份文件", () =>
   });
 });
 
-test.describe("書寫方向的偵測", () => {
-  test("宣告在 <html> 上：直排", async ({ page }) => {
+test.describe("detecting the writing mode", () => {
+  test("declared on <html>: vertical", async ({ page }) => {
     const location = await mountFixture(page, "vertical-japanese");
     expect(location.writingMode).toBe("vertical-rl");
   });
 
-  test("宣告在 <body> 上：一樣認得出直排", async ({ page }) => {
-    // InDesign 產的書就是這個形狀。只讀 documentElement 的 library 會判成橫排
-    // ——spine 為此自己寫了一支 detectVerticalBook（ADR-0002）。
+  test("declared on <body>: still recognized as vertical", async ({ page }) => {
+    // Books produced by InDesign have this shape. A library reading only documentElement
+    // judges it horizontal — spine wrote its own detectVerticalBook for exactly this
+    // (ADR-0002).
     const location = await mountFixture(page, "writing-mode-on-body");
     expect(location.writingMode).toBe("vertical-rl");
   });
 
-  test("只有 -epub- 與 -webkit- 前綴：三家都排成直排", async ({ page }) => {
-    // **這一條在 Firefox 上才有牙齒。** 那本書沒有無前綴的宣告，而 Firefox 兩種
-    // 前綴都不認，所以沒有正規化的話它會整本排成橫排（《入境大廳》的形狀，
-    // docs/browser-quirks.md）。另外兩家本來就認得前綴，所以它們在這一條上證明
-    // 的是「補一條無前綴的宣告沒有把它們弄壞」。
+  test("only -epub- and -webkit- prefixes: all three lay out vertically", async ({ page }) => {
+    // **This case only has teeth in Firefox.** That book has no unprefixed declaration and
+    // Firefox recognizes neither prefix, so without normalization it lays the whole book
+    // out horizontally (《入境大廳》's shape, docs/browser-quirks.md). The other two
+    // recognize the prefixes already, so what they prove here is "adding an unprefixed
+    // declaration did not break them".
     const location = await mountFixture(page, "writing-mode-prefixed-only");
     expect(location.writingMode).toBe("vertical-rl");
   });
 
-  test("宣告在被 @import 進來的樣式表裡：一樣認得出直排", async ({ page }) => {
-    // 實書量到的形狀（樣本 34 本裡 4 本，同一條 Kadokawa／BookCreator 工具鏈）：
-    // 內容文件只 <link> 一支聚合檔，而那支檔案只有 `@import "…"` 字串。不展開
-    // @import 的話那份樣式表**整份消失**——不是漏掉一條宣告，是整本書排錯方向，
-    // 而且不會有任何錯誤訊息。
+  test("declared in an @imported stylesheet: still recognized as vertical", async ({ page }) => {
+    // A shape measured on real books (4 of the 34 in the sample, all from the same
+    // Kadokawa/BookCreator toolchain): the content document only `<link>`s an aggregate
+    // file, and that file holds nothing but `@import "…"` strings. Without expanding the
+    // @import, the whole stylesheet **disappears** — not one missing declaration but the
+    // whole book laid out the wrong way, and with no error message at all.
     const location = await mountFixture(page, "writing-mode-behind-import");
     expect(location.writingMode).toBe("vertical-rl");
   });
 
-  test("@import 進來的宣告在文件裡是內嵌的，不是一個等著載的位址", async ({ page }) => {
-    // 展開而不是換成 blob: 位址，是因為 `@import` 的載入是**非同步**的：frond 在
-    // iframe 的 load 事件之後立刻量內容總長算頁數，樣式若還沒到位，量到的頁數
-    // 就是錯的，而且只在載入比較慢的時候錯（`document-source.ts` 檔頭）。
+  test("an @imported declaration is inlined in the document, not an address waiting to load", async ({ page }) => {
+    // Expanded rather than swapped for a blob: address, because `@import`'s loading is
+    // **asynchronous**: frond measures the content's total extent to compute the page count
+    // right after the iframe's load event, and if the styles have not arrived the count is
+    // wrong — and only wrong when loading happens to be slow (`document-source.ts`'s header
+    // comment).
     await mountFixture(page, "writing-mode-behind-import");
 
     const html = await page.evaluate(() => window.frond.html());
@@ -136,15 +147,16 @@ test.describe("書寫方向的偵測", () => {
     expect(html).not.toContain("@import");
   });
 
-  test("沒有直排宣告的書是橫排", async ({ page }) => {
+  test("a book with no vertical declaration is horizontal", async ({ page }) => {
     const location = await mountFixture(page, "huge-single-section");
     expect(location.writingMode).toBe("horizontal-tb");
   });
 
-  test("直排的頁沿 y 推進，橫排沿 x", async ({ page }) => {
-    // 讀者字級放大到 64px，這一節才排得出不只一頁——`vertical-japanese` 每節只有
-    // 三個段落，書自己的字級下一屏就裝得下，而那時候 `next()` 會直接跨到下一節，
-    // 量到的捲動位置就永遠是 0。#7 的 foliate spike 用的也是這個字級。
+  test("vertical pages advance along y, horizontal ones along x", async ({ page }) => {
+    // The reader font size is raised to 64px so the section lays out over more than one page
+    // — `vertical-japanese` has only three paragraphs per section, which fit one screen at
+    // the book's own size, and then `next()` steps straight into the following section and
+    // the measured scroll position is always 0. #7's foliate spike used this size too.
     const vertical = await mountFixture(page, "vertical-japanese", {
       settings: { fontSize: 64 },
     });
@@ -159,18 +171,20 @@ test.describe("書寫方向的偵測", () => {
     await page.evaluate(() => window.frond.next());
     const horizontalOffset = await page.evaluate(() => window.frond.scrollOffset());
 
-    // `scrollOffset()` 依書寫方向讀 scrollTop 或 scrollLeft，所以兩邊都大於零
-    // 就表示各自的那一軸真的動了。這同時證明了 `overflow: hidden` 的分欄容器
-    // 仍然捲得動——讀者捲不動它，frond 捲得動。
+    // `scrollOffset()` reads scrollTop or scrollLeft by writing mode, so both being greater
+    // than zero means each one's own axis really moved. That also proves an
+    // `overflow: hidden` multicol container is still scrollable — the reader cannot scroll
+    // it, frond can.
     expect(verticalOffset).toBeGreaterThan(0);
     expect(horizontalOffset).toBeGreaterThan(0);
   });
 });
 
-test.describe("分頁的幾何", () => {
-  test("直排的欄寬等於一個 viewer 高", async ({ page }) => {
-    // spine 那句「直排欄寬必須剛好等於一個 viewer 高」的機器版本。容器 800×600、
-    // 邊界 24，所以 iframe 是 752×552，直排的欄寬取高度 552。
+test.describe("the pagination geometry", () => {
+  test("a vertical column's width equals one viewer height", async ({ page }) => {
+    // The machine-readable form of spine's "a vertical column's width must equal exactly one
+    // viewer height". The container is 800×600 with a 24 margin, so the iframe is 752×552,
+    // and vertical takes the height, 552.
     await mountFixture(page, "vertical-japanese", { settings: { margin: 24 } });
 
     const columnWidth = await page.evaluate(() =>
@@ -180,7 +194,7 @@ test.describe("分頁的幾何", () => {
     expect(columnWidth).toBe("552px");
   });
 
-  test("橫排的欄寬等於一個 viewer 寬", async ({ page }) => {
+  test("a horizontal column's width equals one viewer width", async ({ page }) => {
     await mountFixture(page, "huge-single-section", {
       settings: { margin: 24, columns: 1 },
     });
@@ -192,13 +206,15 @@ test.describe("分頁的幾何", () => {
     expect(columnWidth).toBe("752px");
   });
 
-  test("直排時注入直排標點的字符設定，橫排時不注入", async ({ page }) => {
-    // WebKit 在直排下不自動套用 `vert`，日文句點留在左下（browser-quirks.md
-    // 第一條）。三家共用同一條規則不分支——實測強制之後 Chromium 與 Firefox 的
-    // 結果逐位元組不變。
+  test("the vertical-punctuation feature setting is injected when vertical and not when horizontal", async ({ page }) => {
+    // WebKit does not apply `vert` automatically when vertical, leaving the Japanese full
+    // stop at the bottom left (browser-quirks.md's first entry). One rule shared by all
+    // three with no branching — measured, forcing it leaves Chromium's and Firefox's output
+    // byte-identical.
     //
-    // `vertical-writing.spec.ts` 那條驗的是「這套字型有直排字符且畫得出來」，
-    // 因為它自己注入了 `"vert" 1`。這一條驗的是**Renderer 本身有做這件事**。
+    // What `vertical-writing.spec.ts` verifies is "this font has vertical glyphs and can
+    // draw them", because it injects `"vert" 1` itself. What this verifies is **that
+    // Renderer does it**.
     await mountFixture(page, "vertical-japanese");
     expect(
       await page.evaluate(() => window.frond.computed("html", "font-feature-settings")),
@@ -210,8 +226,9 @@ test.describe("分頁的幾何", () => {
     ).not.toContain("vert");
   });
 
-  test("欄寬是整數像素", async ({ page }) => {
-    // 分數欄寬會讓頁距累積誤差，翻幾十頁之後一屏疊出兩個半頁。
+  test("the column width is an integer number of pixels", async ({ page }) => {
+    // A fractional column width accumulates stride error, and after a few dozen page turns
+    // one screen stacks two half pages.
     await mountFixture(page, "vertical-japanese", { settings: { margin: 25 } });
 
     const columnWidth = await page.evaluate(() =>
@@ -223,21 +240,25 @@ test.describe("分頁的幾何", () => {
 });
 
 /**
- * 溢出的內容被裁掉——ADR-0003 介入清單裡的 `cap-overflowing-boxes` 那一格。
+ * Overflowing content gets clipped — the `cap-overflowing-boxes` slot on ADR-0003's
+ * intervention list.
  *
- * `fixed-width-800` 演的是**行內軸**那一側（書寫死 `width: 800px`），這一組演的是
- * **區塊軸**：一張比一欄還高的圖版。兩側的機制不對稱，而那個不對稱正是實書上量到
- * 的病——`max-block-size: 100%` 需要一個確定的包含塊尺寸才解析得出來，而圖版外面
- * 那層 `height: auto` 的 div 讓它靜默地變成 `none`（`src/renderer/layout.ts`）。
+ * `fixed-width-800` plays the **inline axis** side (the book pins `width: 800px`); this
+ * group plays the **block axis**: a plate taller than a column. The two sides' mechanisms
+ * are asymmetric, and that asymmetry is exactly the ailment measured on real books —
+ * `max-block-size: 100%` needs a definite containing-block size to resolve, and the
+ * `height: auto` div wrapping the plate silently turns it into `none`
+ * (`src/renderer/layout.ts`).
  *
- * 症狀在 DOM 斷言上完全看不出來：圖在文件裡、`<img>` 的屬性都對、頁數也是一個
- * 正常的數字。看得出來的只有幾何——所以這一組量的是矩形。
+ * The symptom is entirely invisible to DOM assertions: the image is in the document, the
+ * `<img>`'s attributes are all right, and the page count is a perfectly normal number. Only
+ * the geometry shows it — so this group measures rectangles.
  */
-test.describe("比一欄還高的圖版", () => {
-  /** 圖版在最後一節（`ailments.ts`）。 */
+test.describe("a plate taller than a column", () => {
+  /** The plate is in the last section (`ailments.ts`). */
   const PLATE_SECTION = 2;
 
-  test("圖被縮到一欄裝得下，不是被裁掉", async ({ page }) => {
+  test("the image is scaled to fit a column rather than clipped", async ({ page }) => {
     await mountFixture(page, "plate-taller-than-page", { settings: { margin: 24 } });
     await page.evaluate(
       (index) => window.frond.goToSection(index),
@@ -255,23 +276,25 @@ test.describe("比一欄還高的圖版", () => {
       return {
         width: rect.width,
         height: rect.height,
-        // 一欄在區塊軸上的長度。橫排的區塊軸是 y。
+        // A column's extent along the block axis. Horizontal's block axis is y.
         blockExtent: inner.documentElement.clientHeight,
       };
     });
 
     expect(plate).not.toBeNull();
-    // 容器 800×600、邊界 24 → 一欄的區塊軸長度 552。圖原本 720 高。
+    // Container 800×600 with a 24 margin → a column's block extent is 552. The image is
+    // originally 720 tall.
     expect(plate!.blockExtent).toBe(552);
     expect(plate!.height).toBeLessThanOrEqual(plate!.blockExtent);
 
-    // **等比縮放，不是壓扁。** 原圖 64×720，縮到 552 高應該是 49 寬左右；寬度
-    // 沒跟著縮的話讀者看到的是一張變形的圖，而那與被裁掉一樣是呈現錯誤。
+    // **Scaled proportionally, not squashed.** The original is 64×720, so at 552 tall it
+    // should be about 49 wide; if the width does not scale with it, the reader sees a
+    // distorted image, and that is as much a presentation error as being clipped.
     const aspect = plate!.width / plate!.height;
     expect(aspect).toBeCloseTo(64 / 720, 1);
   });
 
-  test("圖版整張都在畫面上——沒有一段落在容器外", async ({ page }) => {
+  test("the whole plate is on screen — no part of it falls outside the container", async ({ page }) => {
     await mountFixture(page, "plate-taller-than-page", { settings: { margin: 24 } });
     await page.evaluate(
       (index) => window.frond.goToSection(index),
@@ -289,52 +312,60 @@ test.describe("比一欄還高的圖版", () => {
       return rect.bottom - inner.documentElement.clientHeight;
     });
 
-    // 病在的時候這個數字是好幾百：圖伸出容器，再被 `overflow: hidden` 裁掉，
-    // 而分頁是沿行內軸推進的，所以裁掉的那一段**翻頁也翻不出來**。
+    // With the ailment present this number is in the hundreds: the image extends past the
+    // container and is clipped by `overflow: hidden`, and since pagination advances along
+    // the inline axis, the clipped part **cannot be reached by turning pages either**.
     expect(overflow).toBeLessThanOrEqual(0);
   });
 });
 
 /**
- * 表格比一欄還高——**三家分歧，而 frond 修不掉，所以這一組釘住現況**。
+ * A table taller than a column — **the three engines disagree, frond cannot fix it, and so
+ * this group pins the status quo**.
  *
- * 寫法照 `regional-faces.spec.ts` 對 #4 的處置：不期待三家一致，把各家實測到的
- * 行為寫成一張表，然後斷言它們仍然是那樣。分歧是瀏覽器的性質，frond 要據此決定
- * 介不介入，所以它變了必須有人知道。
+ * Written the way `regional-faces.spec.ts` handles #4: rather than expecting the three to
+ * agree, each engine's measured behaviour goes into a table and the assertion is that they
+ * are still that way. The divergence is a property of the browsers and frond decides
+ * whether to intervene from it, so somebody has to know when it changes.
  *
- * ## 為什麼 `cap-overflowing-boxes` 對表格無效
+ * ## Why `cap-overflowing-boxes` does nothing for tables
  *
- * `:root table { max-block-size: <一欄>px }` 對表格是個 no-op：CSS 規定
- * `height` / `max-height` 對 `display: table` 的元素是**下限**而不是上限，表格一律
- * 照內容長。圖版那一份（`plate-taller-than-page`）修得掉正是因為替換元素沒有這條
- * 例外——兩份 fixture 因此不能合併。
+ * `:root table { max-block-size: <one column>px }` is a no-op on a table: CSS specifies
+ * that `height` / `max-height` are a **minimum** rather than a maximum on
+ * `display: table` elements, and a table always grows to its content. The plate case
+ * (`plate-taller-than-page`) is fixable precisely because replaced elements have no such
+ * exception — which is why the two fixtures cannot be merged.
  *
- * ## 為什麼不修
+ * ## Why it is not fixed
  *
- * 剩下的路是把 `display: table` 換掉（換成 block 之後每一列變成一個區塊，內容就
- * 會流進相鄰的欄，全部讀得到），代價是**表格的對齊整個消失**。「讀得到但對不齊」
- * 與「對得齊但一半看不到」哪個好，是一個權衡決定而不是一個 bug 修正，所以它登記
- * 成缺口（`src/renderer/interventions.ts`）而不是在這裡順手做掉。
+ * The route that remains is replacing `display: table` (as block, each row becomes a block
+ * and the content flows into the adjacent columns, all of it reachable), at the cost of
+ * **losing the table's alignment entirely**. Whether "readable but misaligned" beats
+ * "aligned but half invisible" is a trade-off decision rather than a bug fix, so it is
+ * registered as a gap (`src/renderer/interventions.ts`) rather than quietly done here.
  *
- * 樣本裡三本書共九節是這個形狀，最嚴重的一節被裁掉 2563px。
+ * Nine sections across three books in the sample have this shape, the worst of them
+ * clipping 2563px.
  */
-test.describe("比一欄還高的表格（三家分歧，釘住現況）", () => {
-  /** 表格在最後一節（`ailments.ts`）。 */
+test.describe("a table taller than a column (the engines disagree; pinning the status quo)", () => {
+  /** The table is in the last section (`ailments.ts`). */
   const TABLE_SECTION = 2;
 
   /**
-   * 這一家會不會把比一欄還高的表格切到相鄰的欄。
+   * Whether this engine fragments a table taller than a column into adjacent columns.
    *
-   * 實測（`Dockerfile` 的映像）：**只有 Firefox 不會**。Chromium 與 WebKit 都把
-   * 表格切成三段分到相鄰的欄，溢出 0；Firefox 一段都不切，表格排到 1302px 高、
-   * 伸出容器 751px 再被 `overflow: hidden` 裁掉。
+   * Measured (in `Dockerfile`'s image): **only Firefox does not**. Chromium and WebKit both
+   * split the table into three fragments across adjacent columns, with 0 overflow; Firefox
+   * splits nothing, laying the table out 1302px tall, extending 751px past the container
+   * before `overflow: hidden` clips it.
    *
-   * Firefox 上的代價還不只那 751px：不切欄等於內容不往行內軸延伸，於是**整節的
-   * 頁數變成 1**——表格後面的東西讀者一併看不到。
+   * The cost in Firefox is more than those 751px: not fragmenting means the content does not
+   * extend along the inline axis, so **the whole section's page count becomes 1** — and
+   * everything after the table becomes unreachable to the reader as well.
    *
-   * 這個分布與實書一致：樣本裡帶表格的三本書（《FIRE．致富實踐》、
-   * 《幽靈帝國拜占庭》、《激進市場》）在 Chromium 與 WebKit 上都沒有溢出，只有
-   * Firefox 有，最嚴重的一節 2563px。
+   * This distribution matches real books: the three books with tables in the sample
+   * (《FIRE．致富實踐》, 《幽靈帝國拜占庭》, 《激進市場》) have no overflow in Chromium or
+   * WebKit and only in Firefox, the worst section clipping 2563px.
    */
   const FRAGMENTS_TALL_TABLES: Record<string, boolean> = {
     chromium: true,
@@ -342,11 +373,11 @@ test.describe("比一欄還高的表格（三家分歧，釘住現況）", () =>
     firefox: false,
   };
 
-  test("表格切不切欄，落在這一家的實測行為上", async ({ page }, info) => {
+  test("whether the table fragments matches this engine's measured behaviour", async ({ page }, info) => {
     const fragments = FRAGMENTS_TALL_TABLES[info.project.name];
     expect(
       fragments,
-      `FRAGMENTS_TALL_TABLES 少了 ${info.project.name}——新增瀏覽器要先量一次。`,
+      `FRAGMENTS_TALL_TABLES is missing ${info.project.name} — a new browser has to be measured first.`,
     ).toBeDefined();
 
     await mountFixture(page, "table-taller-than-page", { settings: { margin: 24 } });
@@ -366,7 +397,8 @@ test.describe("比一欄還高的表格（三家分歧，釘住現況）", () =>
       const rows = [...inner.querySelectorAll("tr")];
       const lastRow = rows[rows.length - 1];
       return {
-        // 橫排的區塊軸是 y（`geometry.ts` 那張表）。溢出就是「有內容落在容器外」。
+        // Horizontal's block axis is y (the table in `geometry.ts`). Overflow means "content
+        // falls outside the container".
         blockOverflow: root.scrollHeight - root.clientHeight,
         blockExtent: root.clientHeight,
         rows: rows.length,
@@ -377,22 +409,25 @@ test.describe("比一欄還高的表格（三家分歧，釘住現況）", () =>
     });
 
     expect(measured).not.toBeNull();
-    // 前提：這份 fixture 的表格真的裝不進一欄。
+    // The premise: this fixture's table really does not fit in one column.
     //
-    // **不能用 `table.getBoundingClientRect().height` 問這件事**：切欄的那幾家
-    // 回的是所有 fragment 的聯集，高度剛好就是一欄（552），於是「比一欄還高」
-    // 在它們身上永遠不成立。要問的是列數與內容——30 列 × 一列約 29px 遠超過 552。
+    // **`table.getBoundingClientRect().height` cannot be used to ask this**: the engines
+    // that fragment return the union of all fragments, whose height is exactly one column
+    // (552), so "taller than a column" never holds for them. What has to be asked is the row
+    // count and the content — 30 rows at about 29px each far exceeds 552.
     expect(measured!.rows).toBe(30);
 
     if (fragments === true) {
       expect(measured!.blockOverflow).toBeLessThanOrEqual(2);
-      // 切欄的那幾家，最後一列真的落在容器裡——溢出 0 也可能是因為表格整個
-      // 沒畫出來，多這一條把那種情況分開。
+      // For the engines that fragment, the last row really is inside the container — 0
+      // overflow could also mean the table never drew at all, and this extra case separates
+      // that.
       expect(measured!.lastRowInsideBlockAxis).toBe(true);
     } else {
-      // 這一行是「現況」而不是「期望」：它紅掉最可能的原因是那家瀏覽器開始支援
-      // 表格的欄切割了——那時候要更新的是 FRAGMENTS_TALL_TABLES，而缺口也就可以
-      // 從 interventions.ts 拿掉。
+      // This line is "the status quo" rather than "the expectation": the most likely reason
+      // for it going red is that browser gaining support for fragmenting tables across
+      // columns — at which point FRAGMENTS_TALL_TABLES gets updated and the gap can come off
+      // interventions.ts.
       expect(measured!.blockOverflow).toBeGreaterThan(2);
     }
   });

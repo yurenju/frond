@@ -1,40 +1,47 @@
 /**
- * 對書的樣式表做的每一次文字層改寫。**這一支不碰 DOM**，輸入輸出都是 CSS 字串。
+ * Every textual rewrite made to a book's stylesheets. **This module does not touch the
+ * DOM**; its input and output are both CSS strings.
  *
- * 每一個改寫都對應 ADR-0003 介入清單裡的一項，理由與清單一起記在
- * `interventions.ts`——這裡只放機制。分開放是因為兩者的變動速度不同：機制會因為
- * 量到新的瀏覽器行為而改，清單會因為權衡改變而改，而混在一起的話「為什麼可以動
- * 書的宣告」這個問題會散在程式碼各處。
+ * Each rewrite corresponds to one entry in ADR-0003's intervention list, and the reasons
+ * live with that list in `interventions.ts` — only the mechanism is here. They are kept
+ * apart because they change at different rates: the mechanism changes when new browser
+ * behaviour is measured, the list changes when a trade-off changes, and mixing them
+ * would scatter the question "why is frond allowed to touch the book's declarations"
+ * across the codebase.
  *
- * ## 為什麼是自己走一趟而不是正規表示式
+ * ## Why a hand-written pass rather than regular expressions
  *
- * CSS 的宣告不是行導向的：`;` 可以出現在字串與 `url()` 裡、註解可以插在屬性名
- * 中間、`@media` 的區塊裡裝的是規則而不是宣告。正規表示式在這三處都會錯，而錯
- * 的形式是**靜默改壞一本書的樣式表**——沒有人會拿到錯誤訊息，只會看到版面不對。
+ * CSS declarations are not line-oriented: a `;` may appear inside a string or a `url()`,
+ * a comment may be spliced into the middle of a property name, and an `@media` block
+ * contains rules rather than declarations. Regular expressions get all three wrong, and
+ * the form the failure takes is **silently corrupting a book's stylesheet** — nobody
+ * receives an error message, they just see a broken layout.
  *
- * 這裡因此自己走一趟，只認四件事：註解、字串、括號、以及分隔用的 `{` `}` `;`。
- * 這不是一個 CSS 解析器（選擇器、at-rule 的前綴一律原樣搬運），是一個**宣告的
- * 定位器**——足以回答「這一段文字是不是一條宣告、它的屬性名是什麼」，而那正是
- * 每一個改寫需要的全部。
+ * So this walks the text itself, recognising only four things: comments, strings,
+ * parentheses, and the `{` `}` `;` separators. It is not a CSS parser (selectors and
+ * at-rule preludes are always carried over verbatim), it is a **declaration locator** —
+ * enough to answer "is this stretch of text a declaration, and what is its property
+ * name", and that is exactly all any of the rewrites need.
  */
 
-/** 一條宣告。`important` 與 `value` 分開，因為所有改寫都只動其中一個。 */
+/** One declaration. `important` and `value` are separate, because every rewrite only touches one of them. */
 export interface Declaration {
-  /** 屬性名，已轉小寫並去掉前後空白。 */
+  /** The property name, already lower-cased and trimmed. */
   readonly property: string;
-  /** 值，已去掉 `!important` 與前後空白。 */
+  /** The value, with `!important` removed and trimmed. */
   readonly value: string;
   readonly important: boolean;
-  /** 原樣的整條宣告（不含結尾的 `;`）。不改時原字搬回去，空白與註解都留著。 */
+  /** The whole declaration verbatim (without the trailing `;`). When unchanged the original text is carried back, whitespace and comments included. */
   readonly source: string;
 }
 
 /**
- * 走訪一份樣式表裡的每一條宣告。
+ * Walks every declaration in a stylesheet.
  *
- * 回傳 `undefined` 表示這一條不動——**不動就是原字搬回去**，連空白與註解都保留。
- * 這一點是刻意的：改寫要能對一本書反覆套用而只在該動的地方留下痕跡，否則
- * 「frond 動過什麼」就查不出來了。
+ * Returning `undefined` means leaving this one alone — **and leaving it alone means
+ * carrying the original text back**, whitespace and comments preserved. That is
+ * deliberate: a rewrite has to be applicable to a book repeatedly and leave a trace only
+ * where it should, or "what did frond touch" becomes unanswerable.
  */
 export function mapStylesheet(
   css: string,
@@ -44,10 +51,11 @@ export function mapStylesheet(
 }
 
 /**
- * 走訪一份**宣告清單**——也就是 `style="…"` 屬性裡的那種，沒有大括號。
+ * Walks a **declaration list** — the kind inside a `style="…"` attribute, with no braces.
  *
- * 需要分成兩個入口，是因為同一段文字在兩種情境下的意思不同：`p { color: red }`
- * 在樣式表裡 `p` 是選擇器，在 style 屬性裡則整段都是宣告。
+ * Two entry points are needed because the same text means different things in the two
+ * contexts: in a stylesheet, the `p` of `p { color: red }` is a selector, while in a
+ * style attribute the whole thing is declarations.
  */
 export function mapDeclarationList(
   text: string,
@@ -57,37 +65,44 @@ export function mapDeclarationList(
 }
 
 /**
- * 把 `@import` 進來的樣式表**就地展開**，遞迴展到底。
+ * Expands `@import`ed stylesheets **in place**, recursively all the way down.
  *
- * ## 為什麼不能只把 `@import` 的位址換成 `blob:`
+ * ## Why rewriting the `@import`'s address to `blob:` is not enough
  *
- * 兩個獨立的理由，而樣本裡有四本書同時踩到它們：
+ * Two independent reasons, and four books in the sample walk into both:
  *
- * 1. **字串寫法根本不是 `url()`。** `@import "style-standard.css";` 裡沒有
- *    `url(`，所以 `rewriteUrls` 一個字都不會動它。相對路徑在 `blob:` 底下一律
- *    解析失敗（`document-source.ts` 檔頭），於是那份樣式表**整份消失**。四本書
- *    （九歌112年散文選、創業投資聖經、原子習慣、大器可以晚成，全部出自同一條
- *    Kadokawa／BookCreator 的工具鏈）的內容文件只 `<link>` 一支
- *    `book-style.css`，而那支檔案除了 `@charset` 之外**只有 `@import` 字串**
- *    ——排版意圖全部在被 import 的檔案裡。症狀是那四本直排書整本排成橫排。
+ * 1. **The string form is not a `url()` at all.** `@import "style-standard.css";`
+ *    contains no `url(`, so `rewriteUrls` does not touch one character of it. Relative
+ *    paths always fail to resolve under `blob:` (`document-source.ts`'s header), so that
+ *    stylesheet **disappears entirely**. Four books (九歌112年散文選, 創業投資聖經,
+ *    原子習慣, 大器可以晚成, all from the same Kadokawa/BookCreator toolchain) have
+ *    content documents that only `<link>` a single `book-style.css`, and that file
+ *    contains **nothing but `@import` strings** apart from an `@charset` — the entire
+ *    typographic intent lives in the imported files. The symptom is all four vertical
+ *    books laying out horizontally.
  *
- * 2. **`@import` 是非同步載入的。** 就算換成了 `blob:`，frond 在 iframe 的
- *    load 事件之後立刻量內容總長算頁數，而樣式若還沒到位，量到的是沒有套樣式的
- *    版面——頁數因此是錯的，而且只在載入比較慢的時候錯。`<link>` 那一條已經靠
- *    內嵌解掉了，`@import` 走的是同一個理由。
+ * 2. **`@import` loads asynchronously.** Even rewritten to `blob:`, frond measures the
+ *    total content length to compute the page count immediately after the iframe's load
+ *    event, and if the styles have not arrived what is measured is an unstyled layout —
+ *    so the page count is wrong, and only when loading happens to be slow. The `<link>`
+ *    case is already solved by inlining; `@import` follows the same reasoning.
  *
- * 就地展開一次解掉兩個：層疊順序原樣保留（規格要求 `@import` 在所有規則之前，
- * 所以「插在它原本的位置」與「當成寫在那裡」是同一件事），而文字進到 `<style>`
- * 裡就沒有第二次網路往返可言。
+ * Expanding in place solves both at once: the cascade order is preserved verbatim (the
+ * spec requires `@import` to precede all rules, so "splice at its original position" and
+ * "treat as written there" are the same thing), and once the text is inside a `<style>`
+ * there is no second network round trip to speak of.
  *
- * ## 展不開時留著原樣
+ * ## What will not expand is left verbatim
  *
- * `expand` 回 `undefined` 的情況：指向書外（`@import url(https://…)`）、壓縮檔
- * 裡沒有那個檔案、或是循環。原樣留著而不是刪掉——刪掉會讓查問題的人看不出書
- * 本來要求了什麼，而一個解析不到的 `@import` 與沒有它對畫面是同一件事。
+ * `expand` returns `undefined` when the reference points outside the book
+ * (`@import url(https://…)`), when the archive has no such file, or on a cycle. It is
+ * left verbatim rather than deleted — deleting would hide from whoever is investigating
+ * what the book actually asked for, and an unresolvable `@import` looks the same on
+ * screen as not having one.
  *
- * `layer()` 與 `supports()` 的寫法也留著原樣：兩者改變的是層疊的分層與條件，
- * 而「把文字插進來」重現不了那件事。樣本裡一本都沒有，做等於照著規格寫。
+ * The `layer()` and `supports()` forms are likewise left verbatim: both change the
+ * cascade's layering and conditions, and "splicing the text in" cannot reproduce that.
+ * Not one book in the sample has them, so implementing it would mean writing to the spec.
  */
 export function inlineImports(
   css: string,
@@ -98,7 +113,8 @@ export function inlineImports(
   let depth = 0;
 
   while (index < css.length) {
-    // 註解與字串整段原樣搬運——裡面的 `@import` 不是 at-rule。
+    // Comments and strings are carried over verbatim — an `@import` inside one is not an
+    // at-rule.
     const skipped = skipOpaque(css, index);
     if (skipped > index) {
       output += css.slice(index, skipped);
@@ -110,7 +126,8 @@ export function inlineImports(
     if (character === "{") depth += 1;
     else if (character === "}") depth = Math.max(0, depth - 1);
 
-    // `@import` 只在最外層有意義。區塊裡面的（例如 `@media` 內）不合規，原樣留著。
+    // `@import` is only meaningful at the outermost level. One inside a block (inside an
+    // `@media`, say) is non-conforming and is left verbatim.
     if (depth === 0 && character === "@" && IMPORT_AT_RULE.test(css.slice(index))) {
       const rule = readImportRule(css, index);
       if (rule !== undefined) {
@@ -132,29 +149,31 @@ export function inlineImports(
 }
 
 /**
- * `@import`，大小寫不拘。
+ * `@import`, in any case.
  *
- * 後面必須接空白、引號或 `(`——少了這個 lookahead，`@imports-are-fun` 這種自訂
- * at-rule 也會命中。`url(` 那條路由空白涵蓋（`@import url(…)` 一定有空白，
- * `@importurl(…)` 不是合法的 CSS）。
+ * It has to be followed by whitespace, a quote or a `(` — without that lookahead a custom
+ * at-rule like `@imports-are-fun` would also match. The `url(` route is covered by the
+ * whitespace (`@import url(…)` always has whitespace, and `@importurl(…)` is not valid
+ * CSS).
  */
 const IMPORT_AT_RULE = /^@import(?=[\s"'(])/i;
 
 interface ImportRule {
-  /** 被 import 的位址。認不出來（例如 `layer()` 那些寫法）時是 `undefined`。 */
+  /** The imported address. `undefined` when it cannot be recognised (the `layer()` forms, for instance). */
   readonly reference: string | undefined;
-  /** 位址之後、`;` 之前那一段——媒體查詢。沒有時是空字串。 */
+  /** What sits after the address and before the `;` — the media query. An empty string when there is none. */
   readonly media: string;
-  /** 這條規則在原文裡結束的位置（`;` 之後）。 */
+  /** Where this rule ends in the source (after the `;`). */
   readonly end: number;
 }
 
 /**
- * 讀一條 `@import`。
+ * Reads one `@import`.
  *
- * 兩種寫法都認：`@import "a.css"` 與 `@import url(a.css)`。**兩種都要認**是因為
- * 字串寫法正是樣本裡量到的那一種，而只認 `url()` 的實作在那四本書上讓整份樣式
- * 表消失。
+ * Both notations are recognised: `@import "a.css"` and `@import url(a.css)`. **Both have
+ * to be**, because the string form is precisely the one measured in the sample, and an
+ * implementation recognising only `url()` makes the entire stylesheet disappear in those
+ * four books.
  */
 function readImportRule(css: string, start: number): ImportRule | undefined {
   let index = start + "@import".length;
@@ -174,8 +193,9 @@ function readImportRule(css: string, start: number): ImportRule | undefined {
     index = closing;
   }
 
-  // 位址之後到 `;` 之間那一段是媒體查詢。走 `skipOpaque` 才不會被
-  // `@import "a.css" (min-width: 30em);` 裡的括號騙過去。
+  // What lies between the address and the `;` is the media query. Going through
+  // `skipOpaque` is what keeps the parentheses in
+  // `@import "a.css" (min-width: 30em);` from fooling it.
   let media = "";
   while (index < css.length) {
     const skipped = skipOpaque(css, index);
@@ -188,7 +208,8 @@ function readImportRule(css: string, start: number): ImportRule | undefined {
       index += 1;
       break;
     }
-    // 沒有分號就撞上區塊邊界——這條 `@import` 寫壞了，原樣留著。
+    // Hitting a block boundary with no semicolon — this `@import` is written wrong, so it
+    // is left verbatim.
     if (css[index] === "}" || css[index] === "{") return undefined;
     media += css[index];
     index += 1;
@@ -196,7 +217,8 @@ function readImportRule(css: string, start: number): ImportRule | undefined {
 
   media = media.trim();
 
-  // `layer` 與 `supports()` 改變的是層疊的分層與條件，插入文字重現不了。
+  // `layer` and `supports()` change the cascade's layering and conditions, and splicing
+  // text in cannot reproduce that.
   if (/^layer\b|\bsupports\s*\(/i.test(media)) {
     return { reference: undefined, media, end: index };
   }
@@ -205,25 +227,29 @@ function readImportRule(css: string, start: number): ImportRule | undefined {
 }
 
 /**
- * 帶媒體查詢的 `@import` 展開後要包一層 `@media`。
+ * An expanded `@import` carrying a media query has to be wrapped in an `@media`.
  *
- * `@import "print.css" print;` 的意思是「這份樣式表只在 print 下生效」，而把它
- * 的內容裸著插進來會讓那個條件消失——那些規則就變成無條件生效的。
+ * `@import "print.css" print;` means "this stylesheet only applies under print", and
+ * splicing its content in bare would make that condition disappear — those rules would
+ * then apply unconditionally.
  */
 function wrapInMedia(css: string, media: string): string {
   return media === "" ? css : `@media ${media} {\n${css}\n}`;
 }
 
 /**
- * `-epub-` 與 `-webkit-` 前綴的 `writing-mode`，補上一條無前綴的等價宣告。
+ * Adds an unprefixed equivalent alongside `-epub-` and `-webkit-` prefixed
+ * `writing-mode`.
  *
- * Firefox 兩種前綴都不認，於是只寫前綴的書（《入境大廳》那個形狀）在 Firefox
- * 上整本排成橫排（`docs/browser-quirks.md`）。這**不是覆寫書的宣告**：書的意圖
- * 沒有被改變，改的只是表達它的語法。
+ * Firefox recognises neither prefix, so a book writing only the prefixed form (the
+ * 《入境大廳》 shape) lays out entirely horizontally in Firefox
+ * (`docs/browser-quirks.md`). This is **not overriding the book's declaration**: the
+ * book's intent is unchanged, only the syntax expressing it is.
  *
- * 補一條而不是換掉原本那條。換掉在三家都會動，但拿掉的那一條萬一還有別的意義
- * （某家瀏覽器對前綴屬性有不同處置），差異就會被這個改寫吃掉——而補一條的代價
- * 只是多幾個位元組。
+ * It adds a declaration rather than replacing the original. Replacing would work in all
+ * three, but if the removed declaration turned out to carry some other meaning (some
+ * browser treating the prefixed property differently), that difference would be eaten by
+ * this rewrite — whereas adding one costs only a few bytes.
  */
 export function normalisePrefixedWritingMode(css: string): string {
   return mapStylesheet(css, (declaration) => {
@@ -241,14 +267,16 @@ const UNPREFIXED_WRITING_MODE = new Map([
 ]);
 
 /**
- * 把 `page-break-*` 補上分欄版面下的等價宣告 `break-*`。
+ * Adds the multi-column equivalent `break-*` alongside `page-break-*`.
  *
- * 書用 `page-break-before: always` 分節是常態，而**分欄版面下 `page-break-*`
- * 不生效**——`page` 這個斷點類型講的是分頁媒體（列印），螢幕上的分欄要的是
- * `column`。不補的話書明明要求換頁的地方會接著排下去，那是書的意圖沒有被實現，
- * 不是 frond 忠實呈現。
+ * Books using `page-break-before: always` to separate sections is the norm, and
+ * **`page-break-*` has no effect in a multi-column layout** — the `page` break type is
+ * about paged media (printing), whereas columns on a screen want `column`. Without this,
+ * content flows straight on where the book plainly asked for a break, and that is the
+ * book's intent going unrealised rather than frond rendering faithfully.
  *
- * 與前綴那條同一個形狀：補一條、不換掉、意圖不變只換表達方式。
+ * The same shape as the prefix rule: add one, replace nothing, intent unchanged and only
+ * the expression swapped.
  */
 export function normalisePageBreaks(css: string): string {
   return mapStylesheet(css, (declaration) => {
@@ -271,10 +299,12 @@ const MODERN_BREAK_PROPERTY = new Map([
 ]);
 
 /**
- * `page-break-*` 的值換算成 `break-*` 的值。
+ * Converting `page-break-*` values into `break-*` values.
  *
- * `left` 與 `right` 指的是對開頁的左右頁，分欄版面裡沒有這個概念——退成單純的
- * 「換一欄」，那是最接近的意思。`auto` 與 `avoid` 兩邊同名。
+ * `left` and `right` refer to the left and right pages of a spread, a concept that does
+ * not exist in a multi-column layout — they fall back to a plain "break to the next
+ * column", which is the closest meaning. `auto` and `avoid` are named the same on both
+ * sides.
  */
 const COLUMN_BREAK_VALUE = new Map([
   ["always", "column"],
@@ -285,15 +315,18 @@ const COLUMN_BREAK_VALUE = new Map([
 ]);
 
 /**
- * 拿掉指定屬性上的 `!important`。
+ * Removes `!important` from the named properties.
  *
- * 這是「讀者設定被書擋住」那一格唯一有效的機制。外部樣式表打不贏書寫在
- * `style="…"` 裡的 `!important`——那不是優先權高低的問題，是層疊規則裡沒有任何
- * 位置贏得了它。所以要讓讀者贏，只能在書的宣告還是文字的時候把那個旗標拿掉。
+ * This is the only effective mechanism for the "the reader's setting is blocked by the
+ * book" case. An external stylesheet cannot beat an `!important` the book wrote inside
+ * `style="…"` — that is not a question of priority, it is that no position in the cascade
+ * wins against it. So the only way to let the reader win is to remove that flag while the
+ * book's declaration is still text.
  *
- * **只拿掉讀者實際覆寫過的那幾個屬性。** 讀者沒設字級時，書的
- * `font-size: 12px !important` 原樣留著——ADR-0003 的介入門檻是「讀者設定被書
- * 擋住」，沒有讀者設定就沒有東西被擋住，也就沒有介入的理由。
+ * **Only the properties the reader has actually overridden are touched.** When the reader
+ * has not set a font size, the book's `font-size: 12px !important` stands verbatim —
+ * ADR-0003's intervention threshold is "the reader's setting is blocked by the book", and
+ * with no reader setting nothing is being blocked, so there is no reason to intervene.
  */
 export function demoteImportant(
   source: string,
@@ -308,12 +341,15 @@ export function demoteImportant(
 }
 
 /**
- * 改寫套用在哪一種文字上。
+ * Which kind of text a rewrite is applied to.
  *
- * 同一個改寫要能套在樣式表與 `style="…"` 屬性上，而那兩者的**文法不同**：樣式表
- * 裡 `p { … }` 的 `p` 是選擇器，style 屬性裡整段都是宣告。差別只在走訪器，所以
- * 用一個參數表達，而不是把每個改寫寫成兩份——兩份一定會漂開，而漂開的那一天，
- * 讀者的字級會在「書寫在樣式表裡」時生效、「書寫在 style 屬性裡」時失效。
+ * The same rewrite has to apply both to a stylesheet and to a `style="…"` attribute, and
+ * those two have **different grammars**: in a stylesheet the `p` of `p { … }` is a
+ * selector, while in a style attribute the whole thing is declarations. The only
+ * difference is the walker, so it is expressed as a parameter rather than writing each
+ * rewrite twice — two copies would certainly drift, and on the day they did, the reader's
+ * font size would take effect when the book wrote it in a stylesheet and fail when the
+ * book wrote it in a style attribute.
  */
 export type CssScope = "stylesheet" | "declarations";
 
@@ -328,42 +364,50 @@ function walk(
 }
 
 /**
- * 書的初始字級。`font-size` 的絕對值換算成 `rem` 時以它為基準。
+ * The book's initial font size. It is the basis when converting absolute `font-size`
+ * values to `rem`.
  *
- * 16px 是每一家瀏覽器的 `font-size: medium`，也就是書什麼都不宣告時的字級。
+ * 16px is every browser's `font-size: medium`, which is the size when the book declares
+ * nothing.
  */
 const INITIAL_FONT_SIZE = 16;
 
-/** 1pt = 4/3 px。 */
+/** 1pt = 4/3 px. */
 const PX_PER_PT = 4 / 3;
 
 /**
- * 把書寫死的絕對 `font-size` 換算成 `rem`。
+ * Converts the book's hard-coded absolute `font-size` values to `rem`.
  *
- * ## 為什麼光是拿掉 `!important` 不夠
+ * ## Why removing `!important` alone is not enough
  *
- * 讀者的字級設在 `html` 上，靠繼承往下傳。書只要在任何一個後代上寫了絕對值
- * （`p { font-size: 12px }`），那一段就脫離繼承鏈——讀者把字級調到 24px，正文
- * 仍然是 12px。這裡沒有 `!important` 的問題，是**絕對值本身**擋住了讀者。
+ * The reader's font size is set on `html` and carried down by inheritance. As soon as the
+ * book writes an absolute value on any descendant (`p { font-size: 12px }`), that stretch
+ * detaches from the inheritance chain — the reader raises the size to 24px and the body
+ * text is still 12px. There is no `!important` involved here; **the absolute value
+ * itself** is what blocks the reader.
  *
- * 換成 `rem` 之後，書宣告的每一個字級都變成「相對於讀者設定的幾倍」：`12px` 是
- * 0.75 倍、`24px` 是 1.5 倍。讀者調字級時整份文件按同一個比例縮放，而**書自己
- * 的字級層次完全保留**——標題仍然比正文大，比例一格不差。
+ * Converted to `rem`, every font size the book declares becomes "a multiple of what the
+ * reader set": `12px` is 0.75×, `24px` is 1.5×. Adjusting the size scales the whole
+ * document by the same factor, and **the book's own hierarchy of sizes is preserved
+ * entirely** — headings are still larger than body text, in exactly the same proportion.
  *
- * ## 為什麼是 `rem` 而不是 `em`
+ * ## Why `rem` rather than `em`
  *
- * `em` 相對於父元素，於是巢狀的絕對字級會連乘：`p` 的 0.75 倍套上 `span` 的
- * 0.625 倍變成 0.47 倍，而書本來要的是 0.625 倍。`rem` 一律相對於根元素，不會
- * 連乘，換算前後的比例逐項相同。
+ * `em` is relative to the parent, so nested absolute sizes would multiply: `p`'s 0.75×
+ * under `span`'s 0.625× becomes 0.47×, where the book meant 0.625×. `rem` is always
+ * relative to the root and does not multiply, so every proportion is identical before and
+ * after conversion.
  *
- * ## 代價
+ * ## The cost
  *
- * 這是這份清單裡**唯一改變了書的宣告的值**的一項，其餘幾項都只補宣告或拿旗標。
- * 換句話說，書要求「這一段永遠是 12px」這個意圖確實沒有被實現——但那個意圖與
- * user story 42（讀者調字級必須生效）直接衝突，而 ADR-0003 已經裁定讀者贏。
- * 保留的是可以保留的那一半：字級之間的**比例**。
+ * This is the **only entry on the list that changes a value the book declared**; all the
+ * others merely add declarations or remove a flag. Put differently, the book's intent
+ * that "this stretch is always 12px" genuinely goes unrealised — but that intent conflicts
+ * directly with user story 42 (adjusting the reader's font size has to take effect), and
+ * ADR-0003 has already resolved that in the reader's favour. What is preserved is the half
+ * that can be: the **proportions** between sizes.
  *
- * 與 `demoteImportant` 一樣，**只在讀者設了字級時才做**。
+ * As with `demoteImportant`, **this only happens when the reader has set a font size**.
  */
 export function relativiseFontSizes(
   source: string,
@@ -380,10 +424,13 @@ export function relativiseFontSizes(
 }
 
 /**
- * 絕對長度換算成 `rem`。**只認整條值就是一個絕對長度的情況**。
+ * Converts an absolute length to `rem`. **Only when the entire value is one absolute
+ * length.**
  *
- * 已經是相對單位的（`em`、`rem`、`%`、`larger`）本來就跟著讀者走，不必動；
- * `calc()` 這類複合值不動，因為換算需要知道整個運算式的意思，而算錯比不算更糟。
+ * Values that are already relative (`em`, `rem`, `%`, `larger`) follow the reader to begin
+ * with and need no change; compound values such as `calc()` are left alone, because
+ * converting them would require understanding the whole expression, and converting wrongly
+ * is worse than not converting.
  */
 function toRem(value: string): string | undefined {
   const match = /^(-?\d*\.?\d+)(px|pt)$/i.exec(value.trim());
@@ -393,29 +440,21 @@ function toRem(value: string): string | undefined {
   const pixels = match[2]!.toLowerCase() === "pt" ? amount * PX_PER_PT : amount;
   const rem = pixels / INITIAL_FONT_SIZE;
 
-  // 收到小數點後四位。位數不收的話 12pt 這種換算會拖出一長串循環小數，讓改寫
-  // 後的樣式表難讀，而那份文字是查問題時唯一看得到的東西。
+  // Rounded to four decimal places. Without rounding, a conversion like 12pt drags out a
+  // long repeating decimal that makes the rewritten stylesheet hard to read, and that text
+  // is the only thing visible when investigating a problem.
   return `${Number(rem.toFixed(4))}rem`;
 }
 
 /**
- * 把值裡的 `url(…)` 換成解析器給的位址。
+ * Walks a stretch of CSS, handing every declaration to `map`.
  *
- * 書的樣式表用相對路徑引用圖片與字型，而 frond 把內容以 `blob:` 供給
- * （ADR-0006）——`blob:` 沒有目錄結構，相對路徑一律解析失敗。這不是介入書的
- * 宣告，是把同一個引用換一種寫法表達。
- *
- * `resolve` 回傳 `undefined` 時原樣留著：那多半是 `data:` 或指向書外的絕對
- * 位址，兩者都不需要換。
- */
-
-/**
- * 走訪一段 CSS，把每一條宣告交給 `map`。
- *
- * `insideBlock` 是整個走訪唯一的狀態機：在區塊外時，累積的文字是選擇器或
- * at-rule 的前綴（碰到 `{` 才知道）；在區塊內時，累積的文字是一條宣告（碰到
- * `;` 或 `}` 才知道）。巢狀的 at-rule（`@media` 裡面裝規則）靠著「碰到 `{` 就
- * 表示剛剛那段是選擇器」自然處理掉——那段文字裡就算有冒號也不會被當成宣告。
+ * `insideBlock` is the whole walk's only state machine: outside a block, the accumulated
+ * text is a selector or an at-rule prelude (only known on hitting `{`); inside a block, the
+ * accumulated text is a declaration (only known on hitting `;` or `}`). Nested at-rules (an
+ * `@media` containing rules) fall out naturally from "hitting `{` means what just
+ * accumulated was a selector" — a colon inside that text is never mistaken for a
+ * declaration.
  */
 function scan(
   source: string,
@@ -435,7 +474,8 @@ function scan(
   while (index < source.length) {
     const character = source[index]!;
 
-    // 註解、字串與括號整段原樣搬運：它們裡面的 `;` `{` `}` `:` 不是分隔符。
+    // Comments, strings and parentheses are carried over verbatim: the `;` `{` `}` `:`
+    // inside them are not separators.
     const skipped = skipOpaque(source, index);
     if (skipped > index) {
       pending += source.slice(index, skipped);
@@ -444,7 +484,7 @@ function scan(
     }
 
     if (character === "{") {
-      // 剛剛累積的是選擇器或 at-rule 的前綴，原樣搬運。
+      // What just accumulated was a selector or an at-rule prelude; carry it over verbatim.
       output += pending;
       pending = "";
       output += character;
@@ -477,10 +517,12 @@ function scan(
 }
 
 /**
- * 註解、字串與括號——這三種東西裡面的分隔符不算分隔符。
+ * Comments, strings and parentheses — separators inside these three do not separate.
  *
- * 回傳跳過之後的位置；不是這三種的話原樣回傳 `index`。括號一起處理是因為
- * `url(…)` 裡的分號很常見（`data:` URI 就有），而 `calc()` 裡的括號要成對數。
+ * Returns the position after skipping; returns `index` unchanged when it is none of the
+ * three. Parentheses are handled here too because semicolons inside `url(…)` are very
+ * common (a `data:` URI has them), and parentheses inside `calc()` have to be counted in
+ * pairs.
  */
 function skipOpaque(source: string, index: number): number {
   const character = source[index]!;
@@ -522,7 +564,7 @@ function skipOpaque(source: string, index: number): number {
   return index;
 }
 
-/** 把一段「屬性: 值」交給 `map`，不是宣告的話原樣搬回去。 */
+/** Hands one "property: value" to `map`, carrying it back verbatim when it is not a declaration. */
 function rewriteDeclaration(
   source: string,
   map: (declaration: Declaration) => string | undefined,
@@ -530,9 +572,10 @@ function rewriteDeclaration(
   const colon = topLevelColon(source);
   if (colon === -1) return source;
 
-  // 註解可以插在屬性名的前後（`/* … */ margin: 0`），而屬性名是**扣掉註解之後**
-  // 的那段文字。不扣的話 `margin` 會變成一個沒有人比對得到的字串，於是那條宣告
-  // 對每一個改寫都是隱形的——不會報錯，只會漏掉。
+  // A comment may be spliced before or after the property name (`/* … */ margin: 0`), and
+  // the property name is the text **with comments removed**. Without removing them,
+  // `margin` becomes a string nothing will ever match, so that declaration is invisible to
+  // every rewrite — no error, just a miss.
   const property = stripComments(source.slice(0, colon)).trim().toLowerCase();
   if (property === "") return source;
 
@@ -543,16 +586,17 @@ function rewriteDeclaration(
   const replacement = map({ property, value, important, source });
   if (replacement === undefined) return source;
 
-  // 前導空白留給改寫後的文字，縮排才不會塌掉——那份文字是查問題時唯一看得到的
-  // 東西，讀得下去有實際價值。
+  // The leading whitespace is given to the rewritten text so the indentation does not
+  // collapse — that text is the only thing visible when investigating a problem, and being
+  // able to read it has real value.
   const indent = /^\s*/.exec(source)?.[0] ?? "";
   return indent + replacement;
 }
 
-/** `!important`，前後允許空白，大小寫不拘。 */
+/** `!important`, whitespace allowed on either side, in any case. */
 const IMPORTANT = /\s*!\s*important\s*$/i;
 
-/** 拿掉註解。只用在讀屬性名的時候——輸出的文字一律走原字，註解要留著。 */
+/** Removes comments. Used only when reading a property name — output text always uses the original, and comments are kept. */
 function stripComments(source: string): string {
   let output = "";
   let index = 0;
@@ -569,7 +613,7 @@ function stripComments(source: string): string {
   return output;
 }
 
-/** 不在註解、字串或括號裡的第一個冒號。 */
+/** The first colon not inside a comment, a string or parentheses. */
 function topLevelColon(source: string): number {
   let index = 0;
   while (index < source.length) {
@@ -585,17 +629,19 @@ function topLevelColon(source: string): number {
 }
 
 /**
- * 把值裡的 `url(…)` 換成解析器給的位址。
+ * Replaces `url(…)` in a value with the address the resolver gives.
  *
- * 書的樣式表用相對路徑引用圖片與字型，而 frond 把內容以 `blob:` 供給
- * （ADR-0006）——`blob:` 沒有目錄結構，相對路徑一律解析失敗。這不是介入書的
- * 宣告，是把同一個引用換一種寫法表達。
+ * A book's stylesheets reference images and fonts by relative path, and frond serves
+ * content as `blob:` (ADR-0006) — `blob:` has no directory structure, so every relative
+ * path fails to resolve. This is not intervening in the book's declaration, it is
+ * expressing the same reference in a different notation.
  *
- * `resolve` 回傳 `undefined` 時原樣留著：那多半是 `data:` 或指向書外的絕對
- * 位址，兩者都不需要換。
+ * When `resolve` returns `undefined` the original is left verbatim: that is usually a
+ * `data:` URI or an absolute address pointing outside the book, and neither needs changing.
  *
- * 走訪與 `scan` 分開，因為它要看的是值裡面的括號而不是宣告的邊界——`@import`
- * 的 `url()` 根本不在任何一條宣告裡。
+ * The traversal is separate from `scan`, because what it looks at is parentheses inside a
+ * value rather than declaration boundaries — an `@import`'s `url()` is not inside any
+ * declaration at all.
  */
 export function rewriteUrls(
   source: string,
@@ -634,7 +680,7 @@ export function rewriteUrls(
   return output;
 }
 
-/** `url(` ——大小寫不拘，`url` 與 `(` 之間不允許空白（CSS 的規定）。 */
+/** `url(` — in any case, with no whitespace allowed between `url` and `(` (a CSS rule). */
 const URL_FUNCTION = /^url\(/i;
 
 function unquote(text: string): string {

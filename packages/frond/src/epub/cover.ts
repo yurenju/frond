@@ -1,32 +1,38 @@
 import type { Resource } from "./resources.ts";
 
 /**
- * 封面圖——書櫃的縮圖來源。
+ * The cover image — where a bookshelf's thumbnail comes from.
  *
- * **先 `properties="cover-image"`，再 `<meta name="cover">`，兩者都沒有就是這本書
- * 沒有封面**（ADR-0010）。順序是這樣，但**不按版本分派**：樣本裡有一本 EPUB 3 的
- * 封面只有舊寫法，按版本分派的實作會讓那本書沒有封面。
+ * **`properties="cover-image"` first, then `<meta name="cover">`, and if neither is
+ * there the book has no cover** (ADR-0010). That is the order, but it is **not
+ * dispatched on version**: one EPUB 3 book in the sample declares its cover only in
+ * the old notation, and a version-dispatching implementation would leave that book
+ * without one.
  *
- * 「沒有封面」不是錯誤。指到的 id 不存在、或那個資源拿不到位元組時同樣回報沒有
- * 封面——書的封裝宣告與內容不一致是常態，而一本指壞了封面的書仍然讀得完。
+ * "No cover" is not an error. A missing target id, or a resource whose bytes cannot
+ * be taken, is likewise reported as no cover — a book whose packaging declarations
+ * disagree with its contents is the norm, and a book with a broken cover reference
+ * still reads through to the end.
  */
 export interface CoverImage {
-  /** 壓縮檔內的路徑，供診斷用。 */
+  /** The path inside the archive, for diagnostics. */
   readonly path: string;
   readonly mediaType: string;
-  /** 書櫃要的是圖本身，不是一個路徑——它手上只有這本書的位元組。 */
+  /** A bookshelf wants the image itself, not a path — all it holds is this book's bytes. */
   readonly bytes: Uint8Array;
-  /** 是哪一種寫法找到它的。兩條路都走得通，而回報走的是哪一條讓它可觀測。 */
+  /** Which notation found it. Both routes work, and reporting which one was taken makes that observable. */
   readonly foundBy: CoverNotation;
 }
 
 export type CoverNotation = "cover-image-property" | "meta-name";
 
 /**
- * @param readBytes 取一份資源的位元組，與 `EpubBook.bytes()` 走同一條——**不是
- * 直接讀壓縮檔**。差別在混淆：直接讀的話，一本把封面也列進 `encryption.xml` 的
- * 書會讓書櫃拿到一張解不開的圖，而 `book.bytes(cover.path)` 拿到的卻是另一批
- * 位元組。同一個路徑在同一本書上只能有一種答案。
+ * @param readBytes Takes the bytes of a resource, along the same route as
+ * `EpubBook.bytes()` — **not by reading the archive directly**. The difference is
+ * obfuscation: reading directly would hand a bookshelf an undecodable image for a
+ * book that also lists its cover in `encryption.xml`, while `book.bytes(cover.path)`
+ * would return different bytes. The same path in the same book can only have one
+ * answer.
  */
 export function readCover(
   resources: ReadonlyMap<string, Resource>,
@@ -38,9 +44,11 @@ export function readCover(
   );
   const byMeta = coverMetaId === undefined ? undefined : resources.get(coverMetaId);
 
-  // 依序試，**取不到就換下一條**——「找到一個宣告」與「拿得到那張圖」是兩件事，
-  // 把前者當成後者會讓一本兩種寫法都寫了、而新寫法指到遠端（或指到一張不在包裡
-  // 的圖）的書沒有封面。
+  // Try them in order, and **move on to the next when one cannot be taken** —
+  // "found a declaration" and "can get that image" are two different things, and
+  // treating the former as the latter would leave a book without a cover when it
+  // writes both notations and the new one points at a remote image (or at an image
+  // not in the package).
   for (const [resource, foundBy] of [
     [byProperty, "cover-image-property"],
     [byMeta, "meta-name"],
@@ -48,9 +56,10 @@ export function readCover(
     if (resource?.location.kind !== "in-container") continue;
 
     const bytes = tryRead(readBytes, resource.location.path);
-    // 解不開的封面與「指到一張不在包裡的圖」落在同一格：**這本書沒有封面**，
-    // 不是這本書開不起來。一本封面被 DRM 加密過的書仍然讀得完，而書櫃要的
-    // 只是有沒有縮圖。
+    // A cover that will not decode lands in the same bucket as one pointing at an
+    // image that is not in the package: **this book has no cover**, not this book
+    // will not open. A book whose cover is DRM-encrypted still reads through to the
+    // end, and all a bookshelf wants is whether there is a thumbnail.
     if (bytes === undefined) continue;
 
     return {
@@ -64,7 +73,7 @@ export function readCover(
   return undefined;
 }
 
-/** 拿不到就是拿不到。這裡不分辨為什麼——差別對「有沒有封面」沒有影響。 */
+/** Unavailable is unavailable. This does not distinguish why — the difference makes no odds to "is there a cover". */
 function tryRead(
   readBytes: (path: string) => Uint8Array,
   path: string,

@@ -6,13 +6,15 @@ import { sha256 } from "../support/hash.ts";
 import { buildFixture, syntheticFixtures } from "../../../packages/frond/src/test-fixtures/index.ts";
 
 /**
- * repo 裡的 fixture 檔案與產生器是否還一致。
+ * Whether the fixture files in the repo still agree with the generator.
  *
- * fixture 進 repo（合成內容無版權問題，ADR-0007），於是就有了兩份事實：產生器
- * 與那批位元組。這條測試讓它們沒有機會分家——改了產生器卻忘了 `npm run
- * fixtures`，這裡會紅，訊息直接說明要跑什麼。
+ * The fixtures live in the repo (synthetic content raises no copyright question,
+ * ADR-0007), which creates two sources of truth: the generator and those bytes. This
+ * test gives them no chance to drift apart — change the generator and forget
+ * `npm run fixtures` and this goes red, with a message saying exactly what to run.
  *
- * 這條之所以能成立，是因為產出是決定性的。沒有決定性的話它每次都紅。
+ * It only works because the output is deterministic. Without that it would be red every
+ * time.
  */
 
 const FIXTURE_DIRECTORY = join(
@@ -22,22 +24,22 @@ const FIXTURE_DIRECTORY = join(
   "fixtures",
 );
 
-describe("repo 裡的 fixture", () => {
+describe("the fixtures in the repo", () => {
   test.for(syntheticFixtures)(
-    "$fileName 與產生器的產出一致",
+    "$fileName matches what the generator produces",
     async (fixture: (typeof syntheticFixtures)[number]) => {
       const committed = await readFile(join(FIXTURE_DIRECTORY, fixture.fileName));
 
       expect(
         sha256(committed),
-        `${fixture.fileName} 與產生器不一致。跑 \`npm run fixtures\` 重新產生。`,
+        `${fixture.fileName} does not match the generator. Run \`npm run fixtures\` to regenerate.`,
       ).toBe(sha256(buildFixture(fixture.name)));
     },
   );
 
-  test("目錄裡沒有多出來的 .epub", async () => {
-    // 病症改名或刪除時，舊檔案會留在原地變成孤兒——沒有任何測試會用到它，但
-    // 它看起來仍像一份有效的 fixture。
+  test("no surplus .epub in the directory", async () => {
+    // When an ailment is renamed or deleted, the old file stays behind as an orphan — no
+    // test uses it, yet it still looks like a valid fixture.
     const found = (await readdir(FIXTURE_DIRECTORY)).filter((name) =>
       name.endsWith(".epub"),
     );

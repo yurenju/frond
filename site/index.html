@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>frond — EPUB rendering, vertical and horizontal</title>
     <meta
       name="description"
-      content="frond 是一個 TypeScript 的 EPUB 渲染函式庫。把你自己的 EPUB 拖進來看它排成什麼樣子。"
+      content="frond is an EPUB rendering library for TypeScript. Drag your own EPUB in and see how it lays out."
     />
     <link
       rel="icon"
@@ -18,24 +18,24 @@
     <header class="masthead">
       <h1>frond</h1>
       <p class="tagline">
-        TypeScript 的 EPUB 渲染函式庫。直排與橫排並重，在 Chromium、Firefox
-        與 WebKit 三家上實證驗證。
+        An EPUB rendering library for TypeScript. Vertical and horizontal treated as
+        equals, verified empirically on Chromium, Firefox and WebKit.
       </p>
       <nav class="masthead-links">
-        <a href="./react/">用 React？看 frond-react</a>
+        <a href="./react/">Using React? See frond-react</a>
         <a href="https://github.com/yurenju/frond">GitHub</a>
-        <a href="https://github.com/yurenju/frond#readme">說明文件</a>
+        <a href="https://github.com/yurenju/frond#readme">Documentation</a>
       </nav>
     </header>
 
     <main>
-      <!-- 開書之前 ------------------------------------------------------- -->
+      <!-- before a book is opened ---------------------------------------- -->
       <section id="intro">
         <div id="dropzone" class="dropzone">
-          <p class="dropzone-headline">把 EPUB 拖進這裡</p>
-          <p class="dropzone-sub">或者</p>
+          <p class="dropzone-headline">Drop an EPUB here</p>
+          <p class="dropzone-sub">or</p>
           <label class="file-button">
-            選一個檔案
+            Choose a file
             <input
               id="file-input"
               type="file"
@@ -47,36 +47,38 @@
 
         <div class="intro-columns">
           <section>
-            <h2>你會看到什麼</h2>
+            <h2>What you will see</h2>
             <ul>
               <li>
-                <strong>讀</strong>——書排出來的樣子。直排或橫排由書自己決定，
-                翻頁、跳章、字級、行高、邊界、單欄雙欄、主題都可以改。
+                <strong>Read</strong> — how the book lays out. Vertical or horizontal is
+                the book's own decision; page turning, chapter jumps, font size, line
+                height, margin, one or two columns and the theme are all adjustable.
               </li>
               <li>
-                <strong>檢查</strong>——frond 從這本書讀到的事實。EPUB
-                版本、頁面推進方向、目錄讀自哪一份導覽文件、封面用哪種寫法宣告、
-                manifest 裡有哪幾項其實不在包裡。
+                <strong>Inspect</strong> — the facts frond read from this book. The EPUB
+                version, the page progression direction, which navigation document the
+                table of contents came from, which notation declares the cover, and which
+                manifest items are not actually in the package.
               </li>
             </ul>
             <p class="note">
-              這一頁是<strong>純瀏覽器 client 實作</strong>：整個流程跑在這個分頁裡，沒有伺服器
-              參與。<code>EpubBook.open()</code> 收的是位元組，frond
-              本身沒有任何下載或上傳的程式碼路徑。
+              This page is a <strong>pure browser-side client</strong>: the whole flow runs
+              in this tab, with no server involved. <code>EpubBook.open()</code> takes
+              bytes, and frond itself has no download or upload code path at all.
             </p>
           </section>
 
           <section>
-            <h2>怎麼裝</h2>
+            <h2>Installing</h2>
             <pre><code>npm install @yurenju/frond</code></pre>
             <p class="note">
-              你拿到的是純 ES module 加上 <code>.d.ts</code>——你這邊不需要建置
-              步驟，也不需要有 TypeScript。<code>exports</code> 開兩個進入點：
-              <code>@yurenju/frond/epub</code>（純 TypeScript、零 DOM，Node
-              裡也跑得動）與 <code>@yurenju/frond/renderer</code>（要 DOM）。
+              What you get is plain ES modules plus <code>.d.ts</code> — you need no build
+              step on your side, and no TypeScript. <code>exports</code> opens two entry
+              points: <code>@yurenju/frond/epub</code> (pure TypeScript, zero DOM, runs in
+              Node too) and <code>@yurenju/frond/renderer</code> (needs the DOM).
             </p>
 
-            <h2>怎麼用</h2>
+            <h2>Using it</h2>
             <pre><code>&lt;div id="viewer" style="height: 100dvh"&gt;&lt;/div&gt;
 
 &lt;script type="module"&gt;
@@ -93,48 +95,49 @@
     },
   );
 
-  await renderer.next();          // 翻頁是動作，不是事件處理器
-  await renderer.goToCfi(saved);  // 回到上次讀到的地方
+  await renderer.next();          // turning a page is an action, not an event handler
+  await renderer.goToCfi(saved);  // back to where you left off
 &lt;/script&gt;</code></pre>
             <p class="note">
-              <strong>frond 不吃手勢。</strong> 它說的是事實（現在第幾頁、這一節
-              排成什麼方向、那個連結指向哪一節），「往左滑等於下一頁」是你的決定
-              ——所以 <code>next()</code> 是一個動作而不是一個事件處理器。
+              <strong>frond does not consume gestures.</strong> It states facts (which page
+              we are on, which direction this section laid out in, which section that link
+              points at); "swiping left means next page" is your decision — which is why
+              <code>next()</code> is an action rather than an event handler.
             </p>
             <p class="note">
-              沒有執行期相依，所以<strong>產物裡一個 bare specifier 都沒有，
-              瀏覽器可以直接 import 它</strong>。這一頁就是那件事的證明：它沒有
-              打包器，所以上面那兩行在它裡面寫成
-              <code>import … from "./frond/epub/index.js"</code>——同一份
-              <code>tsc</code> emit 出來的檔案，只是用路徑指過去而不是用套件名。
-              完整版在
+              There are no runtime dependencies, so <strong>the build output contains not
+              one bare specifier and a browser can import it directly</strong>. This page is
+              the proof: it has no bundler, so the two lines above are written here as
+              <code>import … from "./frond/epub/index.js"</code> — the same files
+              <code>tsc</code> emitted, just pointed at by path rather than by package name.
+              The full version is in
               <a href="https://github.com/yurenju/frond/blob/main/site/app.js"
                 >app.js</a
               >。
             </p>
             <p class="note">
-              用 React 的話還有一層 unstyled 的元件：<a href="./react/"
+              If you use React there is a layer of unstyled components too: <a href="./react/"
                 >frond-react</a
-              >。
+              >.
             </p>
           </section>
         </div>
       </section>
 
-      <!-- 開書之後 ------------------------------------------------------- -->
+      <!-- after a book is opened ----------------------------------------- -->
       <section id="workspace" hidden>
         <div class="workspace-bar">
           <div class="tabs" role="tablist">
             <button id="tab-read" class="tab" role="tab" aria-selected="true">
-              讀
+              Read
             </button>
             <button id="tab-inspect" class="tab" role="tab" aria-selected="false">
-              檢查
+              Inspect
             </button>
           </div>
           <p id="book-title" class="book-title"></p>
           <label class="file-button small">
-            換一本
+            Another book
             <input
               id="file-input-again"
               type="file"
@@ -143,43 +146,44 @@
           </label>
         </div>
 
-        <!-- 讀 -->
+        <!-- read -->
         <div id="panel-read" class="panel">
           <div class="toolbar">
             <div class="toolbar-group">
-              <button id="previous" title="上一頁">‹</button>
-              <button id="next" title="下一頁">›</button>
-              <select id="toc" aria-label="目錄"></select>
+              <button id="previous" title="Previous page">‹</button>
+              <button id="next" title="Next page">›</button>
+              <select id="toc" aria-label="Table of contents"></select>
             </div>
             <div class="toolbar-group">
-              <label>字級 <input id="font-size" type="range" min="12" max="40" step="1" /></label>
-              <label>行高 <input id="line-height" type="range" min="1.2" max="2.6" step="0.1" /></label>
-              <label>邊界 <input id="margin" type="range" min="0" max="96" step="4" /></label>
+              <label>Font size <input id="font-size" type="range" min="12" max="40" step="1" /></label>
+              <label>Line height <input id="line-height" type="range" min="1.2" max="2.6" step="0.1" /></label>
+              <label>Margin <input id="margin" type="range" min="0" max="96" step="4" /></label>
               <label>
-                欄
+                Columns
                 <select id="columns">
-                  <option value="auto">自動</option>
-                  <option value="1">單欄</option>
-                  <option value="2">雙欄</option>
+                  <option value="auto">Auto</option>
+                  <option value="1">One</option>
+                  <option value="2">Two</option>
                 </select>
               </label>
               <label>
-                主題
+                Theme
                 <select id="theme">
-                  <option value="book">照書</option>
-                  <option value="light">明亮</option>
-                  <option value="sepia">紙</option>
-                  <option value="dark">夜間</option>
+                  <option value="book">As the book</option>
+                  <option value="light">Light</option>
+                  <option value="sepia">Sepia</option>
+                  <option value="dark">Dark</option>
                 </select>
               </label>
-              <button id="reset-settings" title="把讀者設定全部清掉，回到書自己的宣告">
-                清掉設定
+              <button id="reset-settings" title="Clear every reader setting and return to the book's own declarations">
+                Clear settings
               </button>
             </div>
           </div>
 
-          <!-- 書框外面這一層是量測用的：它吃掉工具列與狀態列以外的所有空間，
-               而 #viewer 從它的大小回推出一頁（或一個攤開）的比例。見 style.css。 -->
+          <!-- The layer outside the book frame is for measurement: it takes up all the
+               space other than the toolbar and the status bar, and #viewer derives the
+               proportions of one page (or one spread) from its size. See style.css. -->
           <div class="viewer-frame">
             <div id="viewer" class="viewer"></div>
           </div>
@@ -194,7 +198,7 @@
           <p id="render-error" class="error" hidden></p>
         </div>
 
-        <!-- 檢查 -->
+        <!-- inspect -->
         <div id="panel-inspect" class="panel" hidden>
           <div id="inspect"></div>
         </div>
@@ -204,7 +208,7 @@
     <footer class="colophon">
       <p>
         MIT · <a href="https://github.com/yurenju/frond">yurenju/frond</a> ·
-        這一頁與 frond 一樣沒有執行期相依，也沒有打包步驟。
+        Like frond itself, this page has no runtime dependencies and no bundling step.
       </p>
     </footer>
 

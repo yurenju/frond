@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>frond-react — unstyled React components for EPUB</title>
     <meta
       name="description"
-      content="@yurenju/frond-react 是 frond 的 unstyled React 元件層。外觀完全由你的 CSS 決定，預設樣式可以完全不用。"
+      content="@yurenju/frond-react is frond's unstyled React component layer. The appearance is entirely your CSS, and the default styles are entirely optional."
     />
     <link
       rel="icon"
@@ -15,15 +15,15 @@
     <link rel="stylesheet" href="../style.css" />
 
     <!--
-      frond-react 的預設樣式。
+      frond-react's default styles.
 
-      **它掛在這裡而不是被 import 進 bundle，是刻意的。** 頁面上那個「預設樣式」
-      開關切的就是這個 <link> 的 `disabled`——關掉之後零件回到瀏覽器原生的樣子。
-      import 進 bundle 的話它會變成「一定會生效」，而這一頁要示範的正好是相反的
-      那件事。
+      **Attaching them here rather than importing them into the bundle is deliberate.** The
+      "Default styles" switch on the page toggles this <link>'s `disabled` — turned off, the
+      parts fall back to the browser's native appearance. Imported into the bundle they would
+      become "always in effect", and what this page demonstrates is precisely the opposite.
 
-      消費端不會這樣寫。他們寫的是一行
-      `import "@yurenju/frond-react/styles.css"`，或者根本不寫。
+      A consumer would not write it this way. They write one line,
+      `import "@yurenju/frond-react/styles.css"`, or nothing at all.
     -->
     <link id="frond-react-styles" rel="stylesheet" href="./frond-react.css" />
   </head>
@@ -31,36 +31,36 @@
     <header class="masthead">
       <h1>frond-react</h1>
       <p class="tagline">
-        frond 的 <strong>unstyled</strong> React 元件層。像 Radix 或 Base UI
-        一樣，零件不帶任何樣式——外觀的每一個決定都在你的 CSS 裡。
+        frond's <strong>unstyled</strong> React component layer. Like Radix or Base UI,
+        the parts carry no styling — every decision about appearance lives in your CSS.
       </p>
       <nav class="masthead-links">
-        <a href="../">frond 本體的展示頁</a>
+        <a href="../">The frond demo page</a>
         <a href="https://github.com/yurenju/frond">GitHub</a>
         <a
           href="https://github.com/yurenju/frond/blob/main/docs/adr/0011-monorepo-and-frond-react.md"
-          >設計決策（ADR-0011）</a
+          >Design decision (ADR-0011)</a
         >
       </nav>
     </header>
 
     <main>
-      <!-- 開書之前與之後都由 React 接管這一格。 -->
+      <!-- React owns this slot both before and after a book is opened. -->
       <section id="app" class="react-app"></section>
 
-      <!-- 說明。開書之後仍然留在下面，因為它是這一頁的另一半內容。 -->
+      <!-- The guide. It stays below even after a book is opened, because it is the other half of this page. -->
       <section class="guide">
         <div class="intro-columns">
           <section>
-            <h2>怎麼裝</h2>
+            <h2>Installing</h2>
             <pre><code>npm install @yurenju/frond @yurenju/frond-react react</code></pre>
             <p class="note">
-              <code>@yurenju/frond</code> 與 <code>react</code> 都是
-              <strong>peer 相依</strong>——frond-react 自己一個執行期相依都沒有，
-              也不會偷偷幫你裝第二份 frond。
+              <code>@yurenju/frond</code> and <code>react</code> are both
+              <strong>peer dependencies</strong> — frond-react has no runtime dependency of
+              its own, and will not quietly install a second copy of frond for you.
             </p>
 
-            <h2>怎麼用</h2>
+            <h2>Using it</h2>
             <pre><code>import * as Reader from "@yurenju/frond-react";
 import { EpubBook } from "@yurenju/frond/epub";
 
@@ -73,10 +73,11 @@ const book = await EpubBook.open(await file.arrayBuffer());
   &lt;Reader.Progress className="reader-progress" /&gt;
 &lt;/Reader.Root&gt;</code></pre>
             <p class="note">
-              沒有 <code>useEffect</code>、沒有 ref、沒有一行清理程式碼。iframe
-              的建立與銷毀、換書的重掛、換設定的重排、視窗改變後的重新分頁，全部
-              在 <code>Root</code> 裡面。上面那個 reader 就是這段程式碼跑起來的
-              樣子——完整版在
+              No <code>useEffect</code>, no refs, not one line of cleanup code. Creating and
+              destroying the iframe, remounting on a book change, re-laying out on a settings
+              change, repaginating after the window changes — all of it is inside
+              <code>Root</code>. The reader above is this code running — the full version is
+              in
               <a href="https://github.com/yurenju/frond/blob/main/site/react/app.tsx"
                 >app.tsx</a
               >。
@@ -84,39 +85,41 @@ const book = await EpubBook.open(await file.arrayBuffer());
           </section>
 
           <section>
-            <h2>外觀完全是你的</h2>
+            <h2>The appearance is entirely yours</h2>
             <p>
-              每個零件都掛著 <code>data-frond-part</code>，狀態也是屬性——
-              <code>data-state</code>、<code>data-writing-mode</code>、
-              <code>data-disabled</code>、<code>data-at-start</code>。
-              <code>className</code> 一路傳到底層元素。
+              Every part carries a <code>data-frond-part</code>, and state is expressed as
+              attributes too — <code>data-state</code>, <code>data-writing-mode</code>,
+              <code>data-disabled</code>, <code>data-at-start</code>.
+              <code>className</code> is passed all the way down to the underlying element.
             </p>
             <pre><code>[data-frond-part="viewport"] { block-size: 70dvh; }
 [data-frond-part="viewport"][data-writing-mode="vertical-rl"] { … }
 [data-frond-part="next-trigger"][data-disabled] { opacity: 0.4; }</code></pre>
             <p class="note">
-              上面那個「<strong>預設樣式</strong>」開關切的是
-              <code>@yurenju/frond-react/styles.css</code>。它整份包在
-              <code>:where()</code> 裡，優先權是 0——你自己一條 class
-              規則就蓋得過去，不必 <code>!important</code>，也不必在意載入順序。
-              關掉它，零件回到瀏覽器原生的樣子。
+              The <strong>Default styles</strong> switch above toggles
+              <code>@yurenju/frond-react/styles.css</code>. All of it is wrapped in
+              <code>:where()</code> at specificity 0 — one class rule of your own beats it,
+              with no <code>!important</code> and no concern for load order. Turn it off and
+              the parts fall back to the browser's native appearance.
             </p>
 
-            <h2>書裡面不走 CSS</h2>
+            <h2>Inside the book does not go through CSS</h2>
             <p class="note">
-              書渲染在 iframe 內，<strong>外面的 CSS 進不去</strong>。字級、行高、
-              邊界、單欄雙欄、主題一律走 <code>&lt;Root settings={…}&gt;</code>，
-              那條路上壓著 frond 的權威順序：讀者設定 &gt; frond 修正 &gt;
-              書的宣告。所以 <code>Viewport</code> 是一個<strong>盒子</strong>，
-              不是一張紙。
+              The book renders inside an iframe, and <strong>outside CSS cannot reach
+              in</strong>. Font size, line height, margin, one or two columns and the theme
+              all go through <code>&lt;Root settings={…}&gt;</code>, and that route enforces
+              frond's authority order: reader settings &gt; frond's corrections &gt; the
+              book's declarations. So <code>Viewport</code> is a <strong>box</strong>, not a
+              sheet of paper.
             </p>
 
-            <h2>手勢是你決定的</h2>
+            <h2>Gestures are your decision</h2>
             <p class="note">
-              上面那個「<strong>鍵盤與滑動翻頁</strong>」開關切的是要不要叫
-              <code>useKeyboardPaging()</code> 與 <code>useSwipePaging()</code>。
-              不叫的話一個手勢都不吃——「往左滑等於下一頁」是產品決策，不是 frond
-              的事實。兩個 hook 都短到可以整段抄走改。
+              The <strong>Keyboard and swipe paging</strong> switch above toggles whether
+              <code>useKeyboardPaging()</code> and <code>useSwipePaging()</code> are called.
+              Without them not one gesture is consumed — "swiping left means next page" is a
+              product decision, not a fact of frond's. Both hooks are short enough to copy
+              wholesale and modify.
             </p>
           </section>
         </div>
@@ -126,8 +129,8 @@ const book = await EpubBook.open(await file.arrayBuffer());
     <footer class="colophon">
       <p>
         MIT · <a href="https://github.com/yurenju/frond">yurenju/frond</a> ·
-        這一頁由 esbuild 打包，載入的是 <code>npm install</code>
-        之後會拿到的那份產物。
+        This page is bundled by esbuild, and what it loads is the artifact you get after
+        <code>npm install</code>.
       </p>
     </footer>
 

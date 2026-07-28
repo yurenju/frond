@@ -1,16 +1,18 @@
 name: pages
 
-# 展示頁跟著 main 走。frond 的 API 還在 0.x（ADR-0008），所以站上示範的寫法與
-# main 的原始碼必須是同一份——固定在某個 tag 上會讓「照著站上寫卻編不過」變成
-# 可能，而那是最勸退人的一種第一印象。
+# The demo page follows main. frond's API is still 0.x (ADR-0008), so the notation the site
+# demonstrates and main's source have to be the same thing — pinning to a tag would make
+# "I followed the site and it will not compile" possible, and that is the most off-putting
+# kind of first impression.
 on:
   push:
     branches: [main]
-  # 部署壞掉時要能不推 commit 就重跑。
+  # When a deploy breaks, it has to be re-runnable without pushing a commit.
   workflow_dispatch:
 
-# Pages 的部署是「取代」而不是「累加」，同時跑兩個會互相蓋。這裡不取消進行中的
-# 那一個——半途中斷的部署留下的是一個部分更新的站。
+# A Pages deploy replaces rather than accumulates, and two running at once overwrite each
+# other. The one in progress is not cancelled here — an interrupted deploy leaves a partially
+# updated site.
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -24,8 +26,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # Action 一律釘 commit SHA，不用 tag——理由與 test.yml 同一條：tag 是可移動
-      # 的參照，只有 SHA 是真的釘死。版本寫在註解裡給人看。
+      # Actions are always pinned to a commit SHA, never a tag — the same reasoning as in
+      # test.yml: a tag is a movable reference, and only a SHA is really pinned. The version
+      # is written in a comment for people to read.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -33,19 +36,22 @@ jobs:
           node-version: 24
           cache: npm
 
-      # `--ignore-scripts` 擋掉根 package.json 的 `prepare`。那支 script 跑
-      # `npm run build`，而下面的 `npm run site` 會再建一次 frond——重複一次沒有壞
-      # 處，但這裡擋掉之後，站建不起來時紅的是 `npm run site` 那一步，訊息指得準。
+      # `--ignore-scripts` blocks the root package.json's `prepare`. That script runs
+      # `npm run build`, and the `npm run site` below builds frond again — doing it twice does
+      # no harm, but blocking it here means that when the site fails to build, what turns red
+      # is the `npm run site` step, and the message points precisely.
       - run: npm ci --ignore-scripts
 
-      # 型別要通過才值得部署。站上那段範例程式碼示範的是 frond 的 API，而 API
-      # 錯了的話站是綠的、消費端是紅的。
+      # It is only worth deploying if the types pass. The example code on the site
+      # demonstrates frond's API, and if the API is wrong the site is green while consumers
+      # are red.
       - run: npm run typecheck
 
-      # 建兩個套件並把站組起來。站有兩頁，而**兩頁的建置方式刻意不同**：首頁是
-      # 一次 cp（證明 frond 的產物瀏覽器直接 import 得動），React 那頁走 esbuild
-      # （證明 frond-react 出貨的那包東西被一般打包器吃得下去）。理由完整寫在
-      # `scripts/build-site.sh` 的檔頭。
+      # Builds both packages and assembles the site. The site has two pages, and **the two are
+      # built deliberately differently**: the home page is a single cp (proving frond's build
+      # output is importable directly by a browser), and the React page goes through esbuild
+      # (proving the package frond-react ships is digestible by an ordinary bundler). The full
+      # reasoning is in `scripts/build-site.sh`'s file header.
       - run: npm run site
 
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0

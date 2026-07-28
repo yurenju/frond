@@ -10,17 +10,20 @@ import {
 } from "../../../packages/frond/src/renderer/css.ts";
 
 /**
- * 對書的樣式表做的每一次改寫。
+ * Every rewrite made to a book's stylesheet.
  *
- * 這一組測試裡有一半在問「**沒有**改到什麼」——不動的部分逐字元不變，是這一層
- * 最重要的性質。改寫是對書的介入（ADR-0003），介入多了一格而沒有人發現，正是
- * 那份封閉清單存在的理由；而「多改了一處」在畫面上多半看不出來，只有逐字元比對
- * 抓得到。
+ * Half the tests in this group ask what was **not** touched — that the untouched parts
+ * are unchanged character for character is this layer's most important property. A
+ * rewrite is an intervention in the book (ADR-0003), and one more intervention slipping
+ * in unnoticed is exactly why that closed list exists; "one thing too many was
+ * rewritten" is mostly invisible on screen, and only a character-for-character
+ * comparison catches it.
  */
 
-describe("宣告的定位", () => {
-  test("選擇器裡的冒號不是宣告", () => {
-    // 正規表示式最典型的錯法：`a:hover` 的冒號被當成屬性與值的分隔。
+describe("locating declarations", () => {
+  test("a colon in a selector is not a declaration", () => {
+    // The most typical way a regular expression gets this wrong: the colon in `a:hover`
+    // taken as the separator between property and value.
     const css = "a:hover { color: red }";
     const seen: string[] = [];
 
@@ -32,7 +35,7 @@ describe("宣告的定位", () => {
     expect(seen).toEqual(["color"]);
   });
 
-  test("@media 裡面裝的是規則，不是宣告", () => {
+  test("what an @media holds is rules, not declarations", () => {
     const seen: string[] = [];
 
     mapStylesheet("@media (min-width: 40em) { p { color: red } }", (declaration) => {
@@ -40,11 +43,11 @@ describe("宣告的定位", () => {
       return undefined;
     });
 
-    // `min-width: 40em` 在 at-rule 的前綴裡，不是一條宣告。
+    // `min-width: 40em` sits in the at-rule's prelude; it is not a declaration.
     expect(seen).toEqual(["color"]);
   });
 
-  test("字串與 url() 裡的分號不切開宣告", () => {
+  test("a semicolon inside a string or a url() does not split a declaration", () => {
     const seen: string[] = [];
 
     mapStylesheet(
@@ -58,7 +61,7 @@ describe("宣告的定位", () => {
     expect(seen).toEqual(["content", "background"]);
   });
 
-  test("註解裡的東西不算數", () => {
+  test("what is inside a comment does not count", () => {
     const seen: string[] = [];
 
     mapStylesheet("p { /* color: red; */ margin: 0 }", (declaration) => {
@@ -69,7 +72,7 @@ describe("宣告的定位", () => {
     expect(seen).toEqual(["margin"]);
   });
 
-  test("不動的時候逐字元不變，連空白與註解都留著", () => {
+  test("untouched means unchanged character for character, whitespace and comments included", () => {
     const css = `@charset "utf-8";
 
 /* 書自己的註解 */
@@ -82,7 +85,7 @@ p   {
     expect(mapStylesheet(css, () => undefined)).toBe(css);
   });
 
-  test("!important 從值裡切開，屬性名轉小寫", () => {
+  test("!important is split off the value, and the property name is lowercased", () => {
     const seen: Array<{ property: string; value: string; important: boolean }> = [];
 
     mapStylesheet("p { FONT-SIZE: 12px ! IMPORTANT }", (declaration) => {
@@ -98,9 +101,9 @@ p   {
   });
 });
 
-describe("前綴的 writing-mode", () => {
-  test("補一條無前綴的等價宣告", () => {
-    // 《入境大廳》的形狀：兩個前綴都寫了，無前綴的一次都沒有。
+describe("prefixed writing-mode", () => {
+  test("an equivalent unprefixed declaration is added", () => {
+    // 《入境大廳》's shape: both prefixes written, the unprefixed one not once.
     const css = `body {
   -epub-writing-mode: vertical-rl;
   -webkit-writing-mode: vertical-rl;
@@ -113,7 +116,7 @@ describe("前綴的 writing-mode", () => {
     expect(rewritten.match(/[^-]writing-mode: vertical-rl/g)?.length).toBe(2);
   });
 
-  test("原本那條留著，不是換掉", () => {
+  test("the original declaration stays; it is not replaced", () => {
     const rewritten = normalisePrefixedWritingMode(
       "body { -epub-writing-mode: vertical-rl }",
     );
@@ -121,7 +124,7 @@ describe("前綴的 writing-mode", () => {
     expect(rewritten).toContain("-epub-writing-mode");
   });
 
-  test("!important 跟著補上去", () => {
+  test("!important comes along with the added declaration", () => {
     const rewritten = normalisePrefixedWritingMode(
       "body { -webkit-writing-mode: vertical-rl !important }",
     );
@@ -129,100 +132,105 @@ describe("前綴的 writing-mode", () => {
     expect(rewritten).toContain("writing-mode: vertical-rl !important");
   });
 
-  test("已經有無前綴宣告的書不會被動到", () => {
+  test("a book that already has an unprefixed declaration is left alone", () => {
     const css = "html { writing-mode: vertical-rl }";
     expect(normalisePrefixedWritingMode(css)).toBe(css);
   });
 
-  test("舊語法 tb-rl 不需要處理——三家都認", () => {
-    // docs/browser-quirks.md 量到的：三家都認、computed 值正規化成 vertical-rl。
+  test("the old tb-rl syntax needs no handling — all three accept it", () => {
+    // Measured in docs/browser-quirks.md: all three accept it, and the computed value
+    // normalizes to vertical-rl.
     const css = "html { writing-mode: tb-rl }";
     expect(normalisePrefixedWritingMode(css)).toBe(css);
   });
 });
 
 describe("page-break-*", () => {
-  test("always 換成換一欄", () => {
+  test("always becomes a column break", () => {
     const rewritten = normalisePageBreaks("h1 { page-break-before: always }");
 
     expect(rewritten).toContain("page-break-before: always");
     expect(rewritten).toContain("break-before: column");
   });
 
-  test("avoid 兩邊同名", () => {
+  test("avoid has the same name on both sides", () => {
     expect(normalisePageBreaks("figure { page-break-inside: avoid }")).toContain(
       "break-inside: avoid",
     );
   });
 
-  test("left 與 right 退成換一欄——分欄版面沒有對開頁", () => {
+  test("left and right degrade to a column break — a multicol layout has no spreads", () => {
     expect(normalisePageBreaks("h1 { page-break-before: left }")).toContain(
       "break-before: column",
     );
   });
 
-  test("認不得的值不動", () => {
+  test("an unrecognized value is left alone", () => {
     const css = "h1 { page-break-before: recto }";
     expect(normalisePageBreaks(css)).toBe(css);
   });
 
-  test("書已經用現代寫法時不重複補", () => {
+  test("nothing is added twice when the book already uses the modern spelling", () => {
     const css = "h1 { break-before: column }";
     expect(normalisePageBreaks(css)).toBe(css);
   });
 });
 
-describe("拿掉 !important", () => {
+describe("demoting !important", () => {
   const OVERRIDDEN = new Set(["font-size"]);
 
-  test("讀者覆寫過的屬性，旗標拿掉、值不動", () => {
+  test("for a property the reader overrode, the flag goes and the value stays", () => {
     const rewritten = demoteImportant("p { font-size: 12px !important }", OVERRIDDEN);
 
     expect(rewritten).toContain("font-size: 12px");
     expect(rewritten).not.toContain("!important");
   });
 
-  test("讀者沒有覆寫的屬性，旗標留著", () => {
-    // ADR-0003 的門檻：沒有讀者設定就沒有東西被擋住，也就沒有介入的理由。
+  test("for a property the reader did not override, the flag stays", () => {
+    // ADR-0003's threshold: with no reader setting there is nothing being blocked, and so
+    // no reason to intervene.
     const css = "p { color: #000 !important }";
     expect(demoteImportant(css, OVERRIDDEN)).toBe(css);
   });
 
-  test("同一個屬性沒帶 !important 的那幾條不動", () => {
+  test("declarations of the same property without !important are left alone", () => {
     const css = "p { font-size: 12px }";
     expect(demoteImportant(css, OVERRIDDEN)).toBe(css);
   });
 
-  test("style 屬性裡的 !important 也拿得掉", () => {
-    // 這才是關鍵的一格：層疊規則裡沒有任何位置贏得了 inline 的 !important。
+  test("an !important in a style attribute can be demoted too", () => {
+    // This is the slot that matters: nothing anywhere in the cascade outranks an inline
+    // !important.
     expect(
       demoteImportant("font-size: 12px !important; color: red", OVERRIDDEN, "declarations"),
     ).toBe("font-size: 12px; color: red");
   });
 });
 
-describe("絕對字級換算成 rem", () => {
-  test("px 依 16px 的基準換算", () => {
+describe("converting absolute font sizes to rem", () => {
+  test("px converts against the 16px basis", () => {
     expect(relativiseFontSizes("p { font-size: 12px }")).toContain("font-size: 0.75rem");
     expect(relativiseFontSizes("h1 { font-size: 32px }")).toContain("font-size: 2rem");
   });
 
-  test("pt 先換成 px 再換算", () => {
-    // 12pt = 16px = 1rem。
+  test("pt goes to px first, then converts", () => {
+    // 12pt = 16px = 1rem.
     expect(relativiseFontSizes("p { font-size: 12pt }")).toContain("font-size: 1rem");
   });
 
-  test("書自己的字級層次原封不動", () => {
+  test("the book's own size hierarchy is left intact", () => {
     const rewritten = relativiseFontSizes(`h1 { font-size: 32px }
 p { font-size: 16px }`);
 
-    // 2 : 1，與換算前逐項相同——讀者調字級時整份文件按同一個比例縮放。
+    // 2 : 1, item for item the same as before the conversion — when the reader adjusts the
+    // size, the whole document scales by one ratio.
     expect(rewritten).toContain("font-size: 2rem");
     expect(rewritten).toContain("font-size: 1rem");
   });
 
-  test("巢狀的絕對字級不連乘", () => {
-    // 這是選 rem 而不是 em 的全部理由。em 會讓 span 變成 0.75 × 0.625。
+  test("nested absolute sizes do not compound", () => {
+    // This is the entire reason for choosing rem over em. With em, the span would come out
+    // at 0.75 × 0.625.
     const rewritten = relativiseFontSizes(`p { font-size: 12px }
 p span { font-size: 10px }`);
 
@@ -230,43 +238,44 @@ p span { font-size: 10px }`);
     expect(rewritten).toContain("font-size: 0.625rem");
   });
 
-  test("已經是相對單位的不動", () => {
+  test("values already in relative units are left alone", () => {
     for (const value of ["1.2em", "0.9rem", "120%", "larger", "medium"]) {
       const css = `p { font-size: ${value} }`;
       expect(relativiseFontSizes(css)).toBe(css);
     }
   });
 
-  test("複合值不動——算錯比不算更糟", () => {
+  test("compound values are left alone — converting them wrongly is worse than not at all", () => {
     const css = "p { font-size: calc(12px + 1vw) }";
     expect(relativiseFontSizes(css)).toBe(css);
   });
 
-  test("!important 跟著留在換算後的宣告上", () => {
-    // 換算與拿掉旗標是兩個獨立的改寫，各自只做一件事。
+  test("!important stays on the converted declaration", () => {
+    // Converting and demoting the flag are two independent rewrites, each doing one
+    // thing.
     expect(relativiseFontSizes("p { font-size: 12px !important }")).toContain(
       "font-size: 0.75rem !important",
     );
   });
 
-  test("style 屬性裡的絕對字級也換算", () => {
+  test("absolute sizes in a style attribute convert too", () => {
     expect(relativiseFontSizes("font-size: 24px; color: red", "declarations")).toBe(
       "font-size: 1.5rem; color: red",
     );
   });
 });
 
-describe("url() 的改寫", () => {
+describe("rewriting url()", () => {
   const resolve = (reference: string): string | undefined =>
     reference === "images/plate.png" ? "blob:https://example/abc" : undefined;
 
-  test("相對路徑換成解析後的位址", () => {
+  test("a relative path becomes the resolved address", () => {
     expect(rewriteUrls("p { background: url(images/plate.png) }", resolve)).toContain(
       'url("blob:https://example/abc")',
     );
   });
 
-  test("帶引號的寫法一樣認得", () => {
+  test("the quoted spellings are recognized too", () => {
     expect(rewriteUrls(`p { background: url("images/plate.png") }`, resolve)).toContain(
       'url("blob:https://example/abc")',
     );
@@ -275,23 +284,23 @@ describe("url() 的改寫", () => {
     );
   });
 
-  test("解析不出來的原樣留著", () => {
+  test("what cannot be resolved is left as it stands", () => {
     const css = "p { background: url(data:image/gif;base64,AAAA) }";
     expect(rewriteUrls(css, resolve)).toBe(css);
   });
 
-  test("@import 的 url() 也換得到——它不在任何一條宣告裡", () => {
+  test("an @import's url() is rewritten too — it is inside no declaration at all", () => {
     expect(rewriteUrls("@import url(images/plate.png);", resolve)).toContain(
       'url("blob:https://example/abc")',
     );
   });
 
-  test("註解裡的 url() 不動", () => {
+  test("a url() inside a comment is left alone", () => {
     const css = "/* url(images/plate.png) */ p { margin: 0 }";
     expect(rewriteUrls(css, resolve)).toBe(css);
   });
 
-  test("@font-face 的字型也走同一條路", () => {
+  test("an @font-face's font goes through the same route", () => {
     const rewritten = rewriteUrls(
       `@font-face { font-family: "書"; src: url(images/plate.png) format("opentype") }`,
       resolve,
@@ -302,28 +311,31 @@ describe("url() 的改寫", () => {
 });
 
 /**
- * `@import` 的就地展開。
+ * Expanding `@import` in place.
  *
- * 這一支的存在理由是實書量到的：樣本裡四本書的內容文件只 `<link>` 一支聚合檔，
- * 而那支檔案除了 `@charset` 之外只有 `@import` 字串——不展開就等於整份樣式表
- * 消失，四本直排書全部排成橫排（`src/renderer/css.ts` 的 `inlineImports`）。
+ * This function exists because of what was measured on real books: four books in the
+ * sample have content documents that `<link>` only an aggregate file, and that file
+ * holds nothing but `@charset` and `@import` strings — without expansion the whole
+ * stylesheet **disappears**, and four vertical books lay out horizontally
+ * (`inlineImports` in `src/renderer/css.ts`).
  *
- * 兩種寫法各測一次不是為了覆蓋率：`writing-mode-behind-import` 那份 fixture 只
- * 演字串寫法（那是量到的那一種），`url()` 寫法是同一支展開器的另一個分支，而
- * 純字串函式測得起來的東西不該為它多產一本書（ADR-0007）。
+ * Testing both spellings is not about coverage: the `writing-mode-behind-import`
+ * fixture plays only the string spelling (the one that was measured), and the `url()`
+ * spelling is another branch of the same expander — something a pure string function
+ * can test should not cost an extra book (ADR-0007).
  */
-describe("@import 的展開", () => {
-  /** 展開器只回傳「這個位址對應的 CSS」，路徑怎麼解是 document-source 的事。 */
+describe("expanding @import", () => {
+  /** The expander only returns "the CSS at this address"; how a path resolves is document-source's business. */
   const expand = (reference: string): string | undefined =>
     reference === "book-style.css" ? "html { writing-mode: vertical-rl }" : undefined;
 
-  test("字串寫法展得開——樣本裡量到的就是這一種", () => {
+  test("the string spelling expands — this is the one measured in the sample", () => {
     expect(inlineImports(`@import "book-style.css";`, expand)).toBe(
       "html { writing-mode: vertical-rl }",
     );
   });
 
-  test("單引號與 url() 兩種寫法一樣認得", () => {
+  test("the single-quoted and url() spellings are recognized too", () => {
     for (const rule of [
       `@import 'book-style.css';`,
       "@import url(book-style.css);",
@@ -333,20 +345,21 @@ describe("@import 的展開", () => {
     }
   });
 
-  test("展開的位置就是 @import 原本的位置——層疊看順序", () => {
+  test("the expansion goes exactly where the @import was — the cascade depends on order", () => {
     expect(
       inlineImports(`p { color: red }\n@import "book-style.css";\np { color: blue }`, expand),
     ).toBe("p { color: red }\nhtml { writing-mode: vertical-rl }\np { color: blue }");
   });
 
-  test("展不開的原樣留著，不刪掉", () => {
-    // 刪掉會讓查問題的人看不出書本來要求了什麼，而一個解析不到的 @import 與
-    // 沒有它對畫面是同一件事。
+  test("what cannot be expanded is left as it stands rather than deleted", () => {
+    // Deleting it would leave whoever investigates unable to see what the book asked for,
+    // and an @import that resolves to nothing has the same on-screen effect as its
+    // absence.
     const css = `@import "missing.css";\np { margin: 0 }`;
     expect(inlineImports(css, expand)).toBe(css);
   });
 
-  test("帶媒體查詢的包一層 @media，那個條件不能弄丟", () => {
+  test("one with a media query is wrapped in an @media; that condition may not be lost", () => {
     expect(inlineImports(`@import "book-style.css" print;`, expand)).toBe(
       "@media print {\nhtml { writing-mode: vertical-rl }\n}",
     );
@@ -357,8 +370,9 @@ describe("@import 的展開", () => {
     );
   });
 
-  test("layer() 與 supports() 的寫法原樣留著", () => {
-    // 兩者改變的是層疊的分層與條件，而把文字插進來重現不了那件事。
+  test("the layer() and supports() spellings are left as they stand", () => {
+    // Both change the cascade's layering and conditions, and splicing the text in does not
+    // reproduce that.
     for (const rule of [
       `@import "book-style.css" layer(book);`,
       `@import "book-style.css" supports(display: grid);`,
@@ -367,7 +381,7 @@ describe("@import 的展開", () => {
     }
   });
 
-  test("註解與字串裡的 @import 不是 at-rule", () => {
+  test("an @import inside a comment or a string is not an at-rule", () => {
     for (const css of [
       `/* @import "book-style.css"; */ p { margin: 0 }`,
       `p { content: "@import \\"book-style.css\\";" }`,
@@ -376,17 +390,17 @@ describe("@import 的展開", () => {
     }
   });
 
-  test("區塊裡面的 @import 不合規，原樣留著", () => {
+  test("an @import inside a block is non-conforming and is left as it stands", () => {
     const css = `@media print { @import "book-style.css"; }`;
     expect(inlineImports(css, expand)).toBe(css);
   });
 
-  test("一個 @import 都沒有的樣式表逐字元不變", () => {
+  test("a stylesheet with no @import at all is unchanged character for character", () => {
     const css = `@charset "UTF-8";\n/* 書自己的 */\nhtml { font-family: "書" }\n`;
     expect(inlineImports(css, expand)).toBe(css);
   });
 
-  test("同一份樣式表裡多個 @import 全部展開", () => {
+  test("multiple @imports in one stylesheet all expand", () => {
     const two = (reference: string): string | undefined =>
       reference === "a.css" ? "p { margin: 0 }" : reference === "b.css" ? "p { padding: 0 }" : undefined;
 
@@ -396,20 +410,20 @@ describe("@import 的展開", () => {
   });
 });
 
-describe("@import 的邊界", () => {
+describe("@import's boundaries", () => {
   const expand = (): string | undefined => "p { margin: 0 }";
 
-  test("名字只是開頭像 @import 的 at-rule 不動", () => {
-    // 少了 lookahead 的話 `@imports` 也會命中，而那條規則會被整段吃掉。
+  test("an at-rule whose name merely starts like @import is left alone", () => {
+    // Without the lookahead, `@imports` matches too, and that rule gets eaten whole.
     const css = "@imports-are-fun x;\np { color: red }";
     expect(inlineImports(css, expand)).toBe(css);
   });
 
-  test("大小寫不拘", () => {
+  test("case does not matter", () => {
     expect(inlineImports(`@IMPORT "a.css";`, expand)).toBe("p { margin: 0 }");
   });
 
-  test("認不出位址的 @import 原樣留著", () => {
+  test("an @import with no recognizable address is left as it stands", () => {
     const css = "@import ;";
     expect(inlineImports(css, expand)).toBe(css);
   });

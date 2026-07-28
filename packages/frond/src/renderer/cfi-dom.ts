@@ -1,47 +1,57 @@
 /**
- * CFI 與 DOM 位置之間的來回——`cfi.ts` 那個文法層明確劃出去的另一半。
+ * The round trip between a CFI and a DOM position — the other half that the `cfi.ts`
+ * grammar layer explicitly ruled out.
  *
- * > **CFI ↔ DOM 位置的對應不在這裡。** 那需要真的有一份渲染好的文件——把 CFI 走
- * > 成一個 `Range`、或把讀者選取的一段文字寫成 CFI，都要數節點、要處理被過濾掉的
- * > 節點、要合併相鄰的文字節點。那些屬於 `Renderer`（`src/epub/cfi.ts`）。
+ * > **Mapping between a CFI and a DOM position is not here.** That needs an actually
+ * > rendered document — walking a CFI into a `Range`, or writing a reader's selection out
+ * > as a CFI, both mean counting nodes, handling filtered-out nodes, and merging adjacent
+ * > text nodes. Those belong to `Renderer` (`src/epub/cfi.ts`).
  *
- * 這裡就是那段話指的地方。文法層負責字串與結構之間的來回，這裡負責結構與節點之間
- * 的來回，兩層都不知道對方在做什麼。
+ * This is the place that passage points at. The grammar layer handles the round trip
+ * between string and structure, this handles the round trip between structure and nodes,
+ * and neither layer knows what the other is doing.
  *
- * ## 定址規則（規格 2.2）
+ * ## The addressing rule (spec 2.2)
  *
- * 一個父節點底下的子節點這樣編號：
+ * The children under one parent are numbered like this:
  *
- * - **元素拿偶數**：第 k 個元素子節點（從 1 起算）的序號是 `2k`
- * - **文字拿奇數**：相鄰的文字節點**合併成一塊**，第 k 個元素之後那一塊的序號是
- *   `2k + 1`；第一個元素之前那一塊是 `1`
- * - **註解與處理指令完全不算**，連位置都不佔
+ * - **Elements take even numbers**: the kth element child (counting from 1) has ordinal
+ *   `2k`
+ * - **Text takes odd numbers**: adjacent text nodes are **merged into one chunk**, and the
+ *   chunk after the kth element has ordinal `2k + 1`; the chunk before the first element
+ *   is `1`
+ * - **Comments and processing instructions do not count at all**, not even occupying a
+ *   position
  *
- * 「相鄰的文字節點合併成一塊」是最容易漏掉的一條，而漏掉它的症狀特別難查：一份
- * 文件被 `Node.normalize()` 過與沒有過，同一個位置會得到兩個不同的 CFI，而兩者
- * 都指得到東西。實際的書經過 XML 解析之後常常在實體參照（`&amp;`）的位置留下
- * 相鄰的文字節點，所以這不是理論上的邊界條件。
+ * "Adjacent text nodes are merged into one chunk" is the easiest one to miss, and the
+ * symptom of missing it is particularly hard to trace: the same position yields two
+ * different CFIs depending on whether the document has been through `Node.normalize()`,
+ * and both of them point at something. Real books, after XML parsing, frequently leave
+ * adjacent text nodes where entity references (`&amp;`) were, so this is not a
+ * theoretical edge case.
  *
- * ## `!` 之後從哪裡開始數
+ * ## Where counting starts after a `!`
  *
- * 間接引用之後的第一步是相對於**內容文件的根元素**（`<html>`）數的，不是相對於
- * document 節點。所以 `<body>` 的第一步是 `/4`（`<head>` 是 `/2`）。這與 foliate
- * 在 #7 spike 量到的 `epubcfi(/6/2!/4,…)` 一致。
+ * The first step after an indirection is counted relative to the **content document's
+ * root element** (`<html>`), not relative to the document node. So `<body>`'s first step
+ * is `/4` (`<head>` being `/2`). This agrees with the `epubcfi(/6/2!/4,…)` measured from
+ * foliate in the #7 spike.
  */
 
 import type { Cfi, CfiOffset, CfiPath, CfiSegment, CfiStep } from "../epub/cfi.ts";
 import { isDocument, isElement, isIgnored, isTextLike } from "./node-type.ts";
 
 /**
- * 封裝文件裡 `<spine>` 的序號。
+ * The ordinal of `<spine>` within the package document.
  *
- * EPUB 的 `<package>` 內容模型規定順序是 metadata、manifest、spine，所以 spine
- * 恆為第三個元素子節點，序號 `2 × 3 = 6`。**這不是對書的寬容度假設**——它是規格
- * 的內容模型，一本把順序寫反的書連 `EpubBook` 那一層都開不起來。
+ * EPUB's `<package>` content model specifies the order metadata, manifest, spine, so the
+ * spine is invariably the third element child, with ordinal `2 × 3 = 6`. **This is not an
+ * assumption about how lenient to be with books** — it is the spec's content model, and a
+ * book writing them in the wrong order does not even open at the `EpubBook` layer.
  */
 const SPINE_STEP_INDEX = 6;
 
-/** 這一節在封裝文件裡的那一段路徑：`/6/N`。 */
+/** This section's segment of the path within the package document: `/6/N`. */
 export function spineSegment(sectionIndex: number): CfiSegment {
   return {
     steps: [
@@ -53,11 +63,12 @@ export function spineSegment(sectionIndex: number): CfiSegment {
 }
 
 /**
- * 一個 CFI 指向 readingOrder 的第幾項。
+ * Which readingOrder item a CFI points at.
  *
- * 認不出來時回 `undefined`——例如路徑短到沒有 itemref 那一步，或第一步不是
- * `/6`。那種 CFI 可能是別的閱讀器寫的，或是書換了一版，兩種都不該讓跳轉靜默地
- * 落在第一節。
+ * Returns `undefined` when it cannot be recognised — for instance when the path is too
+ * short to have an itemref step, or the first step is not `/6`. Such a CFI may have been
+ * written by a different reader, or the book may have a new edition, and neither should
+ * let a jump land silently in the first section.
  */
 export function sectionIndexOf(cfi: Cfi): number | undefined {
   const path = cfi.kind === "point" ? cfi.path : cfi.parent;
@@ -72,11 +83,12 @@ export function sectionIndexOf(cfi: Cfi): number | undefined {
 }
 
 /**
- * 把一段 `Range` 寫成 CFI。
+ * Writes a `Range` out as a CFI.
  *
- * 起訖相同時給的是**點**而不是一段長度為零的範圍：那兩者在規格裡是不同的寫法，
- * 而閱讀進度存的是點、annotation 存的是範圍，混用會讓消費端分不出手上這一個是
- * 哪一種。
+ * When start and end coincide this gives a **point** rather than a zero-length range:
+ * those are different notations in the spec, and reading progress stores a point while an
+ * annotation stores a range, so conflating them would leave a consumer unable to tell
+ * which one it is holding.
  */
 export function cfiForRange(range: Range, sectionIndex: number): Cfi {
   const start = localPath(...normaliseBoundary(range.startContainer, range.startOffset, "start"));
@@ -86,12 +98,15 @@ export function cfiForRange(range: Range, sectionIndex: number): Cfi {
     return { kind: "point", path: [spineSegment(sectionIndex), start] };
   }
 
-  // 共用前綴抽出來，剩下的兩截各自接在後面——規格的 `parent,start,end` 形狀。
+  // The shared prefix is lifted out and the two remaining pieces are appended to it — the
+  // spec's `parent,start,end` shape.
   //
-  // **前綴必須是真前綴**：起訖走同一條路徑時（選取剛好落在同一個文字節點裡，
-  // 或 `selectNodeContents` 給的兩個邊界指向同一個節點），全部抽走會讓起訖兩段
-  // 變成空字串，序列化出來是 `epubcfi(/6/2!/4/4/1,,)`——一個連自己都 parse 不
-  // 回來的字串。留一步在外面，那一步就是兩段各自的內容。
+  // **The prefix has to be a proper prefix**: when start and end walk the same path (the
+  // selection falls within a single text node, or `selectNodeContents` gives two
+  // boundaries pointing at the same node), lifting all of it out would make both pieces
+  // empty strings, serializing as `epubcfi(/6/2!/4/4/1,,)` — a string that will not even
+  // parse back. Leaving one step outside makes that step the content of each of the two
+  // pieces.
   const shared = Math.min(
     sharedStepCount(start.steps, end.steps),
     Math.max(0, Math.min(start.steps.length, end.steps.length) - 1),
@@ -109,11 +124,13 @@ export function cfiForRange(range: Range, sectionIndex: number): Cfi {
 }
 
 /**
- * 把一個 CFI 走成這份文件裡的 `Range`。
+ * Walks a CFI into a `Range` within this document.
  *
- * 走不到時回 `undefined`。走不到是常態而不是例外——書換了一版、CFI 來自別的
- * 閱讀器、或那一節根本不是這一節，三種都會走到這裡，而它們的處置是「跳到這一節
- * 的開頭」而不是丟一個例外把整個閱讀流程打斷。
+ * Returns `undefined` when it cannot be walked. Failing to walk is the norm rather than
+ * the exception — a new edition of the book, a CFI from a different reader, or simply a
+ * different section, all three arrive here, and the response to them is "jump to the start
+ * of this section" rather than throwing an exception that interrupts the whole reading
+ * flow.
  */
 export function rangeForCfi(document: Document, cfi: Cfi): Range | undefined {
   const root = document.documentElement;
@@ -149,22 +166,24 @@ export function rangeForCfi(document: Document, cfi: Cfi): Range | undefined {
 }
 
 /**
- * 取出路徑裡落在**內容文件**的那一段。
+ * Takes the part of the path that falls in the **content document**.
  *
- * 一條完整的 CFI 是「封裝文件那一段 `!` 內容文件那一段」，所以內容文件那一段是
- * 最後一段。只有一段的 CFI（`/6/4`，指向整個 Section）沒有內容文件那一段，回
- * `undefined`——那不是壞掉的 CFI，是一個指向整節的合法位置，由呼叫端決定它等於
- * 這一節的開頭。
+ * A complete CFI is "the package document part `!` the content document part", so the
+ * content document part is the last segment. A single-segment CFI (`/6/4`, pointing at a
+ * whole Section) has no content document part and returns `undefined` — that is not a
+ * broken CFI, it is a valid position referring to the whole section, and the caller decides
+ * that it means the start of that section.
  */
 function contentSegmentOf(path: CfiPath): CfiSegment | undefined {
   return path.length >= 2 ? path[path.length - 1] : undefined;
 }
 
-/** 把範圍的起（訖）接到共用前綴後面，得到內容文件裡的完整一段。 */
+/** Appends a range's start (or end) to the shared prefix, giving one complete segment within the content document. */
 function joinSegments(parent: CfiSegment, local: CfiPath): CfiSegment | undefined {
   const first = local[0];
   if (first === undefined) return undefined;
-  // 範圍的起訖不會跨進另一份文件——那種 CFI 在文法層就是 `incomparable` 的形狀。
+  // A range's start and end never cross into another document — such a CFI is the
+  // `incomparable` shape already at the grammar layer.
   if (local.length > 1) return undefined;
 
   return { steps: [...parent.steps, ...first.steps], offset: first.offset };
@@ -175,7 +194,7 @@ interface DomPosition {
   readonly offset: number;
 }
 
-/** 從根元素依序走每一步。 */
+/** Walks each step in turn from the root element. */
 function resolve(root: Element, segment: CfiSegment): DomPosition | undefined {
   let current: Node = root;
 
@@ -183,16 +202,18 @@ function resolve(root: Element, segment: CfiSegment): DomPosition | undefined {
     const next = childAt(current, segment.steps[index]!.index);
     if (next === undefined) return undefined;
 
-    // 文字那一塊只可能出現在最後一步——它沒有子節點可以再往下走。走到這裡表示
-    // 這個 CFI 與這份文件對不上，回 undefined 讓呼叫端退回這一節的開頭。
+    // A text chunk can only ever be the last step — it has no children to walk into.
+    // Reaching here means this CFI does not match this document, so returning undefined
+    // lets the caller fall back to the start of the section.
     if (next.kind === "text" && index !== segment.steps.length - 1) return undefined;
 
     current = next.node;
   }
 
   if (segment.offset === undefined) {
-    // 沒有字元位移：指的是節點本身。用「父節點加上它在父節點裡的位置」表示，
-    // 這樣 Range 落在節點之前而不是它的內容裡。
+    // No character offset: this refers to the node itself. Expressed as "the parent plus
+    // its position within the parent", so the Range falls before the node rather than
+    // inside its content.
     const parent = current.parentNode;
     if (parent === null) return { node: current, offset: 0 };
     return { node: parent, offset: indexInParent(parent, current) };
@@ -207,10 +228,11 @@ interface ChildTarget {
 }
 
 /**
- * 父節點底下序號為 `index` 的那個子節點。
+ * The child with ordinal `index` under a parent.
  *
- * 偶數找元素，奇數找**那一整塊**相鄰文字裡的第一個節點——後續的偏移計算需要從
- * 塊的開頭數起。
+ * Even numbers find an element, odd numbers find the first node of **that whole chunk** of
+ * adjacent text — the offset computation that follows needs to count from the start of the
+ * chunk.
  */
 function childAt(parent: Node, index: number): ChildTarget | undefined {
   if (index <= 0) return undefined;
@@ -252,11 +274,13 @@ function childAt(parent: Node, index: number): ChildTarget | undefined {
 }
 
 /**
- * 一塊相鄰文字裡的第 N 個字元落在哪一個節點的第幾個位置。
+ * Which node, and which position within it, the Nth character of a chunk of adjacent text
+ * falls at.
  *
- * 位移是**整塊**的位移，所以要跨著節點數過去。超出整塊長度時停在塊尾而不是回
- * `undefined`：書改了一版讓那一段變短是常見的事，停在最接近的位置比跳回這一節的
- * 開頭好。
+ * The offset is an offset into the **whole chunk**, so it has to be counted across nodes.
+ * Past the chunk's length it stops at the end of the chunk rather than returning
+ * `undefined`: a new edition of the book shortening that stretch is a common thing, and
+ * stopping at the nearest position beats jumping back to the start of the section.
  */
 function offsetWithin(chunkStart: Node, offset: CfiOffset): DomPosition {
   let remaining = offset.characters;
@@ -274,7 +298,7 @@ function offsetWithin(chunkStart: Node, offset: CfiOffset): DomPosition {
   }
 }
 
-/** 一個節點在父節點的 `childNodes` 裡的位置——`Range` 用的那種索引。 */
+/** A node's position within its parent's `childNodes` — the kind of index a `Range` uses. */
 function indexInParent(parent: Node, node: Node): number {
   let index = 0;
   for (const child of parent.childNodes) {
@@ -285,23 +309,24 @@ function indexInParent(parent: Node, node: Node): number {
 }
 
 /**
- * 把落在**元素**上的邊界換算成落在文字上的邊界。
+ * Converts a boundary that falls on an **element** into one that falls on text.
  *
- * `Range` 的邊界可以指向「某個元素的第 n 個子節點之前」，而 CFI 定址的是節點與
- * 節點裡的字元，沒有「子節點之間的縫」這種寫法。最常見的來源是
- * `selectNodeContents(p)`——它給的兩個邊界都落在 `<p>` 上，起點是子節點 0、終點
- * 是子節點數。
+ * A `Range`'s boundary may point at "before the nth child of some element", whereas CFI
+ * addresses nodes and characters within nodes, with no notation for "the gap between
+ * children". The most common source is `selectNodeContents(p)` — both of its boundaries
+ * fall on the `<p>`, the start at child 0 and the end at the child count.
  *
- * 換算的方向依邊界是起還是訖而不同，而這正是不能只寫一份的理由：
+ * The direction of the conversion differs depending on whether the boundary is the start or
+ * the end, and that is precisely why one implementation will not do:
  *
- * - **起點**往內走到第一個文字節點的第 0 個字元
- * - **終點**往回走到前一個子節點裡最後一個文字節點的結尾
+ * - **The start** walks inward to character 0 of the first text node
+ * - **The end** walks back to the end of the last text node inside the previous child
  *
- * 兩邊都往同一個方向走的話，選取整個段落會得到一個起訖相同的 CFI——看起來像
- * 讀者只選了一個點。
+ * With both walking the same direction, selecting a whole paragraph would give a CFI whose
+ * start and end coincide — looking as though the reader had selected only a point.
  *
- * 元素裡一個文字節點都沒有時（純圖片的段落）原樣回傳，由 `localPath` 用節點本身
- * 定址。
+ * When the element contains no text node at all (a paragraph holding only an image) it is
+ * returned verbatim, and `localPath` addresses the node itself.
  */
 function normaliseBoundary(
   container: Node,
@@ -343,7 +368,7 @@ function lastTextIn(node: Node): Node | undefined {
   return undefined;
 }
 
-/** 這個節點在它父節點底下的那一段路徑（不含父節點以上）。 */
+/** This node's segment of the path under its parent (excluding the parent and above). */
 function localPath(container: Node, offset: number): CfiSegment {
   if (isTextLike(container)) {
     const { chunkStart, charactersBefore } = chunkOf(container);
@@ -353,11 +378,13 @@ function localPath(container: Node, offset: number): CfiSegment {
     };
   }
 
-  // 容器是元素時，`offset` 是子節點的索引而不是字元位置。
+  // When the container is an element, `offset` is a child index rather than a character
+  // position.
   //
-  // 落在子節點之間的邊界（讀者從段落開頭往前選一格就會產生）在 CFI 裡沒有直接
-  // 的寫法——CFI 定址的是節點，不是節點之間的縫。取那個位置**之後**的那個子
-  // 節點，也就是最靠近的一個實際節點；沒有子節點時退回元素自己。
+  // A boundary falling between children (which is what a reader selecting one step back
+  // from the start of a paragraph produces) has no direct notation in CFI — CFI addresses
+  // nodes, not the gaps between them. This takes the child **after** that position, that
+  // is, the nearest actual node; with no children it falls back to the element itself.
   const child = container.childNodes[Math.min(offset, container.childNodes.length - 1)];
   const target = child ?? container;
 
@@ -369,7 +396,7 @@ interface Chunk {
   readonly charactersBefore: number;
 }
 
-/** 這個文字節點屬於哪一塊，以及它在塊裡從第幾個字元開始。 */
+/** Which chunk this text node belongs to, and which character of the chunk it starts at. */
 function chunkOf(node: Node): Chunk {
   let chunkStart = node;
   let charactersBefore = 0;
@@ -385,9 +412,10 @@ function chunkOf(node: Node): Chunk {
 }
 
 /**
- * 從內容文件的根元素走到這個節點的每一步。
+ * Every step from the content document's root element down to this node.
  *
- * 根元素本身不算一步——`!` 之後的第一步是根元素的子節點（見檔頭）。
+ * The root element itself is not a step — the first step after a `!` is a child of the root
+ * element (see the file header).
  */
 function stepsTo(node: Node): readonly CfiStep[] {
   const steps: CfiStep[] = [];
@@ -405,11 +433,12 @@ function stepsTo(node: Node): readonly CfiStep[] {
 }
 
 /**
- * 元素的 id 寫進斷言裡。
+ * An element's id is written into the assertion.
  *
- * 規格說索引才是權威、斷言是書改版之後用來回復位置的冗餘，所以 `compareCfi()`
- * 不看它、`rangeForCfi()` 也不用它。寫出去是因為**別的閱讀器會用**，而一個帶
- * 得動 id 的 CFI 在書換版之後救得回來。
+ * The spec says the index is authoritative and the assertion is redundancy for recovering a
+ * position after the book is revised, so `compareCfi()` does not look at it and
+ * `rangeForCfi()` does not use it. It is written out because **other readers do use it**,
+ * and a CFI carrying an id can be recovered after the book changes edition.
  */
 function assertionFor(node: Node): { readonly fields: readonly string[]; readonly parameters: readonly [] } | undefined {
   if (!isElement(node)) return undefined;
@@ -418,10 +447,12 @@ function assertionFor(node: Node): { readonly fields: readonly string[]; readonl
 }
 
 /**
- * 這個節點在父節點底下的序號。
+ * This node's ordinal under its parent.
  *
- * 文字節點不必分辨自己是不是所屬那一塊的第一個——**整塊共用同一個序號**，而那個
- * 序號只由「前面有幾個元素」決定。塊裡的第幾個字元由位移那一格表達，不由序號表達。
+ * A text node does not have to work out whether it is the first of its chunk — **the whole
+ * chunk shares one ordinal**, and that ordinal is determined solely by how many elements
+ * precede it. Which character within the chunk is expressed by the offset, not by the
+ * ordinal.
  */
 function stepIndexOf(parent: Node, node: Node): number {
   let elements = 0;
@@ -441,7 +472,7 @@ function stepIndexOf(parent: Node, node: Node): number {
   return elements * 2 + 1;
 }
 
-/** 兩條路徑從頭數起有幾步相同。 */
+/** How many steps two paths share, counting from the start. */
 function sharedStepCount(
   left: readonly CfiStep[],
   right: readonly CfiStep[],
@@ -456,4 +487,3 @@ function sharedStepCount(
   }
   return shared;
 }
-

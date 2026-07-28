@@ -1,14 +1,18 @@
 /**
- * CRC32（IEEE 802.3 那一版），ZIP 每個項目的完整性校驗。
+ * CRC32 (the IEEE 802.3 variant), the integrity check on every ZIP entry.
  *
- * 讀寫兩端共用同一份：`src/test-fixtures/zip.ts` 寫入時算，`src/epub/zip.ts`
- * 讀出時驗。**共用是刻意的**——兩份實作可以同時錯得一樣，於是產生器寫出來的
- * fixture 用自己的讀取器讀得回來，測試全綠，而任何一個外部工具都打不開它。
- * 一份實作的話，錯了就是對照實作（`node:zlib`、`fflate`）那一側立刻紅燈。
+ * The reader and the writer share this one implementation: `src/test-fixtures/zip.ts`
+ * computes it on write, `src/epub/zip.ts` verifies it on read. **Sharing is
+ * deliberate** — two implementations can be wrong in the same way, so the fixtures
+ * the generator writes read back fine through our own reader, the tests all go
+ * green, and no external tool can open them. With a single implementation, a bug
+ * turns the reference implementations (`node:zlib`, `fflate`) red immediately.
  *
- * 手寫的理由與 `src/sha1.ts` 相同：平台上沒有這個函式，而 `EpubBook` 兩邊都要
- * 跑（ADR-0005）。它不是密碼學雜湊，不服務任何安全需求——CRC32 偵測的是傳輸
- * 與儲存的意外損壞，刻意的竄改它擋不住，也不該拿它擋。
+ * The reason it is hand-written is the same as for `src/sha1.ts`: the platform does
+ * not provide this function, and `EpubBook` has to run on both sides (ADR-0005).
+ * It is not a cryptographic hash and serves no security requirement — CRC32 detects
+ * accidental corruption in transit and storage; it does not stop deliberate
+ * tampering, and must not be relied on to.
  */
 
 const CRC32_TABLE = buildCrc32Table();
@@ -27,9 +31,10 @@ function buildCrc32Table(): Uint32Array {
 
 export function crc32(bytes: Uint8Array): number {
   let crc = 0xffffffff;
-  // 用索引而不是 `for…of`：讀取端每開一本書就要對整本的位元組算一次，而迭代器
-  // 在這個迴圈裡佔的比重量得出來（34 MB 的書上，換掉之後這一支從 150 ms 掉到
-  // 40 ms 上下）。
+  // Index rather than `for…of`: the read side computes this over every byte of the
+  // book each time one is opened, and the iterator's share of this loop is
+  // measurable (on a 34 MB book, replacing it took this function from ~150 ms down
+  // to ~40 ms).
   for (let at = 0; at < bytes.length; at += 1) {
     crc = CRC32_TABLE[(crc ^ bytes[at]!) & 0xff]! ^ (crc >>> 8);
   }

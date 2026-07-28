@@ -1,35 +1,43 @@
 /**
- * 一本繁體中文的直排合成書，給 README 與 demo 站的截圖用。
+ * A synthetic vertical Traditional Chinese book, for the screenshots in the README and on
+ * the demo site.
  *
- * ## 為什麼不放進 `AILMENTS`
+ * ## Why it is not in `AILMENTS`
  *
- * 合成 fixture 的清單受三重管制：ADR-0007 的那張表、`single-ailment.test.ts`
- * 的 `REQUIRED_BY_ADR_0007` 集合相等、以及一組「這個病症恰好出現在這幾份檔案」
- * 的探針。那套管制存在的理由是**紅燈可讀性**——測試紅的時候，檔名就說明了是哪
- * 一種病復發。
+ * The synthetic fixture list is governed three ways: ADR-0007's table,
+ * `single-ailment.test.ts`'s set equality against `REQUIRED_BY_ADR_0007`, and a set of
+ * probes asserting "this ailment appears in exactly these files". That governance exists
+ * for the sake of **red-light readability** — when a test goes red, the filename says
+ * which ailment has come back.
  *
- * 這本書不是病症，也不是任何病症的對照組；它存在的理由是「截圖裡的字要是繁體
- * 中文」。塞進那份清單等於在一組全為測試而存在的檔案裡放一份為展示而存在的，
- * 而下一個讀那張表的人得自己看出這件事。所以它走自己這條路：同一套
- * `buildEpub()`，不同的用途。
+ * This book is not an ailment, nor a control for any ailment; it exists because "the
+ * characters in the screenshots have to be Traditional Chinese". Forcing it into that list
+ * would put a file that exists for display among a set of files that exist entirely for
+ * testing, and the next person reading that table would have to work that out for
+ * themselves. So it takes its own route: the same `buildEpub()`, a different purpose.
  *
- * 它與 fixture 共用這個目錄是因為這裡是**合成書產生器**的家；受管制的是
- * `ailments.ts` 那份清單，不是這個目錄。`tsconfig.build.json` 把整個目錄排除
- * 在出貨產物之外，所以這個檔案不會出現在消費端手上。
+ * It shares this directory with the fixtures because this is the home of the **synthetic
+ * book generator**; what is governed is `ailments.ts`'s list, not this directory.
+ * `tsconfig.build.json` excludes the whole directory from the shipped artifact, so this
+ * file never reaches consumers.
  *
- * ## 為什麼書是合成的
+ * ## Why the book is synthetic
  *
- * 手上那批實際流通的書有版權（ADR-0007），截圖會把內文一起截進去。合成的內容
- * 沒有這個問題，而截圖要展示的東西——直排、句讀點取到直排字符、行由右而左——
- * 合成的書一樣看得出來。
+ * The commercially circulating books on hand are copyrighted (ADR-0007), and a screenshot
+ * would capture their text along with everything else. Synthetic content does not have
+ * that problem, and what the screenshots are there to show — vertical layout, punctuation
+ * resolving to vertical glyphs, lines running right to left — is just as visible in a
+ * synthetic book.
  */
 
 import { buildEpub, type SectionSpec } from "./epub.ts";
 
 /**
- * 指名字面而不是 generic family，理由與合成 fixture 相同：三家瀏覽器對 generic
- * 的 CJK 解析並不一致（#4）。`Noto Serif CJK TC` 由測試映像的 fontconfig 綁定
- * （`docker/fontconfig/75-frond-cjk.conf`），所以容器裡截出來的圖可重現。
+ * A named face rather than a generic family, for the same reason as the synthetic
+ * fixtures: the three browsers do not agree on CJK resolution for generics (#4).
+ * `Noto Serif CJK TC` is bound by the test image's fontconfig
+ * (`docker/fontconfig/75-frond-cjk.conf`), so screenshots taken in the container are
+ * reproducible.
  */
 const STYLESHEET = `html {
   writing-mode: vertical-rl;
@@ -54,9 +62,10 @@ p {
 `;
 
 /**
- * 為這個專案寫的合成散文。段落刻意都放進句讀點（`、` `。`）與引號（`「」`）
- * ——那幾個標點在直排下必須取到旋轉過的字符，是截圖裡一眼看得出對錯的地方
- * （`docs/browser-quirks.md` 記著 WebKit 在這一格會排錯）。
+ * Synthetic prose written for this project. Every paragraph deliberately contains
+ * punctuation (`、` `。`) and quotation marks (`「」`) — those marks have to resolve to
+ * rotated glyphs when vertical, and they are where right and wrong are visible at a glance
+ * in a screenshot (`docs/browser-quirks.md` records that WebKit gets this case wrong).
  */
 const CHAPTERS: readonly {
   readonly title: string;
@@ -125,15 +134,16 @@ const readingOrder: readonly SectionSpec[] = CHAPTERS.map((chapter, index) => ({
   ].join("\n"),
 }));
 
-/** 產出這本書的位元組。與 fixture 一樣是決定性的——identifier 不取亂數。 */
+/** Produces this book's bytes. Deterministic like the fixtures — the identifier is not random. */
 export function buildDemoBook(): Uint8Array {
   return buildEpub({
     title: "渡口",
     language: "zh-TW",
     identifier: "urn:uuid:frond-demo-zh-tw",
-    // 直排的中文書幾乎都宣告 rtl。這本書要演的是「一本正常的書」而不是對照組，
-    // 所以它照實際的形狀宣告——`vertical-japanese` 刻意留空是因為它要當
-    // `ppd-rtl-vertical` 的對照組，那個理由在這裡不適用。
+    // Vertical Chinese books almost always declare rtl. This book is playing "a normal
+    // book" rather than a control, so it declares the real-world shape — `vertical-japanese`
+    // deliberately leaves it out because it has to be `ppd-rtl-vertical`'s control, and
+    // that reason does not apply here.
     pageProgressionDirection: "rtl",
     stylesheet: STYLESHEET,
     readingOrder,

@@ -9,39 +9,42 @@ import {
 } from "./support/handmade.ts";
 
 /**
- * TOC——有層次的標題與位置對照（CONTEXT.md）。
+ * The TOC — a hierarchy of titles paired with locations (CONTEXT.md).
  *
- * 這一組同時餵**兩種導覽載體**：EPUB 3 的 `nav.xhtml` 與 EPUB 2 的 `toc.ncx`。
- * 兩者表達層次與位置的方式不同（`<ol>` 套在 `<li>` 裡面對 navPoint 套 navPoint、
- * 一個 `<a>` 同時帶標籤與位置對 `navLabel` 與 `content` 是兩個子元素），所以
- * 每一條病症都要在兩種載體上各跑一次——只在一種載體上綠的實作，在實際的書上
- * 有一半會壞（ADR-0010：樣本裡的壞 TOC 正是長在 NCX 上）。
+ * This group feeds **both navigation vehicles**: EPUB 3's `nav.xhtml` and EPUB 2's
+ * `toc.ncx`. The two express hierarchy and location differently (an `<ol>` nested
+ * inside the `<li>` versus a navPoint nested in a navPoint; one `<a>` carrying both
+ * label and location versus `navLabel` and `content` being two child elements), so
+ * every ailment has to be run once per vehicle — an implementation that is green on
+ * only one of them breaks on half the real books (ADR-0010: the bad TOCs in the sample
+ * are precisely the ones living on an NCX).
  */
 
-/** 把樹攤平成文件順序，供「有沒有讀到這一項」這種問題。 */
+/** Flattens the tree into document order, for "was this entry read at all" questions. */
 function flatten(items: readonly TocItem[]): readonly TocItem[] {
   return items.flatMap((item) => [item, ...flatten(item.children)]);
 }
 
-/** 一項 TOC 指到壓縮檔內的哪個路徑。指不到封裝內時是 undefined。 */
+/** Which path inside the archive a TOC entry points at. undefined when it points outside the package. */
 function pathOf(item: TocItem): string | undefined {
   return item.target.kind === "in-container" ? item.target.path : undefined;
 }
 
-/** 成對的兩份 fixture：同一個形狀，兩種載體。 */
+/** A matched pair of fixtures: one shape, two vehicles. */
 const VEHICLES = [
   { vehicle: "nav", fileName: "nested-toc.epub" },
   { vehicle: "ncx", fileName: "nested-toc-epub2.epub" },
 ] as const;
 
-describe("巢狀結構", () => {
+describe("nesting", () => {
   test.for(VEHICLES)(
-    "$fileName 的第二層掛在對的父項目底下",
+    "$fileName's second level hangs under the right parent",
     async ({ fileName }: (typeof VEHICLES)[number]) => {
       const book = await EpubBook.open(await readFixture(fileName));
 
-      // 子清單放成兄弟的導覽文件仍然良構、瀏覽器一樣畫得出來，但那棵樹是平的
-      // ——所以要問的是形狀，不是項目數。
+      // A navigation document that puts its sub-list in as a sibling is still
+      // well-formed and browsers still draw it, but that tree is flat — so what has to
+      // be asked about is the shape, not the entry count.
       expect(book.toc.map((item) => item.label)).toEqual([
         "朝の光",
         "坂の道",
@@ -56,7 +59,7 @@ describe("巢狀結構", () => {
   );
 
   test.for(VEHICLES)(
-    "$fileName 的深度不被壓平",
+    "$fileName's depth is not flattened",
     async ({ fileName }: (typeof VEHICLES)[number]) => {
       const book = await EpubBook.open(await readFixture(fileName));
 
@@ -65,9 +68,10 @@ describe("巢狀結構", () => {
     },
   );
 
-  test("深度不限於一層", async () => {
-    // fixture 演的是實際的書量到的形狀（兩層），而實作不該把「兩層」寫死。
-    // 三層的書沒有 fixture，所以在這裡手工組一本。
+  test("depth is not capped at one level", async () => {
+    // The fixtures play the shape measured on real books (two levels), and the
+    // implementation should not hard-code "two". There is no fixture for a three-level
+    // book, so one is assembled by hand here.
     const book = await EpubBook.open(
       handmadeBook({
         packageDocument: packageDocument({
@@ -101,7 +105,7 @@ describe("巢狀結構", () => {
   });
 });
 
-describe("href 的兩種病症，兩種載體都要解得開", () => {
+describe("both href ailments have to be resolved on both vehicles", () => {
   const AILING = [
     { fileName: "toc-href-percent-comma.epub", vehicle: "nav" },
     { fileName: "toc-href-percent-comma-epub2.epub", vehicle: "ncx" },
@@ -110,38 +114,41 @@ describe("href 的兩種病症，兩種載體都要解得開", () => {
   ] as const;
 
   test.for(AILING)(
-    "$fileName 的每一項都解析到 readingOrder 上的 Section",
+    "every entry in $fileName resolves to a Section on the readingOrder",
     async ({ fileName }: (typeof AILING)[number]) => {
       const book = await EpubBook.open(await readFixture(fileName));
 
-      // 「解析得到正確的 Section」的意思就是這個：TOC 那一側算出來的路徑，與
-      // readingOrder 那一側算出來的路徑是同一個字串。兩側各寫一套正規化的
-      // 實作會在這裡分岔——而那正是 #1 記的 spine 原罪。
+      // This is what "resolves to the right Section" means: the path computed on the TOC
+      // side is the same string as the path computed on the readingOrder side. An
+      // implementation with its own normalization on each side diverges right here — and
+      // that is exactly the spine original sin recorded in #1.
       expect(book.toc.map(pathOf)).toEqual(
         book.readingOrder.map((section) => section.path),
       );
     },
   );
 
-  test("%2c 的那本書，TOC 指到的是字面逗號的那個項目", async () => {
+  test("in the %2c book, the TOC points at the literal-comma entry", async () => {
     const book = await EpubBook.open(
       await readFixture("toc-href-percent-comma.epub"),
     );
 
-    // 病症只長在 TOC 那一側：manifest 與壓縮檔的項目名都是字面的逗號。沒有
-    // 還原 percent-encoding 的實作會拿 `section-2%2ccontinued.xhtml` 去查表，
-    // 查不到，然後點目錄靜默無反應。
+    // The ailment lives only on the TOC side: both the manifest and the archive entry
+    // name use a literal comma. An implementation that does not undo percent-encoding
+    // looks up `section-2%2ccontinued.xhtml`, finds nothing, and then tapping the table
+    // of contents silently does nothing.
     expect(book.toc[1]?.href).toContain("%2c");
     expect(pathOf(book.toc[1]!)).toBe("EPUB/section-2,continued.xhtml");
   });
 
-  test("../ 的那本書，導覽文件在子目錄裡", async () => {
+  test("in the ../ book, the navigation document sits in a subdirectory", async () => {
     const book = await EpubBook.open(
       await readFixture("toc-href-parent-prefix.epub"),
     );
 
-    // href 相對的是**導覽文件自己**的位置，不是封裝文件的位置。拿封裝文件當
-    // 基底的實作在這份 fixture 上會走出 EPUB/ 之外。
+    // An href is relative to **the navigation document's own** position, not the package
+    // document's. An implementation using the package document as its base walks outside
+    // EPUB/ on this fixture.
     expect(book.navigationDocument?.path).toBe("EPUB/nav/nav.xhtml");
     expect(book.toc[0]?.href).toBe("../section-1.xhtml");
     expect(pathOf(book.toc[0]!)).toBe("EPUB/section-1.xhtml");
@@ -150,15 +157,16 @@ describe("href 的兩種病症，兩種載體都要解得開", () => {
 
 describe("fragment", () => {
   test.for(VEHICLES)(
-    "$fileName 的第二層帶得出 fragment，第一層沒有 fragment",
+    "$fileName's second level carries a fragment and its first level does not",
     async ({ fileName }: (typeof VEHICLES)[number]) => {
       const book = await EpubBook.open(await readFixture(fileName));
       const target = (item: TocItem) =>
-        item.target.kind === "in-container" ? item.target.fragment : "(不在封裝內)";
+        item.target.kind === "in-container" ? item.target.fragment : "(outside the package)";
 
-      // 帶 fragment 與不帶的在同一份導覽文件裡混用，是樣本裡那本巢狀 EPUB 2 的
-      // 形狀。丟掉 fragment 的實作在第一層上完全正常，只有跳到章節中段時才會
-      // 靜默地停在 Section 開頭。
+      // Mixing entries with and without fragments in one navigation document is the shape
+      // of the nested EPUB 2 in the sample. An implementation that drops fragments looks
+      // perfectly fine on the first level, and only when jumping into the middle of a
+      // chapter does it silently stop at the Section's start.
       expect(book.toc.map(target)).toEqual([undefined, undefined, undefined]);
       expect(book.toc.map((item) => item.children.map(target))).toEqual([
         ["part-1-1", "part-1-2"],
@@ -168,7 +176,7 @@ describe("fragment", () => {
     },
   );
 
-  test("fragment 是解碼過的，對得上文件裡的 id", async () => {
+  test("the fragment comes back decoded, matching the id in the document", async () => {
     const book = await EpubBook.open(
       handmadeBook({
         packageDocument: packageDocument({
@@ -187,16 +195,16 @@ describe("fragment", () => {
       }),
     );
 
-    // id 可以是非 ASCII，而 href 裡的它是 percent-encoded 的。不解碼的話，拿
-    // 這個 fragment 去 getElementById 一個字都對不上。
+    // An id may be non-ASCII, and in an href it arrives percent-encoded. Without
+    // decoding, handing this fragment to getElementById matches nothing at all.
     expect(
       book.toc[0]?.target.kind === "in-container" && book.toc[0].target.fragment,
     ).toBe("第一章");
   });
 });
 
-describe("兩份導覽文件都在時誰贏（ADR-0010）", () => {
-  /** 宣告 3.x，nav 與 NCX 都在，而且**內容不一致**。 */
+describe("which wins when both navigation documents are present (ADR-0010)", () => {
+  /** Declares 3.x, has both a nav and an NCX, and **they disagree**. */
   function bothVehicles(): Uint8Array {
     return handmadeBook({
       packageDocument: packageDocument({
@@ -223,9 +231,9 @@ describe("兩份導覽文件都在時誰贏（ADR-0010）", () => {
     });
   }
 
-  test("EPUB 3 用 nav，NCX 完全忽略", async () => {
-    // 兩者都在是常態（樣本裡 31 本 EPUB 3 全部都有），所以這一格不能是「報錯」
-    // 或「合併」。
+  test("EPUB 3 uses the nav and ignores the NCX entirely", async () => {
+    // Having both is the norm (all 31 EPUB 3s in the sample do), so this slot cannot be
+    // "report an error" or "merge".
     const book = await EpubBook.open(bothVehicles());
 
     expect(book.navigationDocument).toEqual({
@@ -235,13 +243,14 @@ describe("兩份導覽文件都在時誰贏（ADR-0010）", () => {
     expect(book.toc.map((item) => item.label)).toEqual(["nav 說的標題"]);
   });
 
-  test("兩份內容不一致不是錯誤——不合併、不交叉驗證", async () => {
-    // 不一致是事實，要不要提示讀者是消費端的政策（ADR-0002）。一本 EPUB 3 附
-    // 一份過期的 NCX 完全合規，把它變成錯誤會讓一本好書開不起來。
+  test("the two disagreeing is not an error — no merging, no cross-validation", async () => {
+    // The disagreement is a fact; whether to warn the reader is the consumer's policy
+    // (ADR-0002). An EPUB 3 shipping a stale NCX is entirely conforming, and turning that
+    // into an error would stop a good book from opening.
     await expect(EpubBook.open(bothVehicles())).resolves.toBeDefined();
   });
 
-  test("宣告 3.x 卻沒有 nav 時退回 NCX，不丟錯", async () => {
+  test("3.x declared with no nav falls back to the NCX rather than throwing", async () => {
     const book = await EpubBook.open(
       handmadeBook({
         packageDocument: packageDocument({
@@ -266,7 +275,7 @@ describe("兩份導覽文件都在時誰贏（ADR-0010）", () => {
     expect(book.toc.map((item) => item.label)).toEqual(["只有 NCX"]);
   });
 
-  test("EPUB 2 只有 NCX 這條路", async () => {
+  test("EPUB 2 has only the NCX route", async () => {
     const book = await EpubBook.open(await readFixture("healthy-epub2.epub"));
 
     expect(book.navigationDocument).toEqual({
@@ -280,10 +289,11 @@ describe("兩份導覽文件都在時誰贏（ADR-0010）", () => {
     ]);
   });
 
-  test("NCX 沒有被 <spine toc> 指到時，靠 media type 也找得到", async () => {
-    // 量到的：那 33 本書全部在 manifest 上宣告了 NCX，但只有 27 本用
-    // `<spine toc>` 指向它——**6 本只能靠 media type 找到**。那 6 本都有 nav
-    // 所以走不到這條路，但「NCX 沒被指到」這件事本身在野外很常見。
+  test("an NCX not pointed at by <spine toc> is still found by media type", async () => {
+    // Measured: all 33 books declare an NCX in the manifest, but only 27 point at it with
+    // `<spine toc>` — **6 are findable only by media type**. All 6 have a nav so they
+    // never reach this route, but "the NCX is not pointed at" is itself very common in
+    // the wild.
     const book = await EpubBook.open(
       handmadeBook({
         packageDocument: packageDocument({
@@ -307,9 +317,10 @@ describe("兩份導覽文件都在時誰贏（ADR-0010）", () => {
   });
 });
 
-describe("一份導覽文件都沒有的書", () => {
-  test("回報空 TOC 而不是拒開", async () => {
-    // 讀者要的是書打得開（ADR-0010 的權衡方向）。一本沒有目錄的書仍然讀得完。
+describe("a book with no navigation document at all", () => {
+  test("reports an empty TOC rather than refusing to open", async () => {
+    // What the reader wants is for the book to open (the direction ADR-0010 sets for
+    // this trade-off). A book without a table of contents is still readable end to end.
     const book = await EpubBook.open(
       handmadeBook({
         packageDocument: packageDocument({}),
@@ -321,9 +332,10 @@ describe("一份導覽文件都沒有的書", () => {
     expect(book.navigationDocument).toBeUndefined();
   });
 
-  test("導覽文件宣告了卻不在壓縮檔裡，也只是空 TOC", async () => {
-    // 缺檔只在 readingOrder 上致命（`resources.ts`）。導覽文件缺了，少的是
-    // 目錄不是內容。
+  test("a navigation document declared but absent from the archive is also just an empty TOC", async () => {
+    // A missing file is only fatal on the readingOrder (`resources.ts`). With the
+    // navigation document gone, what is missing is the table of contents, not the
+    // content.
     const book = await EpubBook.open(
       handmadeBook({
         packageDocument: packageDocument({
@@ -339,11 +351,12 @@ describe("一份導覽文件都沒有的書", () => {
   });
 });
 
-describe("nav.xhtml 這個載體自己的形狀", () => {
-  test("landmarks 那份 nav 不會被當成 TOC", async () => {
-    // 量到的：31 本有 nav 的書裡，**27 本的導覽文件不只一個 `<nav>`**（多半是
-    // landmarks），而且 31 本全部都在 TOC 那一個上宣告了 epub:type="toc"。
-    // 拿第一個 `<nav>` 當 TOC 的實作在這批書上會撿到別的清單。
+describe("the nav.xhtml vehicle's own shape", () => {
+  test("the landmarks nav is not mistaken for the TOC", async () => {
+    // Measured: of the 31 books with a nav, **27 have more than one `<nav>` in their
+    // navigation document** (mostly landmarks), and all 31 declare epub:type="toc" on the
+    // TOC one. An implementation that takes the first `<nav>` as the TOC picks up a
+    // different list on these books.
     const book = await EpubBook.open(
       handmadeBook({
         packageDocument: packageDocument({
@@ -366,10 +379,11 @@ describe("nav.xhtml 這個載體自己的形狀", () => {
     expect(book.toc.map((item) => item.label)).toEqual(["目錄的標題"]);
   });
 
-  test("標題包在行內標籤裡也讀得出來，順序不變", async () => {
-    // 量到的：1527 個目錄連結裡有 73 個的標題帶行內標籤（5 本書），其中一本
-    // **39 個項目的文字全部包在 `<span>` 裡**。只讀 `<a>` 自己那一層文字的
-    // 實作會讓那本書整份目錄的標題是空字串。
+  test("a label wrapped in inline tags is still read, in order", async () => {
+    // Measured: 73 of 1527 TOC links have labels carrying inline tags (5 books), and in
+    // one of them **all 39 entries have their text wrapped in a `<span>`**. An
+    // implementation that reads only the `<a>`'s own text level leaves that book's entire
+    // table of contents with empty labels.
     const book = await EpubBook.open(
       handmadeBook({
         packageDocument: packageDocument({
@@ -400,7 +414,7 @@ describe("nav.xhtml 這個載體自己的形狀", () => {
   });
 });
 
-/** 一份 `nav.xhtml`。`before` 若給了，會多一個排在前面的 landmarks nav。 */
+/** A `nav.xhtml`. When `before` is given, an extra landmarks nav is placed ahead of the TOC. */
 function navigationDocument(list: string, before?: string): string {
   const landmarks =
     before === undefined
@@ -420,7 +434,7 @@ ${list}
 `;
 }
 
-/** 一份 NCX。 */
+/** An NCX. */
 function navigationControlFile(navPoints: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1" xml:lang="ja">

@@ -1,43 +1,50 @@
 {
-  // 出貨產物的建置設定。根 `tsconfig.json` 服務的是「在這個 repo 裡工作」——它
-  // 收 scripts/ 與 tests/、不 emit、吃 @types/node。這一份只服務一件事：把
-  // `src/epub` 與 `src/renderer` 變成消費端 import 得動的 JavaScript。
+  // The build configuration for the shipped artifact. The root `tsconfig.json` serves
+  // "working inside this repo" — it takes in scripts/ and tests/, does not emit, and pulls
+  // in @types/node. This one serves exactly one thing: turning `src/epub` and
+  // `src/renderer` into JavaScript that consumers can import.
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "noEmit": false,
     "rootDir": "src",
     "outDir": "dist",
 
-    // 消費端拿到的是 .js，型別要靠 .d.ts。declarationMap 與 sourceMap 讓
-    // 「跳到定義」落在 frond 的原始碼上而不是 emit 出來的那一份——這是消費端
-    // 回報問題時唯一能指得準的東西。
+    // What consumers receive is .js, and the types have to come from .d.ts. declarationMap
+    // and sourceMap make "jump to definition" land on frond's source rather than the
+    // emitted copy — that is the only thing a consumer can point at precisely when
+    // reporting a problem.
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
 
-    // 這一格是整份設定的關鍵。src/ 內部一律以 .ts 副檔名互相 import（理由見
-    // 根 tsconfig.json），而瀏覽器與 Node 都只認 .js。這個開關在 emit 時把
-    // `./x.ts` 改寫成 `./x.js`，.d.ts 裡的型別 import 一併改寫。
+    // This setting is the crux of the whole configuration. Inside src/ everything imports
+    // everything else with a .ts extension (for the reason see the root tsconfig.json),
+    // while browsers and Node only recognise .js. This switch rewrites `./x.ts` into
+    // `./x.js` on emit, and rewrites the type imports inside the .d.ts along with it.
     //
-    // 沒有它就只剩兩條路：消費端一律得有能編 TypeScript 的打包器，或我們自己
-    // 引入一個打包器。兩條都會讓「零相依、瀏覽器直接 import」這個性質消失。
+    // Without it only two routes remain: every consumer must have a bundler that can
+    // compile TypeScript, or we bring in a bundler ourselves. Both would destroy the
+    // property "zero dependencies, importable directly by a browser".
     "rewriteRelativeImportExtensions": true,
 
-    // **刻意不吃 @types/node。**
+    // **@types/node is deliberately not pulled in.**
     //
-    // `EpubBook` 與 `Renderer` 本來就零 Node 相依（ADR-0005：前者要在瀏覽器與
-    // Node 兩邊跑，後者只要 DOM），而這件事目前只靠紀律維持。把 node 型別從
-    // 建置設定裡拿掉，紀律就變成機器守得住的事：哪天有人在這兩層 import 了
-    // `node:crypto`，紅的是 `npm run build`，而不是某個消費端的執行期。
+    // `EpubBook` and `Renderer` have zero Node dependencies to begin with (ADR-0005: the
+    // former has to run in both the browser and Node, the latter needs only the DOM), and
+    // that is currently held in place by discipline alone. Removing the node types from the
+    // build configuration turns that discipline into something a machine enforces: the day
+    // someone imports `node:crypto` in either layer, what turns red is `npm run build`
+    // rather than some consumer's runtime.
     //
-    // `src/test-fixtures/` 用 node:fs 寫檔，所以它在下面被排除掉——它是我們產
-    // 合成 fixture 的工具，不是出貨表面的一部分。
+    // `src/test-fixtures/` writes files with node:fs, so it is excluded below — it is our
+    // tool for producing synthetic fixtures, not part of the shipped surface.
     "types": [],
 
-    // 根 `tsconfig.json` 的 `paths` 是 dev-time 的方便（讓 frond-react 不必先
-    // build 就 typecheck 得動）。清掉它，同一條紀律就延伸到這裡：這個套件的
-    // 模組圖裡**沒有任何 bare specifier 解析得開**，連一條只在 repo 內成立的
-    // 捷徑都沒有。零相依因此不是靠 review 守的。
+    // The root `tsconfig.json`'s `paths` is a dev-time convenience (letting frond-react
+    // typecheck without building first). Clearing it extends the same discipline here: in
+    // this package's module graph **not one bare specifier resolves**, not even a shortcut
+    // that only holds inside the repo. Zero dependencies is therefore not held in place by
+    // review.
     "paths": {}
   },
   "include": ["src/**/*.ts"],

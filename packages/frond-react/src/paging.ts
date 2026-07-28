@@ -1,15 +1,17 @@
 /**
- * 翻頁的**政策**：鍵盤與手勢。
+ * The **policy** of page turning: keyboard and gestures.
  *
- * ## 這個檔案在 ADR-0002 那條線的哪一邊
+ * ## Which side of ADR-0002's line this file is on
  *
- * 在消費端那一邊——而它出現在這個套件裡，是因為 ADR-0002 劃的是「frond 核心不做政
- * 策」，不是「政策不准有預設值」。核心層的 `Renderer` 送的是兩個獨立的事實
- * （`pointerdown`、`pointerup`，各自帶座標），「這是一次往左滑，所以是下一頁」的
- * 推論在這裡完成。
+ * The consumer's side — and it appears in this package because ADR-0002 draws the line at
+ * "frond's core does no policy", not at "policy may have no defaults". The core layer's
+ * `Renderer` emits two independent facts (`pointerdown` and `pointerup`, each carrying
+ * coordinates), and the inference "this is a leftward swipe, therefore next page" is made
+ * here.
  *
- * 所以規則是：**顯式 import 才會生效**。這兩個 hook 不在任何零件裡面，`Root` 也不
- * 會偷偷幫你叫。沒有叫它們的 reader 一個手勢都不吃，就跟直接用 `Renderer` 一樣。
+ * So the rule is: **it only takes effect when imported explicitly**. Neither hook lives
+ * inside any part, and `Root` will not quietly call them for you. A reader that does not
+ * call them consumes no gestures at all, exactly like using `Renderer` directly.
  *
  * ```tsx
  * function Paging() {
@@ -20,56 +22,63 @@
  * // <Root …><Paging /><Viewport /></Root>
  * ```
  *
- * 不同意這裡的規則就別叫它們，自己接 `useReader()` 的 `next()` / `previous()`。這
- * 兩個 hook 的實作短到可以整段抄走改——那也是它們刻意寫得直白的原因。
+ * If you disagree with the rules here, do not call them and wire `useReader()`'s `next()` /
+ * `previous()` up yourself. Both hooks' implementations are short enough to copy wholesale
+ * and modify — which is also why they are deliberately written plainly.
  *
- * ## 方向
+ * ## Direction
  *
- * 「往左滑是下一頁還是上一頁」取決於頁面推進方向，而那個事實**這一層拿不到**：它
- * 宣告在封裝文件裡，由 `EpubBook.metadata.pageProgressionDirection` 回報，而
- * `Renderer` 收的是 `RenderableBook` 這個窄介面（ADR-0005）。
+ * Whether swiping left is the next or the previous page depends on the page progression
+ * direction, and **this layer cannot reach that fact**: it is declared in the package
+ * document and reported by `EpubBook.metadata.pageProgressionDirection`, while `Renderer`
+ * receives the narrow `RenderableBook` interface (ADR-0005).
  *
- * 所以預設值從書寫方向推：直排一律當成 `rtl`，其餘當成 `ltr`。**橫排的 RTL 語言
- * （阿拉伯文、希伯來文）推不出來**——那種書要顯式傳 `direction: "rtl"`。這件事寫在
- * 這裡而不是靜靜猜錯，是因為猜錯的症狀是「翻頁方向整本反過來」，而讀者不會知道那
- * 是一個設定問題。
+ * So the default is inferred from the writing mode: vertical is always treated as `rtl` and
+ * everything else as `ltr`. **Horizontal RTL languages (Arabic, Hebrew) cannot be
+ * inferred** — such books have to pass `direction: "rtl"` explicitly. This is written down
+ * here rather than quietly guessed wrong, because the symptom of guessing wrong is "the
+ * page turn direction is reversed for the whole book", and the reader will not know that is
+ * a configuration problem.
  */
 
 import { useEffect } from "react";
 import { useReader } from "./context.ts";
 
-/** 頁面推進方向。與書寫方向是兩件事——見檔頭。 */
+/** The page progression direction. A different thing from the writing mode — see the file header. */
 export type PagingDirection = "ltr" | "rtl";
 
 export interface PagingOptions {
   /**
-   * 頁面推進方向。省略時由書寫方向推：`vertical-rl` → `rtl`，其餘 → `ltr`。
+   * The page progression direction. Omitted, it is inferred from the writing mode:
+   * `vertical-rl` → `rtl`, everything else → `ltr`.
    *
-   * 有 `EpubBook` 在手的話，正確的來源是 `book.metadata.pageProgressionDirection`
-   * ——它是書自己宣告的，EPUB 2 沒有這個屬性時它回報「書沒說」，那時候再退回這裡
-   * 的推論。
+   * With an `EpubBook` in hand the correct source is
+   * `book.metadata.pageProgressionDirection` — it is what the book declares itself, and when
+   * EPUB 2 has no such attribute it reports "the book did not say", at which point falling
+   * back to the inference here is right.
    */
   readonly direction?: PagingDirection | undefined;
-  /** 關掉。放在這裡而不是要求消費端有條件地叫 hook——hook 不能寫在條件裡。 */
+  /** Turns it off. It is here rather than asking the consumer to call the hook conditionally — hooks cannot go inside conditions. */
   readonly enabled?: boolean | undefined;
 }
 
 export interface KeyboardPagingOptions extends PagingOptions {
   /**
-   * 除了 iframe 內的按鍵，要不要也收整份文件的。
+   * Whether to receive the whole document's keys as well as the ones inside the iframe.
    *
-   * 預設收。焦點在工具列的按鈕上時，按鍵根本不會進到 iframe，而讀者不會覺得
-   * 「我剛剛點過那顆按鈕」是翻頁失效的理由。
+   * On by default. When focus is on a toolbar button, keys never reach the iframe at all,
+   * and a reader will not accept "I just clicked that button" as a reason for page turning
+   * to stop working.
    */
   readonly global?: boolean | undefined;
 }
 
 export interface SwipePagingOptions extends PagingOptions {
-  /** 滑多少 px 才算一次翻頁。低於這個距離的當成點擊，不動作。 */
+  /** How many px of movement counts as a page turn. Anything shorter is treated as a tap and does nothing. */
   readonly threshold?: number | undefined;
 }
 
-/** 按鍵的共同形狀——iframe 內的 `RendererKeyEvent` 與原生的 `KeyboardEvent` 都合。 */
+/** The shape keys have in common — both the iframe's `RendererKeyEvent` and the native `KeyboardEvent` fit. */
 interface KeyLike {
   readonly key: string;
   readonly altKey: boolean;
@@ -80,17 +89,19 @@ interface KeyLike {
 }
 
 /**
- * 鍵盤翻頁。
+ * Keyboard page turning.
  *
- * 綁的鍵：
+ * The keys bound:
  *
- *   - **下一頁**：`PageDown`、`Space`、`ArrowDown`，以及朝閱讀方向前進的那個橫向
- *     箭頭（`ltr` 是 `ArrowRight`，`rtl` 是 `ArrowLeft`）
- *   - **上一頁**：`PageUp`、`ArrowUp`，以及反方向的那個橫向箭頭
+ *   - **Next page**: `PageDown`, `Space`, `ArrowDown`, and the horizontal arrow that
+ *     advances along the reading direction (`ArrowRight` for `ltr`, `ArrowLeft` for `rtl`)
+ *   - **Previous page**: `PageUp`, `ArrowUp`, and the horizontal arrow in the opposite
+ *     direction
  *
- * `ArrowDown` / `ArrowUp` 在直排書上看起來與視覺方向不符（直排的頁是左右移動的），
- * 但它們在兩種書寫方向下都保留成「下一頁 / 上一頁」——那是這兩個鍵在所有捲動介面
- * 上的意思，而讀者的手指記得的是那個意思，不是排版方向。
+ * `ArrowDown` / `ArrowUp` look inconsistent with the visual direction in a vertical book
+ * (vertical pages move left and right), but they keep meaning "next page / previous page"
+ * under both writing modes — that is what those two keys mean in every scrolling interface,
+ * and what the reader's fingers remember is that meaning, not the layout direction.
  */
 export function useKeyboardPaging(options: KeyboardPagingOptions = {}): void {
   const { renderer, next, previous, writingMode } = useReader();
@@ -104,8 +115,9 @@ export function useKeyboardPaging(options: KeyboardPagingOptions = {}): void {
     const backwardArrow = direction === "rtl" ? "ArrowRight" : "ArrowLeft";
 
     const act = (event: KeyLike): boolean => {
-      // 組合鍵一律讓開。`Cmd+ArrowRight` 是「跳到行尾」之類的系統手勢，攔下來只會
-      // 讓人以為瀏覽器壞了。輸入法組字中（`isComposing`）同理。
+      // Modifier combinations are always let through. `Cmd+ArrowRight` is a system gesture
+      // like "jump to end of line", and intercepting it only makes people think the browser
+      // is broken. The same goes for IME composition (`isComposing`).
       if (event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return false;
 
       switch (event.key) {
@@ -115,7 +127,7 @@ export function useKeyboardPaging(options: KeyboardPagingOptions = {}): void {
           void next();
           return true;
         case " ":
-          // Shift+Space 是往回，那是瀏覽器捲動的慣例。
+          // Shift+Space goes back, which is the browser scrolling convention.
           void (event.shiftKey ? previous() : next());
           return true;
         case "PageUp":
@@ -135,8 +147,9 @@ export function useKeyboardPaging(options: KeyboardPagingOptions = {}): void {
     if (!global) return unsubscribe;
 
     const onDocumentKeyDown = (event: KeyboardEvent): void => {
-      // 讀者正在打字（搜尋框、筆記）時不要翻頁。`isContentEditable` 涵蓋所見即所得
-      // 的編輯器，前兩個涵蓋一般的表單控制項。
+      // Do not turn pages while the reader is typing (a search box, a note).
+      // `isContentEditable` covers WYSIWYG editors, and the other three cover ordinary form
+      // controls.
       const target = event.target;
       if (target instanceof HTMLElement) {
         if (
@@ -149,7 +162,8 @@ export function useKeyboardPaging(options: KeyboardPagingOptions = {}): void {
         }
       }
 
-      // 處理掉才 preventDefault。沒攔的鍵要維持原本的行為，其中就包括 Tab。
+      // preventDefault only after handling. Keys that were not intercepted have to keep their
+      // original behaviour, and that includes Tab.
       if (act(event)) event.preventDefault();
     };
 
@@ -164,16 +178,18 @@ export function useKeyboardPaging(options: KeyboardPagingOptions = {}): void {
 }
 
 /**
- * 滑動翻頁。
+ * Swipe page turning.
  *
- * 事實來自 `Renderer` 的 `pointerdown` / `pointerup`——iframe 的邊界擋住冒泡，那兩
- * 個事件是消費端唯一收得到書裡指標動作的管道（`events.ts` 的註解說明了為什麼 frond
- * 送的是原始的按下與放開，而不是一個算好的手勢）。
+ * The facts come from `Renderer`'s `pointerdown` / `pointerup` — the iframe boundary blocks
+ * bubbling, and those two events are the consumer's only channel to pointer activity inside
+ * the book (the comments in `events.ts` explain why frond emits raw presses and releases
+ * rather than a computed gesture).
  *
- * 兩種情況不翻頁，因為讀者當下在做別的事：
+ * Two situations do not turn the page, because the reader is doing something else:
  *
- *   - 起點落在**已經選取的文字**上——那是在調整選取範圍
- *   - 起點落在**連結**上——`linkactivate` 會接著送出來，翻頁會跟它打架
+ *   - the start lands on **already selected text** — that is adjusting the selection
+ *   - the start lands on **a link** — a `linkactivate` will follow, and turning the page
+ *     would fight it
  */
 export function useSwipePaging(options: SwipePagingOptions = {}): void {
   const { renderer, next, previous, writingMode } = useReader();
@@ -197,11 +213,13 @@ export function useSwipePaging(options: SwipePagingOptions = {}): void {
       const dx = event.x - from.x;
       const dy = event.y - from.y;
 
-      // 主導軸決定這是橫滑還是直滑。兩軸都沒過門檻的話當成點擊——而點擊要不要翻頁
-      // 是另一個政策，不在這個 hook 裡。
+      // The dominant axis decides whether this is a horizontal or a vertical swipe. With
+      // neither axis over the threshold it is a tap — and whether a tap turns the page is a
+      // different policy, not in this hook.
       if (Math.abs(dx) >= Math.abs(dy)) {
         if (Math.abs(dx) < threshold) return;
-        // 往閱讀方向的**反向**滑，內容才會往前推進：ltr 的書往左滑是下一頁。
+        // Swiping **against** the reading direction is what advances the content: in an ltr
+        // book, swiping left is the next page.
         const forward = direction === "rtl" ? dx > 0 : dx < 0;
         void (forward ? next() : previous());
         return;

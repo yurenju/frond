@@ -3,24 +3,26 @@ import { compareCfi, parseCfi, serializeCfi } from "../../../packages/frond/src/
 import { mountFixture, openHarness } from "../support/harness.js";
 
 /**
- * 位置：CFI、fraction、以及版面變動之後的回位。
+ * Position: CFIs, fractions, and getting back after the layout changes.
  *
- * 這三件事共用同一個問題——**版面會變，位置不能跟著變**。viewport 換了、字級調了、
- * 欄數改了，頁碼一定不一樣，但讀者正在讀的那段文字必須還在眼前。所以下面幾條斷言
- * 幾乎都長成「量到的文字」而不是「量到的頁碼」。
+ * All three share one problem — **the layout changes and the position must not**. Change
+ * the viewport, adjust the font size, change the column count and the page number is
+ * certainly different, but the passage the reader was reading has to still be in front of
+ * them. So nearly every assertion below is shaped as "the text measured" rather than "the
+ * page number measured".
  */
 
 const LARGE = { fontSize: 64 };
 
-/** 比對回位時取的字數。夠長到能分辨是哪一段，短到不會跨太多節點。 */
+/** How many characters to take when comparing a restored position. Long enough to identify the passage, short enough not to span too many nodes. */
 const SAMPLE = 12;
 
 test.beforeEach(async ({ page }) => {
   await openHarness(page);
 });
 
-test.describe("目前位置的 CFI", () => {
-  test("指向這一頁最前面那段文字", async ({ page }) => {
+test.describe("the current position's CFI", () => {
+  test("points at the text at the very start of this page", async ({ page }) => {
     const location = await mountFixture(page, "vertical-japanese");
 
     const text = await page.evaluate(
@@ -28,32 +30,34 @@ test.describe("目前位置的 CFI", () => {
       [location.cfi, SAMPLE] as const,
     );
 
-    // fixture 的第一節從標題「朝の光」開始。
+    // The fixture's first section starts with the title 朝の光.
     expect(text).toContain("朝の光");
   });
 
-  test("CFI 帶著這一節在 readingOrder 上的序號", async ({ page }) => {
+  test("the CFI carries this section's index on the readingOrder", async ({ page }) => {
     await mountFixture(page, "vertical-japanese");
     const location = await page.evaluate(() => window.frond.goToSection(1));
 
     const cfi = parseCfi(location.cfi);
-    // `/6/4` ——spine 是封裝文件的第三個元素（`/6`），第二個 itemref 是 `/4`。
+    // `/6/4` — the spine is the package document's third element (`/6`), and the second
+    // itemref is `/4`.
     expect(serializeCfi(cfi)).toMatch(/^epubcfi\(\/6\/4/);
   });
 
-  test("換頁就換一個 CFI，而且是往後的", async ({ page }) => {
+  test("turning a page changes the CFI, and forwards", async ({ page }) => {
     const first = await mountFixture(page, "vertical-japanese", { settings: LARGE });
     const second = await page.evaluate(() => window.frond.next());
 
     expect(second.cfi).not.toBe(first.cfi);
-    // 相鄰兩頁的位置在書中的先後必須成立。這一條是 ADR-0004 列的自我一致性
-    // 不變量之一，而它**不需要三家給出同一個數字**——每一家各自成立就好。
+    // Two adjacent pages' positions have to come in the book's order. This is one of the
+    // self-consistency invariants ADR-0004 lists, and it **needs no agreement between the
+    // three engines** — each holding on its own terms is enough.
     expect(comparison(first.cfi, second.cfi)).toBe("before");
   });
 });
 
-test.describe("由 CFI 回到位置", () => {
-  test("CFI → 跳過去 → CFI 是 identity", async ({ page }) => {
+test.describe("returning to a position from a CFI", () => {
+  test("CFI → go there → CFI is the identity", async ({ page }) => {
     await mountFixture(page, "vertical-japanese", { settings: LARGE });
 
     await page.evaluate(() => window.frond.next());
@@ -70,9 +74,9 @@ test.describe("由 CFI 回到位置", () => {
     expect(restored.cfi).toBe(marked.cfi);
   });
 
-  test("認不出來的 CFI 什麼也不做，不丟錯", async ({ page }) => {
-    // 書換了一版、CFI 來自別的閱讀器——兩種都會走到這裡，而它們的處置不是把
-    // 閱讀流程打斷。
+  test("an unrecognizable CFI does nothing and throws nothing", async ({ page }) => {
+    // A new edition of the book, or a CFI from another reader — both arrive here, and the
+    // response to neither is interrupting the reading.
     const before = await mountFixture(page, "vertical-japanese");
     const after = await page.evaluate(() =>
       window.frond.goToCfi("epubcfi(/6/999!/4/2/1:0)"),
@@ -82,21 +86,22 @@ test.describe("由 CFI 回到位置", () => {
     expect(after.page).toBe(before.page);
   });
 
-  test("壞掉的 CFI 字串一樣不丟錯", async ({ page }) => {
+  test("a broken CFI string likewise throws nothing", async ({ page }) => {
     const before = await mountFixture(page, "vertical-japanese");
-    const after = await page.evaluate(() => window.frond.goToCfi("這不是一個 CFI"));
+    const after = await page.evaluate(() => window.frond.goToCfi("this is not a CFI"));
 
     expect(after.cfi).toBe(before.cfi);
   });
 
-  test("跳到 TOC 指的那一節與錨點", async ({ page }) => {
-    // user story 26。收的是**壓縮檔內的路徑**（`TocItem.target.path` 的形狀），
-    // 不是原樣的 href——`%2c` 與 `../` 的正規化已經在 `EpubBook` 那一層做完了
-    // （ADR-0002：同一種正規化只實作一次）。
+  test("goes to the section and anchor a TOC entry points at", async ({ page }) => {
+    // user story 26. What it takes is **a path inside the archive** (`TocItem.target.path`'s
+    // shape) rather than a verbatim href — the `%2c` and `../` normalization was already
+    // done at the `EpubBook` layer (ADR-0002: one normalization implemented once).
     await mountFixture(page, "nested-toc");
 
-    // 路徑從書自己拿，不在測試裡抄一份字面值：內容目錄的名字是產生器的細節，
-    // 抄下來的話它一改，這裡會紅在一個與本題無關的地方。
+    // The path is taken from the book rather than copied out as a literal in the test: the
+    // content directory's name is a generator detail, and copying it would make this go red
+    // somewhere unrelated to the question the moment it changes.
     const second = await page.evaluate(() => window.frond.goToSection(1));
     await page.evaluate(() => window.frond.goToSection(0));
 
@@ -109,9 +114,10 @@ test.describe("由 CFI 回到位置", () => {
   });
 });
 
-test.describe("全書進度", () => {
-  test("整書索引建好之前沒有 fraction", async ({ page }) => {
-    // user story 25：定位軸在那之前該停用，而不是拿一個錯的值畫上去。
+test.describe("whole-book progress", () => {
+  test("there is no fraction before the whole-book index is built", async ({ page }) => {
+    // user story 25: the scrubber should be disabled until then, rather than drawn at a
+    // wrong value.
     const initial = await mountFixture(page, "vertical-japanese");
     expect(initial.fraction).toBeNull();
 
@@ -122,7 +128,7 @@ test.describe("全書進度", () => {
     expect(ready.fraction).not.toBeNull();
   });
 
-  test("第一頁是 0，書末接近 1", async ({ page }) => {
+  test("the first page is 0 and the book's end approaches 1", async ({ page }) => {
     await mountFixture(page, "vertical-japanese");
     await page.evaluate(() => window.frond.waitForIndex());
 
@@ -132,7 +138,7 @@ test.describe("全書進度", () => {
     expect(last.fraction).toBeGreaterThan(0.5);
   });
 
-  test("往後翻，進度不會倒退", async ({ page }) => {
+  test("turning forward never moves the progress backwards", async ({ page }) => {
     await mountFixture(page, "vertical-japanese", { settings: LARGE });
     await page.evaluate(() => window.frond.waitForIndex());
 
@@ -149,8 +155,8 @@ test.describe("全書進度", () => {
     expect(previous).toBeGreaterThan(0);
   });
 
-  test("由進度跳位置", async ({ page }) => {
-    // user story 24：拖拉定位軸放開後要真的跳過去。
+  test("going to a position from a progress value", async ({ page }) => {
+    // user story 24: releasing the scrubber really has to go there.
     await mountFixture(page, "vertical-japanese");
     await page.evaluate(() => window.frond.waitForIndex());
 
@@ -161,12 +167,14 @@ test.describe("全書進度", () => {
   });
 
   /**
-   * 唯讀的查詢（user story 23）。
+   * A read-only query (user story 23).
    *
-   * 定位軸拖曳中要顯示落點的章節標題，而讀者還沒放開手——畫面不能動。少了這一支
-   * 的話消費端只有 `goToFraction()` 可用，於是拖曳過程中每一格都真的跳一次。
+   * While the scrubber is being dragged, the chapter title at the landing point has to be
+   * shown, and the reader has not let go yet — the view must not move. Without this,
+   * `goToFraction()` is the consumer's only option, and every notch of the drag really
+   * jumps.
    */
-  test("查一個進度落在哪一節，畫面不動", async ({ page }) => {
+  test("querying which section a progress falls in does not move the view", async ({ page }) => {
     const before = await mountFixture(page, "vertical-japanese");
     await page.evaluate(() => window.frond.waitForIndex());
 
@@ -174,7 +182,7 @@ test.describe("全書進度", () => {
 
     expect(at).not.toBeNull();
     expect(at!.sectionIndex).toBeGreaterThan(0);
-    // 消費端把 TOC 對回節靠的是路徑，所以那一格要對得起來。
+    // A consumer maps the TOC back to sections by path, so that slot has to line up.
     expect(at!.sectionPath).not.toBe("");
     expect(at!.charactersIntoSection).toBeGreaterThanOrEqual(0);
 
@@ -184,16 +192,20 @@ test.describe("全書進度", () => {
   });
 
   /**
-   * `locate()` 可不可用，與 `location.fraction` 有沒有值，是**同一個時機**。
+   * Whether `locate()` is usable and whether `location.fraction` has a value happen at
+   * **the same moment**.
    *
-   * 定位軸兩者都要：`fraction` 決定拇指畫在哪，`locate()` 決定拖曳中顯示哪一章。
-   * 一個有值一個沒有的話，定位軸會處在一個沒有人設計過的中間狀態。
+   * The scrubber needs both: `fraction` decides where the thumb is drawn, `locate()`
+   * decides which chapter is shown during the drag. With one available and the other not,
+   * the scrubber sits in an intermediate state nobody designed.
    *
-   * 判準寫成「兩者一致」而不是「掛好之後 `locate()` 是 null」：索引建得多快取決
-   * 於書有幾節與機器多快，寫死「還沒好」的話這條測試在小書上會偶爾紅。兩個值在
-   * **同一次 evaluate 裡**取，所以中間不會插進一次索引完成。
+   * The criterion is written as "the two agree" rather than "`locate()` is null right after
+   * mounting": how fast the index builds depends on how many sections the book has and how
+   * fast the machine is, and pinning "not ready yet" would make this test flaky on small
+   * books. Both values are taken **within one evaluate**, so no index completion can slip in
+   * between.
    */
-  test("locate 與 fraction 同時可用", async ({ page }) => {
+  test("locate and fraction become usable together", async ({ page }) => {
     await mountFixture(page, "vertical-japanese");
 
     const before = await page.evaluate(() => ({
@@ -212,7 +224,7 @@ test.describe("全書進度", () => {
     expect(after.at).not.toBeNull();
   });
 
-  test("查到的節與跳過去之後停的節一致", async ({ page }) => {
+  test("the section queried matches the section landed on", async ({ page }) => {
     await mountFixture(page, "vertical-japanese");
     await page.evaluate(() => window.frond.waitForIndex());
 
@@ -223,8 +235,9 @@ test.describe("全書進度", () => {
     expect(landed.sectionPath).toBe(at!.sectionPath);
   });
 
-  test("一個字都沒有的節不會讓進度變成 NaN", async ({ page }) => {
-    // `empty-and-image-only-sections` 的第二節是空的、第三節只有圖片。
+  test("a section with no characters at all does not turn the progress into NaN", async ({ page }) => {
+    // `empty-and-image-only-sections`'s second section is empty and its third holds only an
+    // image.
     await mountFixture(page, "empty-and-image-only-sections");
     await page.evaluate(() => window.frond.waitForIndex());
 
@@ -235,15 +248,17 @@ test.describe("全書進度", () => {
   });
 });
 
-test.describe("開書就停在上次讀到的地方", () => {
+test.describe("opening a book lands where reading left off", () => {
   /**
-   * `attach()` 之後再 `goToCfi()` 也會停在對的地方——差別在**排了兩次版**。
+   * Calling `goToCfi()` after `attach()` also lands in the right place — the difference is
+   * that it **laid out twice**.
    *
-   * 所以這一組的判準是掛載次數（`load` 事件），不是最後停在哪。只驗位置的話，
-   * 把 `start` 實作成「先渲染第 0 節再跳」照樣是綠的，而那正是這個欄位要消滅的
-   * 那條路。
+   * So this group's criterion is the mount count (the `load` event) rather than where it
+   * ends up. Verifying only the position would stay green with `start` implemented as
+   * "render section 0 first, then jump", and that route is exactly what this field exists
+   * to eliminate.
    */
-  test("從一個 CFI 開始，只掛載一次", async ({ page }) => {
+  test("starting from a CFI mounts only once", async ({ page }) => {
     const first = await mountFixture(page, "vertical-japanese");
     const target = await page.evaluate(() => window.frond.goToSection(2));
 
@@ -260,7 +275,7 @@ test.describe("開書就停在上次讀到的地方", () => {
     expect(loads).toHaveLength(1);
   });
 
-  test("從一個節序號開始", async ({ page }) => {
+  test("starting from a section index", async ({ page }) => {
     const location = await mountFixture(page, "vertical-japanese", {
       start: { sectionIndex: 1 },
     });
@@ -270,9 +285,10 @@ test.describe("開書就停在上次讀到的地方", () => {
   });
 
   /**
-   * 書換了一版、進度來自別的閱讀器——兩種都會走到這裡，而處置不是把開書打斷。
+   * A new edition of the book, or progress from another reader — both arrive here, and the
+   * response is not to interrupt the opening.
    */
-  test("認不出來的 CFI 退回第 0 節第一頁，不丟錯", async ({ page }) => {
+  test("an unrecognizable CFI falls back to section 0 page 1 without throwing", async ({ page }) => {
     const location = await mountFixture(page, "vertical-japanese", {
       start: { cfi: "epubcfi(/6/999!/4/2/1:0)" },
     });
@@ -281,7 +297,7 @@ test.describe("開書就停在上次讀到的地方", () => {
     expect(location.page).toBe(0);
   });
 
-  test("越界的節序號也退回開頭", async ({ page }) => {
+  test("an out-of-range section index also falls back to the start", async ({ page }) => {
     const location = await mountFixture(page, "vertical-japanese", {
       start: { sectionIndex: 99 },
     });
@@ -290,16 +306,19 @@ test.describe("開書就停在上次讀到的地方", () => {
   });
 });
 
-test.describe("版面變動之後回到原位", () => {
+test.describe("returning to the position after a layout change", () => {
   /**
-   * 這一組問的是「**剛才在讀的那段文字還在眼前嗎**」，不是「頁碼有沒有變」。
+   * What this group asks is "**is the passage just being read still in front of me**",
+   * not "did the page number change".
    *
-   * 頁碼一定會變——換了 viewport 或字級之後每頁裝的內容就不一樣了。也不能問「那
-   * 段文字還在不在頁首」：字變小之後一頁裝得下更多，原本在第二頁開頭的那一段會
-   * 落到第一頁的中段，而那是**正確**的行為。唯一站得住的斷言是它還看得見。
+   * The page number certainly changes — a different viewport or font size means a different
+   * amount fits on a page. Nor can it ask "is that passage still at the top of the page":
+   * with smaller text a page holds more, so a passage that started page two lands in the
+   * middle of page one, and that is the **correct** behaviour. The only defensible
+   * assertion is that it is still visible.
    */
-  test("視窗縮放之後，剛才在讀的那段文字還在畫面上", async ({ page }) => {
-    // user story 32。
+  test("after resizing, the passage just being read is still on screen", async ({ page }) => {
+    // user story 32.
     await mountFixture(page, "vertical-japanese", { settings: LARGE });
     await page.evaluate(() => window.frond.next());
 
@@ -309,8 +328,8 @@ test.describe("版面變動之後回到原位", () => {
     expect(await isOnScreen(page, marked.cfi)).toBe(true);
   });
 
-  test("調字級之後，剛才在讀的那段文字還在畫面上", async ({ page }) => {
-    // user story 19：不是被丟回這一節的開頭。
+  test("after changing the font size, the passage just being read is still on screen", async ({ page }) => {
+    // user story 19: not thrown back to this section's start.
     await mountFixture(page, "vertical-japanese", { settings: LARGE });
     await page.evaluate(() => window.frond.next());
 
@@ -319,11 +338,12 @@ test.describe("版面變動之後回到原位", () => {
     await page.evaluate(() => window.frond.applySettings({ fontSize: 40 }));
 
     expect(await isOnScreen(page, marked.cfi)).toBe(true);
-    // 而且不是被丟回這一節的開頭——那一段文字與這一節的第一段不同。
+    // And it was not thrown back to this section's start — that passage differs from the
+    // section's first.
     expect(before).not.toContain("朝の光");
   });
 
-  test("換欄數之後也回得去", async ({ page }) => {
+  test("changing the column count also gets back", async ({ page }) => {
     await mountFixture(page, "huge-single-section", { settings: { columns: 1 } });
     for (let step = 0; step < 3; step += 1) {
       await page.evaluate(() => window.frond.next());
@@ -336,9 +356,10 @@ test.describe("版面變動之後回到原位", () => {
   });
 });
 
-test.describe("一段範圍的矩形", () => {
-  test("拿得到有面積的矩形，座標相對於容器", async ({ page }) => {
-    // user story 49：消費端自己畫 highlight，frond 只給幾何（ADR-0002）。
+test.describe("a range's rectangles", () => {
+  test("rectangles with area come back, in container coordinates", async ({ page }) => {
+    // user story 49: the consumer draws the highlight; frond only supplies the geometry
+    // (ADR-0002).
     const location = await mountFixture(page, "vertical-japanese");
 
     const rects = await page.evaluate(
@@ -351,7 +372,7 @@ test.describe("一段範圍的矩形", () => {
     expect(rects[0]!.height).toBeGreaterThan(0);
   });
 
-  test("不在這一節的位置回空陣列", async ({ page }) => {
+  test("a position outside this section returns an empty array", async ({ page }) => {
     await mountFixture(page, "vertical-japanese");
 
     const rects = await page.evaluate(() =>
@@ -363,10 +384,12 @@ test.describe("一段範圍的矩形", () => {
 });
 
 /**
- * 這個位置現在看得見嗎。
+ * Is this position visible right now.
  *
- * 判準是它的矩形落在容器的範圍內。不在目前這一頁的內容會被捲出去，座標因此是
- * 負的或超過容器——這比「頁碼相等」穩，因為版面一變頁碼本來就會變。
+ * The criterion is its rectangle falling within the container. Content not on the current
+ * page is scrolled away, so its coordinates are negative or beyond the container — which
+ * is steadier than "the page numbers are equal", because a layout change changes the page
+ * number by construction.
  */
 async function isOnScreen(
   page: Parameters<typeof mountFixture>[0],
@@ -394,10 +417,11 @@ async function textAtCurrent(page: Parameters<typeof mountFixture>[0]): Promise<
 }
 
 /**
- * 兩個 CFI 的先後。
+ * Which of two CFIs comes first.
  *
- * 走的是文法層那一支（`src/epub/cfi.ts`），不在這裡重新實作比較——重新實作的話，
- * 這支測試會變成在驗證它自己的那份實作。
+ * It goes through the grammar layer's implementation (`src/epub/cfi.ts`) rather than
+ * reimplementing the comparison here — reimplemented, this test would end up verifying its
+ * own implementation.
  */
 function comparison(left: string, right: string): string {
   return compareCfi(parseCfi(left), parseCfi(right));

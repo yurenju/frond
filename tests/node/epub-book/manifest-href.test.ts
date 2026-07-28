@@ -8,18 +8,21 @@ import {
 } from "./support/handmade.ts";
 
 /**
- * manifest 的 `href` 依 **URL 規則**相對封裝文件解析。
+ * A manifest `href` resolves against the package document by **URL rules**.
  *
- * 這一組守的是一條會**對好書誤報**的路：#8 的留言記了一本 Kobo 通路的書，OPF 在
- * `OEBPS/content.opf`，manifest 裡有 `href="../js/kobo.js"`，而 `js/kobo.js` 確實
- * 存在於封裝根。那是合規的書。用字串接合的實作會去找 `OEBPS/../js/kobo.js` 這個
- * 字面上的 ZIP 項目名，找不到，於是把好書判成「OPF 指向不存在的檔案」。
+ * This group guards a path that **misreports good books**: a comment on #8 records a
+ * book from the Kobo channel whose OPF sits at `OEBPS/content.opf` and whose manifest
+ * contains `href="../js/kobo.js"`, with `js/kobo.js` genuinely present at the package
+ * root. That is a conforming book. An implementation that concatenates strings would
+ * look for the literal ZIP entry name `OEBPS/../js/kobo.js`, fail to find it, and judge
+ * a good book to be "an OPF pointing at a file that does not exist".
  *
- * 演這個形狀的 committed fixture 由 #23 產（那一軸正在平行進行）。在它落地之前，
- * 這裡用手工組的書把解析規則守住；fixture 到了之後可以再補一條端到端的。
+ * A committed fixture playing this shape comes from #23 (that axis is running in
+ * parallel). Until it lands, the resolution rule is guarded here with a handmade book;
+ * once the fixture arrives an end-to-end case can be added.
  */
 
-/** Kobo 那本書的形狀：OPF 在 `OEBPS/`，資源在封裝根。 */
+/** The shape of that Kobo book: the OPF in `OEBPS/`, the resources at the package root. */
 function koboShapedBook(): Uint8Array {
   return handmadeBook({
     packageDocumentPath: "OEBPS/content.opf",
@@ -35,27 +38,28 @@ function koboShapedBook(): Uint8Array {
   });
 }
 
-describe("href 帶 ../ 走到封裝根", () => {
-  test("這本書開得起來——它合規", async () => {
+describe("an href with ../ walking up to the package root", () => {
+  test("this book opens — it conforms", async () => {
     const book = await EpubBook.open(koboShapedBook());
 
     expect(book.metadata.title).toBe("手で組んだ本");
   });
 
-  test("Section 解析到封裝根底下的那一份檔案", async () => {
+  test("the Section resolves to the file at the package root", async () => {
     const book = await EpubBook.open(koboShapedBook());
 
-    // 字串接合會得到 `OEBPS/../text/section-1.xhtml`，那不是任何一個項目的名字。
+    // String concatenation would give `OEBPS/../text/section-1.xhtml`, which is not the
+    // name of any entry.
     expect(book.readingOrder.map((section) => section.path)).toEqual([
       "text/section-1.xhtml",
     ]);
   });
 });
 
-describe("解析後跳出封裝根", () => {
-  test("是不合規，不是「找不到檔案」", async () => {
-    // `URL` 在根目錄把多餘的 `..` 吃掉（解析成 `/evil.png`），所以這一條同時也
-    // 守著「吃掉之後不能假裝它落在封裝內」。
+describe("resolving outside the package root", () => {
+  test("is non-conformance, not \"file not found\"", async () => {
+    // `URL` swallows surplus `..` at the root (resolving to `/evil.png`), so this case
+    // also guards "having swallowed it, do not pretend it landed inside the package".
     const archive = handmadeBook({
       packageDocumentPath: "OEBPS/content.opf",
       packageDocument: packageDocument({
@@ -72,10 +76,12 @@ describe("解析後跳出封裝根", () => {
   });
 });
 
-describe("遠端資源", () => {
-  test("manifest 指到別的 origin 不會讓整本書開不起來", async () => {
-    // EPUB 3 允許遠端資源（宣告 properties="remote-resources" 的影音）。frond
-    // 這一刀不下載它，但把它當成「指向不存在的檔案」會讓一本合規的書開不起來。
+describe("remote resources", () => {
+  test("a manifest pointing at another origin does not stop the book opening", async () => {
+    // EPUB 3 allows remote resources (audio and video declaring
+    // properties="remote-resources"). frond does not download them at this cut, but
+    // treating one as "a pointer to a file that does not exist" would stop a conforming
+    // book from opening.
     const book = await EpubBook.open(
       handmadeBook({
         packageDocument: packageDocument({
@@ -92,10 +98,11 @@ describe("遠端資源", () => {
   });
 });
 
-describe("container.xml 的 full-path 也是 URL", () => {
-  test("編碼過的 full-path 找得到封裝文件", async () => {
-    // full-path 與 manifest 的 href 走同一條解析——只有其中一邊記得書可以把
-    // 路徑編碼過的話，另一邊就會在同一種書上壞掉。
+describe("container.xml's full-path is a URL too", () => {
+  test("an encoded full-path still finds the package document", async () => {
+    // full-path goes through the same resolution as a manifest href — if only one side
+    // remembers that a book may percent-encode its paths, the other breaks on the very
+    // same book.
     const book = await EpubBook.open(
       handmadeBook({
         packageDocumentPath: "OEBPS 本体/content.opf",
@@ -118,8 +125,9 @@ describe("container.xml 的 full-path 也是 URL", () => {
 });
 
 describe("percent-encoding", () => {
-  test("href 編碼過的字元還原成 ZIP 項目名裡的字面", async () => {
-    // ZIP 的項目名是原始位元組，不是 URL。href 寫 `%20`，項目名是空白。
+  test("encoded characters in an href decode back to the literal in the ZIP entry name", async () => {
+    // A ZIP entry name is raw bytes, not a URL. The href writes `%20`; the entry name has
+    // a space.
     const book = await EpubBook.open(
       handmadeBook({
         packageDocument: packageDocument({

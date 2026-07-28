@@ -2,10 +2,10 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    // 只認 tests/node。ADR-0009 把測試切成兩個 runner：EpubBook 與其周邊的純
-    // TypeScript 程式碼用 Vitest 跑 Node，Renderer 用 Playwright 跑瀏覽器。
-    // include 若泛指 tests/，瀏覽器那半邊的 spec 會被 Vitest 掃進來，在沒有
-    // 瀏覽器的 Node 環境下失敗。
+    // Only tests/node. ADR-0009 splits the tests across two runners: EpubBook and the pure
+    // TypeScript code around it run under Vitest in Node, and Renderer runs under Playwright
+    // in browsers. Were include to point at tests/ generally, the browser half's specs would
+    // be swept up by Vitest and fail in a Node environment with no browser.
     include: ["tests/node/**/*.test.ts"],
   },
 });

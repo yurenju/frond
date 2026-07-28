@@ -1,22 +1,24 @@
 /**
- * `Root`——擁有 `Renderer` 的生命週期，其餘什麼都不做。
+ * `Root` — owns `Renderer`'s lifecycle and does nothing else.
  *
- * ## 它不渲染任何元素
+ * ## It renders no element
  *
- * 連一個 `<div>` 都沒有。這是「unstyled」在版面這一格的意思：多一層 wrapper 就多
- * 一個消費端要對付的 box，而 flex/grid 的版面對「中間多一層」特別敏感（`Viewport`
- * 與工具列本來是同一個 grid 的兩個 item，中間插一層就不是了）。
+ * Not even a `<div>`. This is what "unstyled" means at the layout level: one more wrapper
+ * is one more box the consumer has to deal with, and flex/grid layouts are particularly
+ * sensitive to an extra level in the middle (`Viewport` and a toolbar are meant to be two
+ * items of the same grid, and inserting a level makes them not).
  *
- * 代價是 `Root` 與 `Viewport` 之間要靠 context 傳一個 DOM 元素——`Viewport` 掛上
- * 去之後把自己的元素交回來，`Root` 收到才開始掛書。這也是為什麼狀態機有 `idle`
- * 這一格。
+ * The cost is that `Root` and `Viewport` have to pass a DOM element through context —
+ * `Viewport` hands its element back once mounted, and `Root` only starts mounting the book
+ * on receiving it. That is also why the state machine has an `idle` state.
  *
- * ## 為什麼 listener 從 `attach()` 的參數進去，而不是掛好之後再 `on()`
+ * ## Why the listeners go in through `attach()`'s parameters rather than an `on()` after mounting
  *
- * `attach()` 回傳時第一節已經排好了，也就是說那一次的 `load` 與 `relocate` 是在
- * `attach()` 裡面送出去的（`RendererOptions.on` 的註解）。事後補掛的話，消費端會
- * 漏掉整個開書序列裡最重要的那兩個事件，而症狀是「第一次進來畫面是空的，翻一頁
- * 之後就好了」。
+ * By the time `attach()` returns the first section has already laid out, which means that
+ * run's `load` and `relocate` were emitted inside `attach()` (see `RendererOptions.on`'s
+ * comment). Attaching afterwards, the consumer would miss the two most important events in
+ * the whole book-opening sequence, and the symptom would be "the screen is blank the first
+ * time in, and turning one page fixes it".
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -46,25 +48,29 @@ import {
 
 export interface RootProps {
   /**
-   * 要渲染的書。`undefined` 表示還沒選書——`status` 停在 `idle`。
+   * The book to render. `undefined` means no book has been chosen yet — `status` stays at
+   * `idle`.
    *
-   * 換一本書會**整個重掛**（舊的 `destroy()`、新的 `attach()`）。這件事沒有便宜
-   * 的做法，而且也不該有：iframe、資源的 blob URL、整書索引全部綁在一本書上。
+   * Changing book **remounts everything** (`destroy()` the old, `attach()` the new). There
+   * is no cheap way to do this, and there should not be: the iframe, the resources' blob
+   * URLs and the whole-book index are all tied to one book.
    */
   readonly book: RenderableBook | undefined;
   /**
-   * 第一節要渲染哪裡。對應 `RendererOptions.start`。
+   * Where in the first section to render. Corresponds to `RendererOptions.start`.
    *
-   * **只在掛載那一刻讀一次。** 之後改它不會跳位置——那是 `goToCfi()` 的工作。這
-   * 個區別要說清楚：把 `start` 做成受控的話，任何一次讓 props 重算的 re-render
-   * 都可能把讀者拉回某個舊位置，而那種 bug 從畫面上看起來像「翻頁偶爾會跳回去」。
+   * **Read exactly once, at mount.** Changing it afterwards does not jump — that is
+   * `goToCfi()`'s job. This distinction has to be stated plainly: made controlled, any
+   * re-render that recomputes props could pull the reader back to some old position, and
+   * that bug looks on screen like "page turning occasionally jumps backwards".
    */
   readonly start?: RendererStart | undefined;
   /**
-   * 讀者設定。變動時套用到目前這本書，**不重掛**。
+   * The reader settings. Applied to the current book when they change, **without
+   * remounting**.
    *
-   * 比對是逐欄位的深層比對而不是 identity，所以直接寫一個物件字面量進來是可以的
-   * ——不必為了避開重複套用而自己 `useMemo`。
+   * The comparison is field by field and deep rather than by identity, so writing an object
+   * literal directly is fine — there is no need to `useMemo` just to avoid re-applying.
    */
   readonly settings?: Partial<ReaderSettings> | undefined;
 
@@ -82,7 +88,7 @@ export interface RootProps {
   readonly children?: ReactNode;
 }
 
-/** 一次 render 之間會變的那些狀態，收成一顆——省下五次連續的 setState。 */
+/** The state that changes between renders, collected into one object — saving five consecutive setStates. */
 interface Snapshot {
   readonly status: ReaderStatus;
   readonly location: RenderLocation | undefined;
@@ -106,15 +112,17 @@ export function Root(props: RootProps): ReactNode {
   const [renderer, setRenderer] = useState<Renderer | undefined>(undefined);
   const [snapshot, setSnapshot] = useState<Snapshot>(IDLE);
 
-  // 事件處理器與 `start` / `settings` 從這裡讀，不進掛載那個 effect 的相依陣列。
-  // 進去的話，消費端每寫一個箭頭函式當 handler 就會重掛一次書——而「重掛一次書」
-  // 是 iframe 重建、字型重等、頁數重量，讀者看到的是畫面閃一下然後回到第一頁。
+  // Event handlers and `start` / `settings` are read from here rather than going into the
+  // mounting effect's dependency array. In it, every arrow function the consumer writes as a
+  // handler would remount the book — and "remounting the book" means rebuilding the iframe,
+  // waiting on fonts again and re-measuring the page count, which the reader sees as the
+  // screen flashing and going back to the first page.
   const latest = useRef(props);
   useEffect(() => {
     latest.current = props;
   });
 
-  /** 上一次送進 `applySettings` 的那份 patch。受控那條路靠它擋掉重複套用。 */
+  /** The last patch passed to `applySettings`. The controlled route uses it to block re-applying. */
   const appliedSettings = useRef<Partial<ReaderSettings> | undefined>(undefined);
 
   useEffect(() => {
@@ -126,9 +134,9 @@ export function Root(props: RootProps): ReactNode {
 
     setSnapshot({ ...IDLE, status: "loading" });
 
-    // `attach()` 是非同步的，而 StrictMode 會在它 resolve 之前就把 cleanup 跑掉。
-    // 沒有這個旗標的話，那一次掛載的 iframe 會永遠留在 DOM 裡——沒有人持有它，
-    // 也沒有人 destroy 它，而畫面上是兩本書疊在一起。
+    // `attach()` is async, and StrictMode runs the cleanup before it resolves. Without this
+    // flag, that mount's iframe would stay in the DOM forever — held by nobody and destroyed
+    // by nobody, with two books stacked on screen.
     let cancelled = false;
     let attached: Renderer | undefined;
 
@@ -141,8 +149,9 @@ export function Root(props: RootProps): ReactNode {
         setSnapshot((current) => ({
           ...current,
           writingMode: event.writingMode,
-          // 前一節壞掉、這一節排出來了——`status` 該跟著回到 `ready`。
-          // `failure` 不清：它是「發生過什麼」的紀錄，不是現在的狀態。
+          // The previous section was broken and this one laid out — `status` should follow it
+          // back to `ready`. `failure` is not cleared: it is a record of what happened, not
+          // the current state.
           status: current.status === "error" ? "ready" : current.status,
         }));
         latest.current.onLoad?.(event);
@@ -185,12 +194,13 @@ export function Root(props: RootProps): ReactNode {
       },
       (reason: unknown) => {
         if (cancelled) return;
-        // `attach()` 整個失敗（相對於某一節渲染失敗）沒有 `error` 事件可收——
-        // 那個事件的形狀綁在「哪一節壞了」上，而這裡連第一節都還沒掛上去。
+        // A wholesale `attach()` failure (as opposed to one section failing to render) has no
+        // `error` event to receive — that event's shape is tied to "which section broke", and
+        // here not even the first section has been mounted.
         //
-        // `reason` 借用 `unreadable-section`：`RendererFailure` 是 frond 的封閉
-        // 清單，這一層沒有資格往裡面加一個成員。第 0 節取不到內容確實是它描述的
-        // 那件事，而 `message` 帶著真正的原因。
+        // `reason` borrows `unreadable-section`: `RendererFailure` is frond's closed list, and
+        // this layer has no standing to add a member to it. Failing to obtain section 0's
+        // content really is what it describes, and `message` carries the real cause.
         setSnapshot((current) => ({
           ...current,
           status: "error",
@@ -213,8 +223,9 @@ export function Root(props: RootProps): ReactNode {
     };
   }, [book, viewport]);
 
-  // 受控的讀者設定。相依陣列裡放的是 props.settings 的 identity，所以這個 effect
-  // 幾乎每次 render 都會跑——真正擋住重複套用的是下面那次深層比對。
+  // Controlled reader settings. The dependency array holds props.settings' identity, so this
+  // effect runs on almost every render — what actually blocks re-applying is the deep
+  // comparison below.
   const settingsProp = props.settings;
   useEffect(() => {
     if (renderer === undefined) return;
@@ -262,15 +273,15 @@ export function Root(props: RootProps): ReactNode {
 }
 
 /**
- * 兩份設定 patch 是不是同一件事。
+ * Whether two settings patches are the same thing.
  *
- * 比對而不是看 identity，是為了讓 `<Root settings={{ fontSize }} />` 這種寫法
- * 成立——那是每一個人第一次都會寫的寫法，而 identity 比對會讓它每次 render 都送
- * 一次 `applySettings`，也就是每次 render 都重排一次版面。
+ * Compared rather than checked by identity, so that `<Root settings={{ fontSize }} />`
+ * works — that is what everyone writes the first time, and an identity check would send an
+ * `applySettings` on every render, meaning a re-layout on every render.
  *
- * 深度只到兩層是因為 `ReaderSettings` 就只有兩層（`margin` 與 `theme` 是物件，其
- * 餘是純量）。寫一個泛用的深層比對在這裡是多餘的，而且會讓「這個型別長什麼樣子」
- * 從程式碼裡消失。
+ * The depth stops at two levels because `ReaderSettings` only has two (`margin` and `theme`
+ * are objects and the rest are scalars). A general-purpose deep comparison would be
+ * redundant here, and it would make "what this type looks like" disappear from the code.
  */
 function sameSettings(
   a: Partial<ReaderSettings> | undefined,

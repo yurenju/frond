@@ -4,22 +4,27 @@ import { AILMENTS, specFor, epubVersionOf, type AilmentName } from "./ailments.t
 import { buildEpub, type EpubVersion } from "./epub.ts";
 
 /**
- * 合成 fixture 產生器——**一個病症一個檔，檔名即病症名**（ADR-0007）。
+ * The synthetic fixture generator — **one ailment per file, and the filename is the
+ * ailment's name** (ADR-0007).
  *
- * 這是測試用書的第一層，也是主力。合成 fixture 的價值在於可控與可命名：每個
- * 檔案精確重現一個已知的病，測試失敗時檔名就說明了是哪一種病復發。
+ * This is the first layer of test books, and the main one. The value of synthetic
+ * fixtures is that they are controllable and nameable: each file reproduces one known
+ * ailment exactly, and when a test fails the filename says which ailment has come back.
  *
- * 這支產生器**對外發佈供消費端使用**（#1 的散佈段落），所以下面這幾個匯出是
- * 產出物的一部分而不是內部細節：那份病症清單本身就是這個專案最有價值的知識
- * 之一，不該鎖在測試目錄裡。
+ * This generator is **published for consumers to use** (the distribution section of #1),
+ * so the exports below are part of the product rather than internal details: the ailment
+ * list itself is one of this project's most valuable pieces of knowledge, and should not
+ * be locked inside a test directory.
  *
- * ## 決定性
+ * ## Determinism
  *
- * 同一份輸入產生**逐位元組相同**的檔案。這不是可重現性衛生，是硬需求：fixture
- * 一重新產生，所有幾何數字都會跟著漂，而漂動的原因與 frond 的程式碼無關。四個
- * 破口都被顯式壓掉——ZIP 的 mtime 與外部屬性、deflate 的實作差異（一律
- * stored）、`dcterms:modified`、以及 identifier（固定字串而非 UUID）。
- * `tests/node/test-fixtures/determinism.test.ts` 用重複產生比 hash 證明它。
+ * The same input produces a **byte-for-byte identical** file. This is not reproducibility
+ * hygiene, it is a hard requirement: regenerate the fixtures and every geometric number
+ * drifts, for reasons that have nothing to do with frond's code. All four leaks are
+ * explicitly suppressed — ZIP mtimes and external attributes, deflate implementation
+ * differences (always stored), `dcterms:modified`, and the identifier (a fixed string
+ * rather than a UUID). `tests/node/test-fixtures/determinism.test.ts` proves it by
+ * generating twice and comparing hashes.
  */
 
 export type { Ailment, AilmentName } from "./ailments.ts";
@@ -34,11 +39,12 @@ export type {
 
 export interface SyntheticFixture {
   readonly name: AilmentName;
-  /** 一句話說明這個檔案編碼的是哪一種病。 */
+  /** A one-line statement of which ailment this file encodes. */
   readonly description: string;
   /**
-   * 封裝版本。消費端用它挑書——「給我一本 EPUB 2 的」比對著檔名猜後綴可靠，
-   * 而後綴的慣例本來就是給人看的，不該是消費端要剖析的字串。
+   * The packaging version. Consumers use it to pick books — "give me an EPUB 2 one" is
+   * more reliable than guessing at a filename suffix, and the suffix convention is for
+   * people to read, not a string consumers should have to parse.
    */
   readonly epubVersion: EpubVersion;
   readonly fileName: string;
@@ -53,18 +59,18 @@ export const syntheticFixtures: readonly SyntheticFixture[] = AILMENTS.map(
   }),
 );
 
-/** 產生一份 fixture 的 EPUB 位元組。 */
+/** Produces the EPUB bytes of one fixture. */
 export function buildFixture(name: AilmentName): Uint8Array {
   const ailment = AILMENTS.find((candidate) => candidate.name === name);
   if (ailment === undefined) {
     throw new Error(
-      `未知的病症 ${name}。已知的有：${AILMENTS.map((candidate) => candidate.name).join(", ")}`,
+      `unknown ailment ${name}. The known ones are: ${AILMENTS.map((candidate) => candidate.name).join(", ")}`,
     );
   }
   return buildEpub(specFor(ailment));
 }
 
-/** 把整批 fixture 寫進 `directory`，回傳寫出的檔案路徑。 */
+/** Writes the whole set of fixtures into `directory`, returning the paths written. */
 export async function writeFixtures(directory: string): Promise<string[]> {
   await mkdir(directory, { recursive: true });
   const written: string[] = [];

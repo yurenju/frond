@@ -2,24 +2,26 @@ import { expect, test } from "@playwright/test";
 import { mountFixture, openHarness, type EventRecord } from "../support/harness.js";
 
 /**
- * 翻頁、跨 Section 接續、頁數與 typed events。
+ * Turning pages, continuing across Sections, page counts, and typed events.
  *
- * 這支裡沒有任何一條把頁數拿去跟另一家瀏覽器比。ADR-0004 的 #7 修訂把那件事收掉
- * 了：**直排下頁數與斷頁位置不列入跨瀏覽器互比**，因為三家的分欄 fragmentation
- * 本來就不一致（同一本指名字面的 fixture、同一 viewport、字級放大之後，Chromium
- * 排 4 頁而 Firefox 與 WebKit 各排 3 頁）。這裡守的是**同一家瀏覽器內的自我一致
- * 性**——每一條在各家各自成立，不需要三家給出同一個數字。
+ * Not one case here compares a page count against another browser. ADR-0004's #7 revision
+ * ruled that out: **page counts and break positions when vertical are excluded from
+ * cross-browser comparison**, because the three engines' multicol fragmentation does not
+ * agree by construction (on one named-face fixture, one viewport, with the size raised,
+ * Chromium lays out 4 pages while Firefox and WebKit lay out 3 each). What is guarded here
+ * is **self-consistency within one browser** — every case holds in each engine on its own
+ * terms, without the three having to produce the same number.
  */
 
-/** 讓一節排得出好幾頁的字級。#7 的 foliate spike 用的也是這個值。 */
+/** A font size large enough for a section to lay out over several pages. #7's foliate spike used this value too. */
 const LARGE = { fontSize: 64 };
 
 test.beforeEach(async ({ page }) => {
   await openHarness(page);
 });
 
-test.describe("在同一節裡翻頁", () => {
-  test("往後翻一頁，頁碼加一", async ({ page }) => {
+test.describe("turning pages within one section", () => {
+  test("one page forward adds one to the page number", async ({ page }) => {
     const start = await mountFixture(page, "vertical-japanese", { settings: LARGE });
     expect(start.pageCount).toBeGreaterThan(1);
 
@@ -29,7 +31,7 @@ test.describe("在同一節裡翻頁", () => {
     expect(next.page).toBe(1);
   });
 
-  test("翻回來就回到原本那一頁", async ({ page }) => {
+  test("turning back returns to the page it came from", async ({ page }) => {
     await mountFixture(page, "vertical-japanese", { settings: LARGE });
 
     await page.evaluate(() => window.frond.next());
@@ -39,9 +41,10 @@ test.describe("在同一節裡翻頁", () => {
     expect(back.sectionIndex).toBe(0);
   });
 
-  test("頁數是這一節的頁數，不是全書的", async ({ page }) => {
-    // 全書頁數不是一個穩定的量（它隨 viewport 與字級變），所以 frond 不報它。
-    // 消費端要全書進度時看的是 fraction。
+  test("the page count is this section's, not the whole book's", async ({ page }) => {
+    // A whole-book page count is not a stable quantity (it changes with viewport and font
+    // size), so frond does not report one. A consumer wanting whole-book progress looks at
+    // fraction.
     const location = await mountFixture(page, "vertical-japanese", { settings: LARGE });
 
     expect(location.pageCount).toBeGreaterThan(1);
@@ -49,9 +52,9 @@ test.describe("在同一節裡翻頁", () => {
   });
 });
 
-test.describe("跨 Section 接續", () => {
-  test("翻到這一節的結尾，自動接到下一節的第一頁", async ({ page }) => {
-    // user story 28：不必自己換節。
+test.describe("continuing across Sections", () => {
+  test("turning past this section's end continues onto the next section's first page", async ({ page }) => {
+    // user story 28: no changing sections by hand.
     await mountFixture(page, "vertical-japanese", { settings: LARGE });
 
     const location = await turnUntilSectionChanges(page);
@@ -60,19 +63,20 @@ test.describe("跨 Section 接續", () => {
     expect(location.page).toBe(0);
   });
 
-  test("往前翻過這一節的開頭，接到上一節的最後一頁", async ({ page }) => {
+  test("turning back past this section's start continues onto the previous section's last page", async ({ page }) => {
     await mountFixture(page, "vertical-japanese", { settings: LARGE });
     await page.evaluate(() => window.frond.goToSection(1));
 
     const back = await page.evaluate(() => window.frond.previous());
 
     expect(back.sectionIndex).toBe(0);
-    // 「上一節的最後一頁」而不是第一頁——往前翻應該接在剛才看到的那一頁前面。
+    // "The previous section's last page" rather than its first — turning back should land
+    // immediately before the page just seen.
     expect(back.page).toBe(back.pageCount - 1);
   });
 
-  test("非線性的項目也在閱讀順序上，不會被跳過", async ({ page }) => {
-    // 濾掉 linear="no" 是政策不是事實（ADR-0002）。
+  test("non-linear items are on the reading order too, and are not skipped", async ({ page }) => {
+    // Filtering out linear="no" is policy, not fact (ADR-0002).
     const location = await mountFixture(page, "empty-and-image-only-sections");
     const sections = new Set<number>([location.sectionIndex]);
 
@@ -86,20 +90,21 @@ test.describe("跨 Section 接續", () => {
   });
 });
 
-test.describe("書的兩端", () => {
-  test("在書的開頭往前翻，什麼也不會發生", async ({ page }) => {
+test.describe("the book's two ends", () => {
+  test("turning back at the book's start does nothing", async ({ page }) => {
     const start = await mountFixture(page, "vertical-japanese");
     expect(start.atStart).toBe(true);
 
     const back = await page.evaluate(() => window.frond.previous());
 
-    // 不丟錯，也不繞回最後一頁——`atStart` 才是消費端該看的事實。
+    // No throw and no wrapping round to the last page — `atStart` is the fact the consumer
+    // should be looking at.
     expect(back.sectionIndex).toBe(0);
     expect(back.page).toBe(0);
     expect(back.atStart).toBe(true);
   });
 
-  test("翻到書末之後 atEnd 成立，再翻也不動", async ({ page }) => {
+  test("atEnd holds once the book's end is reached, and turning again does not move", async ({ page }) => {
     await mountFixture(page, "vertical-japanese");
 
     const end = await turnToEnd(page);
@@ -111,21 +116,24 @@ test.describe("書的兩端", () => {
   });
 });
 
-test.describe("藏起來的內容不影響頁數", () => {
+test.describe("hidden content does not affect the page count", () => {
   /**
-   * 實書量到的形狀：註腳放在正文**後面**、用 `display: none` 藏起來（讀者點上標
-   * 才看到），或者整份 `nav.xhtml` 被藏起來。於是**文件順序的最後一個文字節點
-   * 畫不出來**，而它的矩形是全零。
+   * A shape measured on real books: notes placed **after** the body text and hidden with
+   * `display: none` (shown when the reader taps the marker), or a whole `nav.xhtml` hidden.
+   * So **the last text node in document order does not draw**, and its rectangle is all
+   * zeros.
    *
-   * 拿那個全零的矩形當「內容延伸到哪裡」的答案，整節的頁數會被算成 1
-   * ——讀者只讀得到一章的第一頁，其餘翻不過去，而且不會有任何錯誤：頁數看起來
-   * 是一個正常的數字。樣本裡最嚴重的一節有 8778 個畫得出來的字元，只報得出 1 頁。
+   * Taking that all-zero rectangle as the answer to "how far does the content extend"
+   * computes the whole section's page count as 1 — the reader gets only a chapter's first
+   * page and cannot turn past it, with no error at all: the page count looks like a
+   * perfectly normal number. The worst section in the sample has 8778 drawable characters
+   * and reports 1 page.
    *
-   * 病長在**最後一節**上，前兩節保持健康（`ailments.ts`）。
+   * The ailment lives in the **last section**; the first two stay healthy (`ailments.ts`).
    */
   const AFFLICTED_SECTION = 2;
 
-  test("正文後面跟著藏起來的註腳，頁數照正文算", async ({ page }) => {
+  test("with hidden notes after the body text, the page count follows the body text", async ({ page }) => {
     await mountFixture(page, "hidden-trailing-notes");
 
     const afflicted = await page.evaluate(
@@ -133,21 +141,23 @@ test.describe("藏起來的內容不影響頁數", () => {
       AFFLICTED_SECTION,
     );
 
-    // 這一條的牙齒全在這個數字上：病在的時候它是 1。
+    // This case's teeth are entirely in this number: with the ailment present it is 1.
     expect(afflicted.sectionIndex).toBe(AFFLICTED_SECTION);
     expect(afflicted.pageCount).toBeGreaterThan(1);
   });
 
-  test("翻得到正文的最後一頁", async ({ page }) => {
-    // 頁數對了還不夠——真正的要求是那些頁翻得過去、而且上面有字。
+  test("the body text's last page can be turned to", async ({ page }) => {
+    // A correct page count is not enough — the real requirement is that those pages can be
+    // reached and have text on them.
     await mountFixture(page, "hidden-trailing-notes");
     const start = await page.evaluate(
       (index) => window.frond.goToSection(index),
       AFFLICTED_SECTION,
     );
 
-    // 頁數先斷言一次。少了這一行，病在的時候 `pageCount` 是 1、底下那個迴圈一次
-    // 都不跑，於是這條測試會停在第 0 頁然後綠燈通過——一條沒有牙齒的測試。
+    // Assert the page count first. Without this line, with the ailment present `pageCount`
+    // is 1, the loop below never runs, and this test stops at page 0 and passes green — a
+    // test with no teeth.
     expect(start.pageCount).toBeGreaterThan(1);
 
     let current = start;
@@ -158,8 +168,8 @@ test.describe("藏起來的內容不影響頁數", () => {
     expect(current.sectionIndex).toBe(AFFLICTED_SECTION);
     expect(current.page).toBe(start.pageCount - 1);
 
-    // 最後一頁不是空的。空白頁是封閉缺陷清單裡的一項，而「頁數多算了」與
-    // 「頁數少算了」都會在這一條上現形。
+    // The last page is not blank. A blank page is an entry on the closed defect list, and
+    // both "the page count was too high" and "too low" surface in this case.
     const visibleParagraphs = await page.evaluate(() => {
       const frame = document.querySelector("#viewport iframe");
       if (!(frame instanceof HTMLIFrameElement)) return 0;
@@ -181,9 +191,10 @@ test.describe("藏起來的內容不影響頁數", () => {
     expect(visibleParagraphs).toBeGreaterThan(0);
   });
 
-  test("藏起來的註腳一個字都沒有畫出來", async ({ page }) => {
-    // 對照組：頁數變多不是因為 frond 把註腳顯示出來了。書要求藏起來就是藏起來
-    // ——那是書的宣告，frond 沒有介入的理由（ADR-0003）。
+  test("not one character of the hidden notes is drawn", async ({ page }) => {
+    // The control: the page count did not go up because frond made the notes visible. What
+    // the book asks to hide stays hidden — that is the book's declaration, and frond has no
+    // reason to intervene (ADR-0003).
     await mountFixture(page, "hidden-trailing-notes");
     await page.evaluate(
       (index) => window.frond.goToSection(index),
@@ -208,7 +219,7 @@ test.describe("藏起來的內容不影響頁數", () => {
 });
 
 test.describe("typed events", () => {
-  test("掛書時送出 load 與 relocate", async ({ page }) => {
+  test("mounting a book emits load and relocate", async ({ page }) => {
     await mountFixture(page, "vertical-japanese");
 
     const events = await page.evaluate(() => window.frond.events());
@@ -216,11 +227,11 @@ test.describe("typed events", () => {
 
     expect(names).toContain("load");
     expect(names).toContain("relocate");
-    // load 一定在 relocate 之前：位置是掛好之後才算得出來的。
+    // load always comes before relocate: the position is only computable once mounted.
     expect(names.indexOf("load")).toBeLessThan(names.indexOf("relocate"));
   });
 
-  test("load 帶著這一節排出來的書寫方向", async ({ page }) => {
+  test("load carries the writing mode this section laid out in", async ({ page }) => {
     await mountFixture(page, "writing-mode-on-body");
 
     const load = (await page.evaluate(() => window.frond.events())).find(
@@ -233,7 +244,7 @@ test.describe("typed events", () => {
     });
   });
 
-  test("relocate 帶著完整的位置", async ({ page }) => {
+  test("relocate carries the complete position", async ({ page }) => {
     await mountFixture(page, "vertical-japanese", { settings: LARGE });
     await page.evaluate(() => window.frond.next());
 
@@ -246,9 +257,10 @@ test.describe("typed events", () => {
     expect((relocate as { cfi: string }).cfi).toMatch(/^epubcfi\(/);
   });
 
-  test("位置沒變就不重複送 relocate", async ({ page }) => {
-    // 翻到書末再按一次「下一頁」什麼都沒變，而重複的 relocate 會讓消費端誤以為
-    // 位置動了（例如把同一個進度再同步一次到雲端）。
+  test("relocate is not re-emitted when the position has not changed", async ({ page }) => {
+    // Pressing "next page" again at the book's end changes nothing, and a repeated relocate
+    // would make the consumer believe the position moved (syncing the same progress to the
+    // cloud a second time, say).
     await mountFixture(page, "vertical-japanese");
     await turnToEnd(page);
 
@@ -259,8 +271,9 @@ test.describe("typed events", () => {
     expect(after).toBe(before);
   });
 
-  test("點內容裡的連結送出 linkactivate，而不是自己跳過去", async ({ page }) => {
-    // frond 給事實，跳不跳是政策（ADR-0002）。自己跳過去會把整個渲染狀態丟掉。
+  test("clicking a link in the content emits linkactivate rather than navigating", async ({ page }) => {
+    // frond supplies facts; whether to navigate is policy (ADR-0002). Navigating itself
+    // would throw the whole rendering state away.
     await mountFixture(page, "nested-toc");
 
     const appended = await page.evaluate(() => {
@@ -271,9 +284,10 @@ test.describe("typed events", () => {
       const body = document.body;
       if (body === null) return false;
 
-      // `createElementNS` 而不是 `createElement`：內容文件是 XML，而
-      // `createElement` 在 XML 文件裡造出來的元素沒有命名空間，於是它不是一個
-      // XHTML 的 `<a>`——瀏覽器不會把它當連結，測試也就測不到連結的行為。
+      // `createElementNS` rather than `createElement`: the content document is XML, and an
+      // element `createElement` builds in an XML document has no namespace, so it is not an
+      // XHTML `<a>` — the browser does not treat it as a link, and the test measures no link
+      // behaviour at all.
       const anchor = document.createElementNS("http://www.w3.org/1999/xhtml", "a");
       anchor.setAttribute("href", "section-2.xhtml#part-2-1");
       anchor.textContent = "次へ";
@@ -291,14 +305,14 @@ test.describe("typed events", () => {
       sectionIndex: 1,
       fragment: "part-2-1",
     });
-    // 沒有跳過去——位置還在原地。
+    // It did not navigate — the position is unchanged.
     expect(await page.evaluate(() => window.frond.snapshot())).toMatchObject({
       sectionIndex: 0,
     });
   });
 });
 
-/** 一直往後翻到節換了為止。 */
+/** Turns forward until the section changes. */
 async function turnUntilSectionChanges(
   page: Parameters<typeof mountFixture>[0],
 ): ReturnType<typeof mountFixture> {
@@ -311,10 +325,10 @@ async function turnUntilSectionChanges(
     location = next;
   }
 
-  throw new Error("翻了 200 頁都沒有換節");
+  throw new Error("200 page turns without the section changing");
 }
 
-/** 一直往後翻到書末。 */
+/** Turns forward until the book's end. */
 async function turnToEnd(
   page: Parameters<typeof mountFixture>[0],
 ): ReturnType<typeof mountFixture> {
@@ -323,7 +337,7 @@ async function turnToEnd(
     if (next.atEnd) return next;
   }
 
-  throw new Error("翻了 500 頁都沒有到書末");
+  throw new Error("500 page turns without reaching the book's end");
 }
 
 function lastOf(events: readonly EventRecord[], name: string): unknown {

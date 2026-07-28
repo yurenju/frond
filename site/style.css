@@ -1,8 +1,9 @@
 /*
- * 展示頁的樣式。
+ * The demo pages' styles.
  *
- * 刻意留在一個檔案、不用任何預處理器或框架——這一頁要示範的是「frond
- * 不需要建置流程」，而一份需要編譯的樣式表會讓那句話變得只有一半是真的。
+ * Deliberately kept in one file, with no preprocessor and no framework — what these pages
+ * demonstrate is that "frond needs no build step", and a stylesheet that has to be
+ * compiled would make that sentence only half true.
  */
 
 :root {
@@ -34,13 +35,14 @@
 }
 
 /*
- * `hidden` 屬性要真的藏得住。
+ * The `hidden` attribute has to really hide.
  *
- * UA 樣式表給 `[hidden]` 的是 `display: none`，但那條規則的優先權極低——這份
- * 檔案裡任何一條 id 或 class 選擇器的 `display` 都蓋得過它。於是
- * `element.hidden = true` 變成什麼都沒發生，而 JavaScript 那一側看起來完全正常。
+ * The UA stylesheet gives `[hidden]` a `display: none`, but that rule's specificity is
+ * extremely low — any id or class selector's `display` in this file overrides it. So
+ * `element.hidden = true` becomes a no-op while the JavaScript side looks perfectly fine.
  *
- * 這正是它在這裡的理由：整頁的顯示切換（開書前後、兩個分頁）都靠 `hidden`。
+ * Which is exactly why this is here: every visibility switch on these pages (before and
+ * after opening a book, the two tabs) rides on `hidden`.
  */
 [hidden] {
   display: none !important;
@@ -67,7 +69,7 @@ pre {
   font-size: 0.85em;
 }
 
-/* --- 頁首 ---------------------------------------------------------------- */
+/* --- Masthead ------------------------------------------------------------ */
 
 .masthead {
   padding: 2rem 1.5rem 1.25rem;
@@ -100,7 +102,7 @@ main {
   min-height: 0;
 }
 
-/* --- 開書之前 ------------------------------------------------------------ */
+/* --- Before a book is open ----------------------------------------------- */
 
 #intro {
   padding: 1.5rem;
@@ -154,7 +156,8 @@ main {
 }
 
 .file-button input {
-  /* 視覺上藏起來，但保留在無障礙樹裡——鍵盤使用者要 tab 得到它。 */
+  /* Hidden visually but kept in the accessibility tree — a keyboard user has to be able to
+     tab to it. */
   position: absolute;
   width: 1px;
   height: 1px;
@@ -196,7 +199,7 @@ pre {
   line-height: 1.55;
 }
 
-/* --- 開書之後 ------------------------------------------------------------ */
+/* --- After a book is open ------------------------------------------------ */
 
 #workspace {
   flex: 1;
@@ -237,8 +240,9 @@ pre {
 
 .book-title {
   flex: 1;
-  /* 分隔線是必要的，不是裝飾：書名緊接在兩個分頁按鈕後面時，看起來像第三個
-     分頁。截圖上一眼就看得出來（`讀 檢查 渡口`）。 */
+  /* The divider is necessary rather than decorative: following straight on from the two tab
+     buttons, the title reads as a third tab. It is obvious at a glance in a screenshot
+     (`Read Inspect 渡口`). */
   margin: 0;
   padding-left: 1rem;
   border-left: 1px solid var(--line);
@@ -307,36 +311,41 @@ pre {
 }
 
 /*
- * 渲染的容器。
+ * The rendering container.
  *
- * frond 要的只有一件事：一個有大小的元素。它會把自己的 iframe 絕對定位進來，
- * 所以容器如果是 `position: static`，frond 會暫時改成 `relative` 並在
- * `destroy()` 時還原。高度必須由這一層給——內容在 iframe 裡，撐不起父層。
+ * frond wants exactly one thing: an element with a size. It absolutely positions its own
+ * iframe inside, so when the container is `position: static`, frond temporarily switches
+ * it to `relative` and restores it on `destroy()`. The height has to come from this layer
+ * — the content is inside the iframe and cannot hold the parent open.
  *
- * ## 為什麼書框不直接填滿剩下的空間
+ * ## Why the frame does not simply fill the remaining space
  *
- * 填滿的版本在寬螢幕上會排出一個 1400×600 的「頁」——那個比例不存在於任何一本
- * 實體書上，而讀者對「這是一本書」的判斷有一半來自比例。所以這裡改成先把空間
- * 量出來，再從裡面切一個書的比例出來，剩下的留白。
+ * The filling version lays out a 1400×600 "page" on a wide screen — a ratio no physical
+ * book has, and half of a reader's judgement that "this is a book" comes from the ratio. So
+ * this measures the space first, then cuts a book's proportions out of it and leaves the
+ * rest as whitespace.
  *
- * 兩種比例，對應書的兩種看法：
+ * Two ratios, for the two ways of seeing a book:
  *
- *   - **單頁** 0.7（1:1.43）——A5 是 0.707、常見平裝本 6×9in 是 0.667，落在中間。
- *   - **攤開** 1.4——就是兩個單頁並排，實體書打開來的樣子。
+ *   - **Single page** 0.7 (1:1.43) — A5 is 0.707 and a common 6×9in paperback is 0.667, so
+ *     this sits between them.
+ *   - **Spread** 1.4 — two single pages side by side, the way a physical book opens.
  *
- * ## 比例怎麼量
+ * ## How the ratio is measured
  *
- * `.viewer-frame` 宣告成 size container，`#viewer` 於是能用 `cqw`/`cqh` 讀到它
- * 的內距框，兩個方向各取 min 就得到「塞得進去的最大的那個書的比例」。用容器而
- * 不是 `dvh` 算，是因為上面還有頁首、工作列、工具列，狀態列還會在窄螢幕上折行
- * ——那幾層的高度沒有一個常數答案。
+ * `.viewer-frame` is declared a size container, so `#viewer` can read its padding box with
+ * `cqw`/`cqh`, and taking the min in each direction gives "the largest book proportion that
+ * fits". It computes from the container rather than from `dvh` because the masthead, the
+ * workspace bar and the toolbar sit above, and the status bar wraps on narrow screens —
+ * those layers' heights have no constant answer.
  *
- * 換成 `aspect-ratio` 加 `max-width` 是不行的：其中一邊被 max-* 夾住的時候，
- * 另一邊不會跟著回推，比例就破了。所以這裡兩個方向都自己算。
+ * `aspect-ratio` plus `max-width` does not work: when one side is clamped by a max-*, the
+ * other does not push back and the ratio breaks. So both directions are computed here.
  */
 .viewer-frame {
   flex: 1;
-  /* 視窗很矮時仍留一個底線；書框會小到讀不了，但至少還在。 */
+  /* A floor for very short windows; the frame gets too small to read, but it is still
+     there. */
   min-height: 18rem;
   display: flex;
   align-items: center;
@@ -352,29 +361,34 @@ pre {
   height: min(100cqh, calc(100cqw / var(--page-ratio)));
   border: 1px solid var(--line);
   border-radius: 6px;
-  /* 書還沒排出來的那一瞬間、以及邊界設得很大時，露出來的是這一層。 */
+  /* This layer is what shows in the instant before the book lays out, and when the margin is
+     set very large. */
   background: var(--panel);
   box-shadow: 0 2px 14px rgb(0 0 0 / 0.14);
-  /* iframe 是絕對定位的方角，圓角要靠這一層裁。 */
+  /* The iframe is absolutely positioned with square corners, so the rounding has to be
+     clipped by this layer. */
   overflow: hidden;
 }
 
 /*
- * 攤開。
+ * The spread.
  *
- * 判準只有一條，而且它同時是「哪一種比較大」的答案：**容器比攤開還寬的時候用
- * 攤開**。
+ * There is one criterion, and it is simultaneously the answer to "which one is larger":
+ * **use the spread when the container is wider than a spread**.
  *
- * 容器寬於 1.4 時，攤開被高度卡住——它填滿高度，寬度是高度 × 1.4。同一塊空間裡
- * 的單頁也是被高度卡住的，寬度只有高度 × 0.7，剛好一半。所以在寬容器裡攤開一定
- * 比單頁大，沒有例外，也就不需要再補一條「太矮就改單頁」的門檻。反過來，容器比
- * 1.4 瘦（豎著拿的平板、手機）時攤開會被寬度卡住，只用掉一半多一點的高度，那時
- * 單頁才是大的那一個。
+ * With the container wider than 1.4, the spread is constrained by the height — it fills the
+ * height, and its width is height × 1.4. A single page in the same space is constrained by
+ * the height too, at only height × 0.7, exactly half. So in a wide container the spread is
+ * always larger than a single page, without exception, and no extra "switch to single when
+ * too short" threshold is needed. Conversely, when the container is narrower than 1.4 (a
+ * tablet held upright, a phone), the spread is constrained by the width and uses a little
+ * over half the height, and then the single page is the larger one.
  *
- * 這條線與欄數是分開的兩件事：`columns: "auto"` 看的是行內軸有沒有 700px
- * （`src/renderer/geometry.ts` 的 `TWO_COLUMN_MIN_INLINE_SIZE`），換算過來是書框
- * 高 500px。矮於這個值的攤開是「攤開的形狀、一欄的內容」——那是行長的判斷，讀者
- * 要雙欄的話工具列上就有。
+ * This line and the column count are two separate things: `columns: "auto"` looks at
+ * whether the inline axis has 700px (`TWO_COLUMN_MIN_INLINE_SIZE` in
+ * `src/renderer/geometry.ts`), which converts to a frame height of 500px. A spread shorter
+ * than that is "a spread's shape with one column's content" — that is a judgement about line
+ * length, and a reader who wants two columns has it on the toolbar.
  */
 @container (min-aspect-ratio: 7 / 5) {
   .viewer {
@@ -407,7 +421,7 @@ pre {
   font-size: 0.88rem;
 }
 
-/* --- 檢查 ---------------------------------------------------------------- */
+/* --- Inspect -------------------------------------------------------------- */
 
 #panel-inspect {
   overflow-y: auto;
@@ -439,31 +453,38 @@ pre {
   border-radius: 4px;
 }
 
-/* --- 開書之後，頁面自己讓位 ---------------------------------------------- */
+/* --- Once a book is open, the page gets out of the way -------------------- */
 
 /*
- * 書框的大小由**高度**決定（見 `.viewer-frame`），所以頁首與頁尾每多佔一點
- * 高度，書就整個小一圈——手機上那是「書變窄」而不是「上下多一條白」，因為窄
- * 螢幕上寬度早就用滿了，只剩高度在收。開書之後這些東西就不再是主角了。
+ * The frame's size is decided by its **height** (see `.viewer-frame`), so every bit of
+ * height the masthead and the colophon take makes the book smaller all round — on a phone
+ * that reads as "the book got narrower" rather than "there is more white above and below",
+ * because the width is already fully used on a narrow screen and only the height is left to
+ * give. Once a book is open, these things are no longer the main act.
  *
- * 用 `:has()` 而不是在 app.js 掛一個 class：這條規則只跟版面有關，讓它整條留在
- * 樣式表裡，app.js 就不必知道它存在。條件寫成「工作區沒被藏起來」，跟
- * `openBook()` 切的是同一個開關。
+ * `:has()` rather than a class hung on by app.js: this rule is purely about layout, and
+ * keeping the whole of it in the stylesheet means app.js need not know it exists. The
+ * condition is written as "the workspace is not hidden", which is the same switch
+ * `openBook()` flips.
  */
 /*
- * 讀書的時候整個頁面就是一個視窗大小的殼，不捲動。
+ * While reading, the whole page is a viewport-sized shell that does not scroll.
  *
- * `min-height` 與 `height` 在這裡不是同一件事：`min-height` 之下 body 的高度仍
- * 由內容決定（至少一個視窗高），於是往下每一層 flex 的高度都是「先量內容再拉
- * 開」——而 `.viewer-frame` 有 size containment，內容量出來是 0。結果是 `100cqh`
- * 解析成 0，書框整個塌掉。給一個確定的高度，這條鏈才有定值可分。
+ * `min-height` and `height` are not the same thing here: under `min-height`, body's height
+ * is still decided by its content (at least one viewport tall), so every flex layer below
+ * gets its height by "measure the content, then stretch" — and `.viewer-frame` has size
+ * containment, so its content measures 0. The result is `100cqh` resolving to 0 and the
+ * frame collapsing entirely. Give it a definite height and the chain has a fixed value to
+ * divide up.
  *
- * 開書之前照舊：那一頁是文件，內容比視窗長的時候要捲得動。
+ * Before a book is open, as before: that page is a document, and it has to scroll when the
+ * content is taller than the window.
  */
 body:has(#workspace:not([hidden])) {
   height: 100dvh;
-  /* `hidden` 會在視窗矮到書框撞上自己的 min-height 時，把狀態列直接裁掉且捲不
-     回來。`auto` 只有在真的塞不下時才長出捲軸，其餘時間看起來一樣。 */
+  /* `hidden` would clip the status bar away with no way to scroll back once the window is
+     short enough for the frame to hit its own min-height. `auto` only grows a scrollbar when
+     things genuinely do not fit, and looks the same the rest of the time. */
   overflow: auto;
 }
 
@@ -484,19 +505,22 @@ body:has(#workspace:not([hidden])) .masthead-links {
   font-size: 0.85rem;
 }
 
-/* 標語與頁尾在讀書的時候沒有讀者要的資訊，而它們合起來要走三到四行的高度。 */
+/* While reading, the tagline and the colophon hold nothing the reader wants, and together
+   they cost three to four lines of height. */
 body:has(#workspace:not([hidden])) .tagline,
 body:has(#workspace:not([hidden])) .colophon {
   display: none;
 }
 
 /*
- * 窄螢幕上再收一次。
+ * Tightened once more on narrow screens.
  *
- * 手機上工具列會折成四五行——量到的是 390×844 上 178px，接近整個視窗的四分之一，
- * 而那些高度全是從書上扣的。這裡只動間距、字級與滑桿寬度，**不藏任何一個控制項**：
- * 這一頁的用途就是把 frond 的旋鈕全攤出來給人轉，橫向捲動或收進選單都會讓其中
- * 幾個變成沒人找得到。收完之後書在 390 寬的螢幕上正好用滿寬度。
+ * On a phone the toolbar wraps to four or five lines — measured at 178px on 390×844, close
+ * to a quarter of the whole viewport, and all of that height is taken from the book. This
+ * only touches spacing, font size and slider width, and **hides no control at all**: these
+ * pages exist to lay out all of frond's knobs for people to turn, and horizontal scrolling
+ * or tucking them into a menu would make several of them unfindable. Once tightened, the
+ * book uses the full width on a 390-wide screen.
  */
 @media (max-width: 48rem) {
   body:has(#workspace:not([hidden])) .masthead {
@@ -533,7 +557,7 @@ body:has(#workspace:not([hidden])) .colophon {
   }
 }
 
-/* --- 頁尾 ---------------------------------------------------------------- */
+/* --- Colophon ------------------------------------------------------------- */
 
 .colophon {
   padding: 1rem 1.5rem;
@@ -546,17 +570,18 @@ body:has(#workspace:not([hidden])) .colophon {
   margin: 0;
 }
 
-/* --- React 展示頁（site/react/） ------------------------------------------ */
+/* --- The React demo page (site/react/) ----------------------------------- */
 /*
- * 兩頁共用這一份樣式表，因為它們共用同一套外觀語彙（顏色、間距、按鈕、`pre`）。
- * 下面這一段只服務第二頁。
+ * The two pages share this stylesheet because they share one visual vocabulary (colours,
+ * spacing, buttons, `pre`). The section below serves only the second page.
  *
- * ## 這一段要注意的事
+ * ## What to watch out for here
  *
- * 它同時是 **frond-react 的 unstyled 主張的示範**。頁面上那個「預設樣式」開關關
- * 掉之後，零件身上就只剩下面這幾條規則——所以這裡刻意只寫版面（誰多大、誰在哪
- * 裡），不寫任何一條「讓它看起來像個按鈕」的宣告。那些留給
- * `@yurenju/frond-react/styles.css` 去給，開關才切得出差別。
+ * It doubles as **a demonstration of frond-react's unstyled claim**. With the page's
+ * "default styles" switch turned off, the only rules left on the parts are the ones below —
+ * so this deliberately writes layout only (how big, where) and not one declaration that
+ * "makes it look like a button". Those are left to
+ * `@yurenju/frond-react/styles.css`, so that the switch has a difference to show.
  */
 
 .react-app {
@@ -566,7 +591,7 @@ body:has(#workspace:not([hidden])) .colophon {
   gap: 0.75rem;
 }
 
-/* 開書之後 padding 收掉——書自己有框。 */
+/* The padding goes once a book is open — the book has a frame of its own. */
 .react-app:has(.reader-stage) {
   padding: 0;
   gap: 0;
@@ -578,11 +603,12 @@ body:has(#workspace:not([hidden])) .colophon {
 }
 
 /*
- * 書與兩顆翻頁按鈕排成一列。
+ * The book and the two paging buttons in one row.
  *
- * `1fr` 中間、兩側 auto：按鈕多寬由它自己的內容決定，書吃掉剩下的。這是這一頁
- * 唯一替 `Viewport` 做的版面決定，而它是消費端該做的那一種——frond-react 自己
- * 一格尺寸都不設（見 viewport.tsx 的檔頭）。
+ * `1fr` in the middle with auto on either side: each button is as wide as its own content
+ * and the book takes what is left. This is the only layout decision this page makes for
+ * `Viewport`, and it is the kind a consumer should make — frond-react sets no dimension of
+ * its own (see viewport.tsx's header comment).
  */
 .reader-stage {
   display: grid;
@@ -592,45 +618,52 @@ body:has(#workspace:not([hidden])) .colophon {
   padding: 0.5rem 0.75rem;
 
   /*
-   * **高度寫在這裡，而不是靠 flex 從祖先繼承下來。**
+   * **The height is written here rather than inherited from an ancestor through flex.**
    *
-   * 這一頁與首頁的形狀不同：首頁是一個吃滿視窗的 app，這一頁是一份「文件裡嵌了
-   * 一個 reader」——底下那一整段說明要讀得到，所以整頁是會捲的。在會捲的頁面上
-   * 用 `flex: 1` 去要高度，拿到的是「扣掉說明之後剩下的」，而說明很長，於是書框
-   * 塌成幾十像素。第一版就是這樣（截圖上一眼看得出來）。
+   * This page has a different shape from the front page: the front page is an app filling
+   * the viewport, and this one is "a document with a reader embedded in it" — the whole
+   * explanation below has to be readable, so the page scrolls. Asking for height with
+   * `flex: 1` on a scrolling page gets "whatever is left after the explanation", and the
+   * explanation is long, so the frame collapses to a few dozen pixels. The first version did
+   * exactly that (obvious at a glance in a screenshot).
    *
-   * `dvh` 而不是 `vh`：手機的網址列會收合，`vh` 在收合前後量到的值不同，症狀是
-   * 捲動時書的高度跳一下、頁數跟著重算。
+   * `dvh` rather than `vh`: a phone's address bar collapses, `vh` measures differently
+   * before and after, and the symptom is the book's height jumping while scrolling with the
+   * page count recomputed along with it.
    *
-   * 這一格同時是這一頁在示範的東西之一：**尺寸是消費端的決定**。frond-react 自己
-   * 一格都不設（見 viewport.tsx 的檔頭），因為 grid item、`aspect-ratio`、
-   * `100dvh` 減工具列每一種都合理，替人挑一種就是在做版面決定。
+   * This slot is also one of the things the page demonstrates: **size is the consumer's
+   * decision**. frond-react sets none of its own (see viewport.tsx's header comment),
+   * because a grid item, an `aspect-ratio`, and `100dvh` minus the toolbar are all
+   * reasonable, and picking one for people is making a layout decision for them.
    */
   block-size: clamp(360px, 68dvh, 720px);
 }
 
 .reader-viewport {
   /*
-   * `min-height: 0` 在 grid item 上是必要的：預設的 `auto` 最小尺寸會讓它撐開而
-   * 不是被容器卡住，於是書框比可用高度還高，狀態列被推出畫面。
+   * `min-height: 0` is necessary on a grid item: the default `auto` minimum size lets it
+   * stretch rather than be constrained by the container, so the frame ends up taller than
+   * the available height and the status bar is pushed off screen.
    */
   min-height: 0;
 
   /*
-   * **這一行不是裝飾，而且這一頁特別需要它。**
+   * **This line is not decoration, and this page needs it especially.**
    *
-   * iframe 是絕對定位的，所以容器必須是它的定位脈絡。`Renderer` 會在容器還是
-   * `static` 的時候自己補上這一格（然後在 `destroy()` 還原），但**那個判斷只在
-   * attach 的那一刻做一次**。
+   * The iframe is absolutely positioned, so the container has to be its containing block.
+   * `Renderer` fills that in itself when the container is still `static` (and restores it on
+   * `destroy()`), but **that decision is made once, at the moment of attaching**.
    *
-   * 這一頁上那個「預設樣式」開關剛好會踩到：開著的時候
-   * `@yurenju/frond-react/styles.css` 已經給了 `position: relative`，於是 frond
-   * 看到的不是 `static`、不補；等到開關被關掉，那份樣式整份失效，容器變回
-   * `static`，而 frond 不會再檢查一次——iframe 就跳出框、蓋在整頁上面。第一版就是
-   * 這樣（`docs/evidence/` 的截圖上一眼看得出來）。
+   * This page's "default styles" switch steps on it exactly: turned on,
+   * `@yurenju/frond-react/styles.css` has already supplied `position: relative`, so frond
+   * does not see `static` and does not fill it in; then the switch is turned off, that whole
+   * stylesheet stops taking effect, the container goes back to `static`, and frond never
+   * checks again — the iframe escapes the frame and covers the whole page. The first version
+   * did exactly that (obvious at a glance in the screenshots under `docs/evidence/`).
    *
-   * 所以定位脈絡由這一頁自己宣告，不靠任何一份可能被關掉的樣式表。這也是消費端
-   * 該做的事：`Viewport` 是你的盒子，它的定位屬於你的版面。
+   * So the containing block is declared by this page itself, relying on no stylesheet that
+   * might be turned off. This is also what a consumer should do: `Viewport` is your box, and
+   * its positioning belongs to your layout.
    */
   position: relative;
 
@@ -642,8 +675,8 @@ body:has(#workspace:not([hidden])) .colophon {
 
 .page-turn {
   /*
-   * 只給版面，不給外觀。開關關掉預設樣式之後這顆按鈕會變回瀏覽器原生的樣子，
-   * 而那正是要看到的東西。
+   * Layout only, no appearance. With the default styles switched off, this button returns to
+   * the browser's native look, and that is precisely what there is to see.
    */
   align-self: center;
   font-size: 1.6rem;
@@ -673,7 +706,8 @@ body:has(#workspace:not([hidden])) .colophon {
   max-width: 100%;
 }
 
-/* React 那一頁的工具列比首頁的簡單，共用 `.workspace-bar` 的框但自己排。 */
+/* The React page's toolbar is simpler than the front page's; it shares `.workspace-bar`'s
+   frame but lays itself out. */
 .react-app .workspace-bar {
   flex-wrap: wrap;
   font-size: 0.85rem;
@@ -697,7 +731,8 @@ body:has(#workspace:not([hidden])) .colophon {
 }
 
 /*
- * 兩個切設計主張的開關。給一點視覺重量，因為它們是這一頁真正要人按的東西。
+ * The two switches that toggle design claims. Given some visual weight, because they are
+ * what this page really wants people to press.
  */
 .switch {
   padding: 0.2rem 0.6rem;
@@ -723,7 +758,8 @@ body:has(#workspace:not([hidden])) .colophon {
   font-size: 0.85rem;
 }
 
-/* 說明區塊在書下面。開書之前它是這一頁的主要內容。 */
+/* The explanation sits below the book. Before a book is open it is this page's main
+   content. */
 .guide {
   padding: 1.5rem;
   border-top: 1px solid var(--line);
