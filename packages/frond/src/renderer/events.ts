@@ -129,6 +129,19 @@ export interface SelectionEvent {
   readonly cfi: string | undefined;
   /** The selected text. An empty string when the selection is cleared. */
   readonly text: string;
+  /**
+   * Where the selection is on screen, in the container's coordinate system — the same
+   * system as `rectsFor()` and `RendererPointerEvent`.
+   *
+   * A floating toolbar has to be placed against these, so this field saves the consumer a
+   * round trip that computes what frond already has: it holds the `Range` at this moment,
+   * and the alternative is parsing back the CFI it has just serialized and walking the DOM
+   * a second time to recover the same rectangles.
+   *
+   * Empty when the selection is cleared. **These go stale on the next `layout`**, exactly
+   * as `rectsFor()`'s do.
+   */
+  readonly rects: readonly DOMRect[];
 }
 
 /**

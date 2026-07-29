@@ -6,6 +6,7 @@ import {
   normalisePageBreaks,
   normalisePrefixedWritingMode,
   relativiseFontSizes,
+  resolveGenericFamilies,
   rewriteUrls,
 } from "../../../packages/frond/src/renderer/css.ts";
 
@@ -426,5 +427,104 @@ describe("@import's boundaries", () => {
   test("an @import with no recognizable address is left as it stands", () => {
     const css = "@import ;";
     expect(inlineImports(css, expand)).toBe(css);
+  });
+});
+
+/**
+ * Filling in the generic families the book delegated to the platform.
+ *
+ * The weight here sits on **what is left alone**, for the reason this rewrite exists at all:
+ * it is only entitled to the stretches the book declined to decide. A face the book named,
+ * a quoted family that merely happens to be called "serif", a keyword the reader has said
+ * nothing about — one of those being rewritten would make `genericFamilies` a second
+ * `fontFamily`, which is precisely what it is not (`settings.ts`).
+ */
+describe("resolving generic families", () => {
+  const FAMILIES = { serif: '"Noto Serif TC", Georgia, serif', sansSerif: '"Noto Sans TC"' };
+
+  test("a bare serif becomes the reader's stack", () => {
+    // The whitespace before the `}` is gone because the value was trimmed — the same shape
+    // every rewrite in this module produces (see `demoteImportant`'s cases above).
+    expect(resolveGenericFamilies("p { font-family: serif }", FAMILIES)).toBe(
+      'p { font-family: "Noto Serif TC", Georgia, serif}',
+    );
+  });
+
+  test("the keyword is kept as the last resort when the stack does not already end with it", () => {
+    // A stack naming only faces would otherwise leave that stretch with no fallback at all
+    // — a worse outcome than the platform's own choice.
+    expect(resolveGenericFamilies("p { font-family: sans-serif }", FAMILIES)).toBe(
+      'p { font-family: "Noto Sans TC", sans-serif}',
+    );
+  });
+
+  test("a stack already ending with the keyword does not repeat it", () => {
+    expect(resolveGenericFamilies("p { font-family: serif }", FAMILIES)).not.toContain(
+      "serif, serif",
+    );
+  });
+
+  test("faces the book named are kept, and only the trailing keyword is filled in", () => {
+    // The whole difference from `fontFamily`: the book's own first choice still wins wherever
+    // it is installed.
+    expect(
+      resolveGenericFamilies('p { font-family: "Yu Mincho", serif }', FAMILIES),
+    ).toBe('p { font-family: "Yu Mincho", "Noto Serif TC", Georgia, serif}');
+  });
+
+  test("the book's !important is carried over", () => {
+    // This rewrite replaces a value, so the declaration keeps the weight the book gave it —
+    // which is why `overriddenProperties` has nothing to add for this setting.
+    expect(
+      resolveGenericFamilies("p { font-family: serif !important }", FAMILIES),
+    ).toBe('p { font-family: "Noto Serif TC", Georgia, serif !important}');
+  });
+
+  test("a quoted \"serif\" is a family name, not the keyword", () => {
+    const css = 'p { font-family: "serif" }';
+    expect(resolveGenericFamilies(css, FAMILIES)).toBe(css);
+  });
+
+  test("a keyword the reader said nothing about is left alone", () => {
+    const css = "p { font-family: monospace }";
+    expect(resolveGenericFamilies(css, FAMILIES)).toBe(css);
+    // And so is a generic whose field is absent, rather than falling back to the other one.
+    expect(resolveGenericFamilies("p { font-family: sans-serif }", { serif: "X" })).toBe(
+      "p { font-family: sans-serif }",
+    );
+  });
+
+  test("with nothing to substitute the text is unchanged character for character", () => {
+    const css = "p {\n  /* the body face */\n  font-family:   Georgia  ;\n}";
+    expect(resolveGenericFamilies(css, FAMILIES)).toBe(css);
+  });
+
+  test("other properties are never touched", () => {
+    const css = "p { font-size: serif; color: red }";
+    // `font-size: serif` is nonsense, and that is the point: the property name is what
+    // decides, not the value looking like a family.
+    expect(resolveGenericFamilies(css, FAMILIES)).toBe(css);
+  });
+
+  test("the font shorthand is out of scope, and left verbatim", () => {
+    // Reaching into it means parsing the shorthand's grammar, and getting that wrong
+    // rewrites the declaration into nonsense (`css.ts`'s comment).
+    const css = "p { font: 12px serif }";
+    expect(resolveGenericFamilies(css, FAMILIES)).toBe(css);
+  });
+
+  test("a comma inside a quoted family name does not split the list", () => {
+    const css = 'p { font-family: "Weird, Face", serif }';
+    expect(resolveGenericFamilies(css, FAMILIES)).toBe(
+      'p { font-family: "Weird, Face", "Noto Serif TC", Georgia, serif}',
+    );
+  });
+
+  test("it applies to a style attribute too", () => {
+    // The case that decides whether the book can keep a generic out of reach: an external
+    // stylesheet cannot beat a style attribute, so the substitution has to happen in both.
+    expect(resolveGenericFamilies("font-family: serif", FAMILIES, "declarations")).toBe(
+      'font-family: "Noto Serif TC", Georgia, serif',
+    );
   });
 });

@@ -74,6 +74,50 @@ export interface ReaderSettings {
   /** The column count. Vertical is always single-column, and setting it has no effect (ADR-0003). */
   readonly columns: ColumnChoice;
   readonly theme: Theme | undefined;
+  /**
+   * What the book's generic families should resolve to.
+   *
+   * ## Why this is a reader setting rather than a correction of frond's own
+   *
+   * ADR-0003's table originally answered this case with "the book wins": a book declaring
+   * `font-family: serif` has declared something legal, every character is still there, and
+   * frond does not intervene because a book is ugly. That verdict stands for frond acting
+   * **on its own** — and it is why this field exists instead.
+   *
+   * `serif` names no face. It **delegates the choice to the platform**, and for CJK the
+   * three engines resolve that delegation to different faces (`docs/browser-quirks.md`
+   * #4) — some of which carry no vertical punctuation glyphs, so the same declaration
+   * that reads correctly on one machine puts the full stop at the bottom left on another.
+   * Filling in a delegation the book left open is not overriding the book's choice; it is
+   * supplying the one the book declined to make, and the reader's layer is the one
+   * entitled to name a face (ADR-0004, and `fontFamily` above).
+   *
+   * The difference from `fontFamily` is the whole point: `fontFamily` replaces the book's
+   * typography wholesale, while this leaves every face the book actually **named**
+   * untouched and only reaches the stretches it left to the platform. A reader who wants
+   * the publisher's fonts has nowhere else to go.
+   *
+   * Unset — and it is unset by default — frond substitutes nothing, so ADR-0003's
+   * "frond does not intervene because a book is ugly" remains literally true.
+   */
+  readonly genericFamilies: GenericFamilies | undefined;
+}
+
+/**
+ * The faces to use where the book delegated the choice to the platform.
+ *
+ * A field left out means "leave that keyword alone", which is a different thing from an
+ * empty string — the same distinction the rest of these settings draw between `undefined`
+ * and a value.
+ *
+ * Only `serif` and `sans-serif` are recognised. `monospace`, `cursive`, `fantasy` and
+ * `system-ui` are left alone: they are not what CJK body text is set in, and the
+ * measurement this exists for (#4) covers those two only. `font: 12px serif`, the
+ * shorthand, is likewise not reached — see `css.ts`'s `resolveGenericFamilies`.
+ */
+export interface GenericFamilies {
+  readonly serif?: string | undefined;
+  readonly sansSerif?: string | undefined;
 }
 
 /**
@@ -91,6 +135,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   margin: 24,
   columns: "auto",
   theme: undefined,
+  genericFamilies: undefined,
 };
 
 /** Applies a partial set of settings. Fields not mentioned keep their current value. */
@@ -113,6 +158,13 @@ export function withSettings(
  * The `font` shorthand is included as soon as any one of the three font-related settings
  * is overridden: a single `font` declaration can pin the size, the line height and the
  * face all at once, so leaving its `!important` in place would leave a way around.
+ *
+ * **`genericFamilies` deliberately adds nothing here.** That rewrite substitutes a value
+ * in place and carries the book's `!important` over with it (`css.ts`'s
+ * `resolveGenericFamilies`), so there is nothing to demote — the book's declaration keeps
+ * whatever weight it had, and only the platform's share of it is filled in. Adding
+ * `font-family` to this set would instead strip the flag from every face the book named,
+ * which is the opposite of what that setting promises.
  */
 export function overriddenProperties(
   settings: ReaderSettings,

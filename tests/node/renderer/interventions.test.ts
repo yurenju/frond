@@ -27,6 +27,7 @@ const REQUIRED_BY_ADR_0003 = [
   "reader-stylesheet",
   "relativise-font-size",
   "reset-root-box",
+  "resolve-generic-families",
   "strip-scripted-content",
   "unprefix-writing-mode",
   "vertical-punctuation",

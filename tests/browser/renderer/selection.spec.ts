@@ -51,6 +51,60 @@ test.describe("selection events", () => {
   });
 });
 
+test.describe("the selection event carries its own geometry", () => {
+  /**
+   * The event's `rects` and `rectsFor(event.cfi)` answer the same question, and the event's
+   * are the ones that did not go through a round trip: frond holds the live `Range` at the
+   * moment it emits, while the consumer would have to parse back the CFI just serialized and
+   * walk the DOM again to recover the same rectangles.
+   *
+   * A floating toolbar is placed against these, so "the event alone is enough to place it" is
+   * the property worth pinning.
+   */
+  test("the rectangles arrive with the event, matching what rectsFor gives for the same CFI", async ({
+    page,
+  }) => {
+    await mountFixture(page, "vertical-japanese");
+    await page.evaluate(() => window.frond.selectText("p"));
+
+    const event = await waitForSelection(page);
+    const viaCfi = await page.evaluate(
+      (cfi) => window.frond.rectsFor(cfi as string),
+      event.cfi!,
+    );
+
+    expect(event.rects.length).toBeGreaterThan(0);
+    expect(event.rects.length).toBe(viaCfi.length);
+    for (const [index, rect] of event.rects.entries()) {
+      // Rounded before comparing: the two measurements are taken at different moments, and
+      // sub-pixel drift between them is not what this is about.
+      expect(Math.round(rect.x)).toBe(Math.round(viaCfi[index]!.x));
+      expect(Math.round(rect.y)).toBe(Math.round(viaCfi[index]!.y));
+      expect(Math.round(rect.width)).toBe(Math.round(viaCfi[index]!.width));
+      expect(Math.round(rect.height)).toBe(Math.round(viaCfi[index]!.height));
+    }
+  });
+
+  test("clearing the selection carries an empty list, not the previous rectangles", async ({
+    page,
+  }) => {
+    // A consumer dismissing its toolbar reads the same event; stale rectangles here would
+    // draw it one more time at the old position.
+    await mountFixture(page, "vertical-japanese");
+    await page.evaluate(() => window.frond.selectText("p"));
+    await waitForSelection(page);
+
+    await page.evaluate(() => {
+      const frame = document.querySelector("#viewport iframe");
+      (frame as HTMLIFrameElement).contentDocument?.getSelection()?.removeAllRanges();
+    });
+
+    await expect
+      .poll(async () => (await lastSelection(page))?.rects?.length ?? -1)
+      .toBe(0);
+  });
+});
+
 test.describe("annotation geometry", () => {
   test("the selected passage yields rectangles (user story 49)", async ({ page }) => {
     await mountFixture(page, "vertical-japanese");
@@ -113,6 +167,16 @@ test.describe("annotation geometry", () => {
 interface SelectionPayload {
   readonly cfi: string | null;
   readonly text: string;
+  /**
+   * A `DOMRect` does not survive `page.evaluate`'s boundary as a `DOMRect` — what arrives is
+   * a plain object with the same fields, which is all this side reads.
+   */
+  readonly rects: readonly {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  }[];
 }
 
 /** Waits for a selection event carrying a CFI. `selectionchange` is asynchronous. */
