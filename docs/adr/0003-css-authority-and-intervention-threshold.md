@@ -21,7 +21,7 @@
 | `<body>` 被塞 inline `!important` padding，欄位邊界被推出畫面 | frond | 同上，library 自己造成的 |
 | InDesign 書把 `writing-mode` 宣告在 `<body>` 而非 `<html>` | frond | 這不是覆寫書，是 frond **讀得不夠**——瀏覽器有照書做，只有 library 沒讀到 |
 | 書把直排宣告成 `-epub-writing-mode`／`-webkit-writing-mode` 而沒有無前綴版本，Firefox 不認、整本排成橫排 | frond | **瀏覽器沒有照書做**，宣告被丟掉了。與上一格看起來相同但理由不同（上一格瀏覽器是照書做的），所以不要套用「frond 讀得不夠」那句話。把宣告翻譯成無前綴的等價寫法**不改變書的意圖**，改的只是語法。實測見 `docs/browser-quirks.md` |
-| 書宣告 `font-family: serif`，Windows 直排標點缺字符 | 書 | 宣告合法，壞的是平台字型。**每個字都還在**，只是不好看。讀者想改就用字型設定 |
+| 書宣告 `font-family: serif`，Windows 直排標點缺字符 | 書（**除非讀者指名**，見〈修訂〉） | 宣告合法，壞的是平台字型。**每個字都還在**，只是不好看。讀者想改就用字型設定 |
 | 書寫死 `font-size: 12px !important`，讀者調字級無效 | frond | 不是難看，是**讀者的能力被書擋掉** |
 | 書寫死 `color: #000; background: #fff`，夜間模式失效 | frond | 同上 |
 | 書寫死 `width: 800px`，手機上右半邊被裁掉 | frond | **內容看不到** |
@@ -30,6 +30,19 @@
 `serif` 缺標點字符與 `width: 800px` 的差別就是這條線：前者很醜但字都在，後者字不見了。
 
 這個結論與 spine 目前的行為**相反**——spine 的 `vertical-layout.ts` `rewriteGenericFonts` 會主動把書的 `serif`/`sans-serif` 改寫成 CJK 字型堆疊。在 frond 裡這件事移出去，改由讀者的字型設定達成。
+
+### 修訂（0.5.0）：讀者可以指名 generic family 解析成什麼
+
+上面那一格的裁定**維持不變**，但它答的是「frond 自己要不要動手」。實際把 spine 接上來時發現，這個裁定底下少了一條路：讀者只有「整本換字型」（`fontFamily`）與「什麼都不做」兩個選擇，而**想留出版社字型的讀者無處可去**——直排書的標點會壞回去，而那正是 `rewriteGenericFonts` 當初存在的理由。
+
+補上的是 `settings.genericFamilies`，理由是這件事**不屬於「frond 覆寫書」那一類**：
+
+- `font-family: serif` **沒有指名任何字型**。它是書把選擇委派給平台，而 CJK 之下三家的答案各不相同（`docs/browser-quirks.md` #4），其中幾個沒有直排標點字形。補上書委派出去的那個決定，與覆寫書指名過的選擇是兩件事。
+- 它落在權威順序的**最上層**：讀者設定是唯一有資格指名字型的一層（ADR-0004、`settings.ts` 的 `fontFamily`），而這一項只是同一層裡更精準的形式。
+- 它與 `fontFamily` 的差別就是這條線：`fontFamily` 整本覆寫，這一項只碰書委派出去的部分，書**指名過**的字型一個字都不動。
+- **預設不設，就一個字元都不代換**，所以正文那句「frond 不因為書醜就介入」仍然字面成立。清單上它是 `reader-blocked` + `onlyWhenReaderOverrides: true`——沒有讀者設定就沒有這一項。
+
+`reader-blocked` 這個理由名稱是四種裡最接近的一個，但要誠實記下它與其他 `reader-blocked` 項的不同：其他幾項是書用 `!important` 蓋掉讀者，這一項是書留下的空白擋著讀者。不新增第五種理由是刻意的——`interventions.test.ts` 把那四種釘死，就是為了擋「再加一個聽起來很合理的理由」這條滑坡；為了一項而擴充理由的分類，代價大於它買到的精確度。
 
 frond 介入的每一項都登記成封閉清單並寫在文件裡，加一項要說明理由。危險不在第一天而在第三十天：「反正已經覆寫 column-width 了，line-height 也順手調一下吧」，然後半年後沒人記得為什麼書的排版跟原作者設計的不一樣。
 

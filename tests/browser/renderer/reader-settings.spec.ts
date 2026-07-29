@@ -361,6 +361,82 @@ test.describe("margins", () => {
   });
 });
 
+/**
+ * The generic families the book delegated to the platform (`settings.genericFamilies`).
+ *
+ * ADR-0003's table used to answer this case with "the book wins", and that verdict still
+ * holds for frond acting on its own — which is what the first case here measures. The rest
+ * measure the reader's route: a bare `serif` names no face, and for CJK the three engines
+ * resolve that delegation to different ones (#4).
+ *
+ * The content is hand-written through `mountInline` rather than made a committed fixture:
+ * ADR-0007's discipline is one file per layout **ailment**, and "the book delegates its face
+ * to the platform" is not an ailment — it is the norm.
+ */
+test.describe("generic families", () => {
+  const SECTION = `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="ja">
+  <head><title>t</title><style>
+    p { font-family: serif }
+    .named { font-family: "Noto Sans CJK JP" }
+  </style></head>
+  <body><p>朝の光が差す。</p><p class="named">朝の光が差す。</p></body>
+</html>`;
+
+  const mount = async (
+    page: Parameters<typeof mountFixture>[0],
+    settings: SettingsPatch,
+  ): Promise<void> => {
+    await page.evaluate(
+      ([source, patch]) =>
+        window.frond.mountInline([source as string], {
+          settings: patch as SettingsPatch,
+        }),
+      [SECTION, settings] as const,
+    );
+  };
+
+  test("with no preference from the reader, the book's serif stands", async ({ page }) => {
+    // user story 45, and the half of ADR-0003 this setting does not touch: unset, frond
+    // substitutes nothing and the platform decides, exactly as before.
+    await mount(page, {});
+
+    expect(await computed(page, "p", "font-family")).toBe("serif");
+  });
+
+  test("the reader's stack fills in the delegation, with the keyword still last", async ({
+    page,
+  }) => {
+    await mount(page, { genericFamilies: { serif: '"Noto Serif CJK JP"' } });
+
+    // `toContain` rather than an equality: how the three engines serialize a font-family
+    // list back out (which names they quote) is their own business, and pinning it here
+    // would measure that instead of the substitution.
+    const family = await computed(page, "p", "font-family");
+    expect(family).toContain("Noto Serif CJK JP");
+    // The keyword survives as the last resort — a stack whose faces are not installed would
+    // otherwise leave this stretch with no fallback at all.
+    expect(family).toContain("serif");
+  });
+
+  test("a face the book actually named is left alone", async ({ page }) => {
+    // **The whole difference from `fontFamily`.** This setting reaches only the stretches
+    // the book declined to decide; a reader who wants the publisher's typography has
+    // nowhere else to go.
+    await mount(page, { genericFamilies: { serif: '"Noto Serif CJK JP"' } });
+
+    const family = await computed(page, ".named", "font-family");
+    expect(family).toContain("Noto Sans CJK JP");
+    expect(family).not.toContain("Noto Serif CJK JP");
+  });
+
+  test("the keyword the reader said nothing about is untouched", async ({ page }) => {
+    await mount(page, { genericFamilies: { sansSerif: '"Noto Sans CJK JP"' } });
+
+    expect(await computed(page, "p", "font-family")).toBe("serif");
+  });
+});
+
 async function computed(
   page: Parameters<typeof mountFixture>[0],
   selector: string,

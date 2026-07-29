@@ -150,6 +150,14 @@ export const INTERVENTIONS: readonly Intervention[] = [
     onlyWhenReaderOverrides: false,
   },
   {
+    id: "resolve-generic-families",
+    what: "substitutes the reader's faces for a bare font-family: serif / sans-serif in the book's stylesheets and style attributes, keeping the generic keyword as the last resort and the book's !important intact",
+    reason: "reader-blocked",
+    why: "ADR-0003's table used to answer this case with \"the book wins\", and that verdict stands for frond acting on its own — this entry only ever fires when the reader has said what the generics should resolve to (settings.genericFamilies). A bare `serif` names no face; it delegates the choice to the platform, and for CJK the three engines resolve that delegation to different faces (#4), some without vertical punctuation glyphs. Where the reader has expressed a preference, the delegation left open by the book is the one thing standing between them and it — every face the book actually named is left untouched",
+    where: "src/renderer/css.ts",
+    onlyWhenReaderOverrides: true,
+  },
+  {
     id: "blob-urls",
     what: "rewrites references to resources inside the book into blob: addresses",
     reason: "frond-own-layer",

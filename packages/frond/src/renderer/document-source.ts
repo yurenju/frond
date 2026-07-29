@@ -29,6 +29,7 @@ import {
   normalisePageBreaks,
   normalisePrefixedWritingMode,
   relativiseFontSizes,
+  resolveGenericFamilies,
   rewriteUrls,
 } from "./css.ts";
 import { LAYOUT_STYLE_ID, READER_STYLE_ID } from "./layout.ts";
@@ -361,6 +362,9 @@ function rewriteInlineStyles({
     if (settings.fontSize !== undefined) {
       rewritten = relativiseFontSizes(rewritten, "declarations");
     }
+    if (settings.genericFamilies !== undefined) {
+      rewritten = resolveGenericFamilies(rewritten, settings.genericFamilies, "declarations");
+    }
     rewritten = rewriteUrls(rewritten, (reference) =>
       resources.urlFor(reference, path),
     );
@@ -482,6 +486,14 @@ function transformBookStylesheet(
   // this stylesheet declares").
   output = normalisePrefixedWritingMode(output);
   output = normalisePageBreaks(output);
+
+  // Substituting for the generic families belongs with the two rewrites above rather than
+  // with the two below: like them it translates what the book asked for into a form that
+  // survives this platform, and unlike them it does not depend on the reader having
+  // overridden anything else (`settings.ts`'s `genericFamilies`).
+  if (settings.genericFamilies !== undefined) {
+    output = resolveGenericFamilies(output, settings.genericFamilies);
+  }
 
   const overridden = overriddenProperties(settings);
   if (overridden.size > 0) output = demoteImportant(output, overridden);

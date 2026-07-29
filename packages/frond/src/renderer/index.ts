@@ -54,7 +54,7 @@ export type {
 } from "./events.ts";
 
 export { DEFAULT_SETTINGS, withSettings } from "./settings.ts";
-export type { ReaderSettings, Theme } from "./settings.ts";
+export type { GenericFamilies, ReaderSettings, Theme } from "./settings.ts";
 
 export type { ColumnChoice, Insets, Margin, WritingMode } from "./geometry.ts";
 

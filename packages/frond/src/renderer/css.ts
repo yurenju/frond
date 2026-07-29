@@ -24,6 +24,8 @@
  * name", and that is exactly all any of the rewrites need.
  */
 
+import type { GenericFamilies } from "./settings.ts";
+
 /** One declaration. `important` and `value` are separate, because every rewrite only touches one of them. */
 export interface Declaration {
   /** The property name, already lower-cased and trimmed. */
@@ -444,6 +446,115 @@ function toRem(value: string): string | undefined {
   // long repeating decimal that makes the rewritten stylesheet hard to read, and that text
   // is the only thing visible when investigating a problem.
   return `${Number(rem.toFixed(4))}rem`;
+}
+
+/**
+ * Substitutes the reader's faces for the generic families the book delegated to the
+ * platform.
+ *
+ * `font-family: serif` is not a face — it is the book saying "whatever this platform calls
+ * serif", and for CJK the three engines answer that differently (#4). Where the reader has
+ * said what they want that to mean, this fills it in.
+ *
+ * ## The keyword is kept as the last resort
+ *
+ * The substitution appends the original keyword after the reader's stack rather than
+ * dropping it: a stack naming faces that turn out not to be installed would otherwise
+ * leave that stretch with **no fallback at all**, which is a worse outcome than the
+ * platform's own choice. It is skipped only when the stack already ends with that same
+ * keyword, so the emitted text does not read `…, serif, serif` — that text is the only
+ * thing visible when investigating a problem.
+ *
+ * ## What is not reached
+ *
+ * A generic inside the `font` **shorthand** (`font: 12px serif`) is left alone. Reaching it
+ * means parsing the shorthand's grammar — the family is whatever follows the size and the
+ * optional line height — and getting that wrong rewrites a declaration into nonsense, which
+ * is worse than not rewriting it. `font-family` is the spelling the sample's books use for
+ * body text.
+ *
+ * A **quoted** `"serif"` is a family whose name happens to be "serif" rather than the
+ * keyword, and is likewise left alone: the comparison is made before unquoting, so the two
+ * cannot be confused.
+ */
+export function resolveGenericFamilies(
+  source: string,
+  families: GenericFamilies,
+  scope: CssScope = "stylesheet",
+): string {
+  return walk(source, scope, (declaration) => {
+    if (declaration.property !== "font-family") return undefined;
+
+    const substituted = substituteGenerics(declaration.value, families);
+    if (substituted === undefined) return undefined;
+
+    // The book's `!important` is carried over. This rewrite replaces a **value**, so the
+    // declaration keeps exactly the weight the book gave it — which is also why
+    // `settings.ts`'s `overriddenProperties` has nothing to add for this setting.
+    return `font-family: ${substituted}${declaration.important ? " !important" : ""}`;
+  });
+}
+
+/** The generic keywords recognised, each naming the field that carries its replacement. */
+const GENERIC_KEYWORDS = new Map<string, keyof GenericFamilies>([
+  ["serif", "serif"],
+  ["sans-serif", "sansSerif"],
+]);
+
+/** `undefined` when this value names no generic the reader has spoken for — leave it alone. */
+function substituteGenerics(
+  value: string,
+  families: GenericFamilies,
+): string | undefined {
+  let changed = false;
+
+  const items = splitTopLevel(value, ",").flatMap((item) => {
+    const keyword = stripComments(item).trim().toLowerCase();
+    const field = GENERIC_KEYWORDS.get(keyword);
+    const stack = field === undefined ? undefined : families[field];
+    if (stack === undefined) return [item.trim()];
+
+    changed = true;
+    const last = splitTopLevel(stack, ",").at(-1)?.trim().toLowerCase();
+    return last === keyword ? [stack.trim()] : [stack.trim(), keyword];
+  });
+
+  return changed ? items.join(", ") : undefined;
+}
+
+/**
+ * Splits on a separator, ignoring the ones inside comments, strings and parentheses.
+ *
+ * A font stack is a comma-separated list, and a family name may be quoted (`"Noto Serif
+ * TC", serif`) — splitting on every comma would cut one such name in half the moment it
+ * contains a comma of its own.
+ */
+function splitTopLevel(source: string, separator: string): string[] {
+  const items: string[] = [];
+  let pending = "";
+  let index = 0;
+
+  while (index < source.length) {
+    const skipped = skipOpaque(source, index);
+    if (skipped > index) {
+      pending += source.slice(index, skipped);
+      index = skipped;
+      continue;
+    }
+
+    if (source[index] === separator) {
+      items.push(pending);
+      pending = "";
+      index += 1;
+      continue;
+    }
+
+    pending += source[index];
+    index += 1;
+  }
+
+  items.push(pending);
+  return items;
 }
 
 /**
