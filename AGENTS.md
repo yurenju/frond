@@ -76,8 +76,9 @@ npm run test:container -- --project=firefox
 兩個 runner 都跑）、`test:browser`（Playwright／三家瀏覽器，**只在容器內跑得
 動**，見下）、`evidence`（在容器裡產 PR 用的截圖，見
 `docs/agents/pull-requests.md`）、`fixtures`（重新產生合成 fixture）、
-`scan:books`（拿一批實際流通的書跑一趟渲染，見下）。需要新的跑法時**加一支
-script**，別在文件或提交訊息裡留一行裸指令。
+`scan:books`（拿一批實際流通的書跑一趟渲染，見下）、`trim:books`（把 ADR-0007
+第二層那兩本公版書從原始下載檔剪成進得了 repo 的大小；原始檔不在 repo 裡，平常
+不會用到）。需要新的跑法時**加一支 script**，別在文件或提交訊息裡留一行裸指令。
 
 ### 找「合成 fixture 上全綠、書上壞掉」的那類缺陷：`scan:books`
 
