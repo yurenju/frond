@@ -26,6 +26,7 @@
     "typecheck": "tsc --noEmit",
     "fixtures": "node scripts/generate-fixtures.ts",
     "demo:book": "node scripts/build-demo-book.ts",
+    "trim:books": "node scripts/trim-public-books.ts",
     "site": "./scripts/build-site.sh",
     "test:node": "vitest run",
     "test:browser": "playwright test",

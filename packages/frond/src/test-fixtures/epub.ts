@@ -204,6 +204,14 @@ export interface EpubSpec {
   readonly pageProgressionDirection?: "ltr" | "rtl";
   /** The navigation document's path, relative to the content directory. The default differs by version; see `NAVIGATION`. */
   readonly navigationPath?: string;
+  /**
+   * Omitted, `<nav>` sits directly under `<body>`. Set, it is wrapped in a `<section>`,
+   * which is what `nav-inside-section` needs and what EPUB 3 permits — the spec
+   * constrains the `toc` nav's own content model, not where in the document it hangs.
+   *
+   * EPUB 2 has no navigation document to wrap, and giving both is rejected.
+   */
+  readonly navInsideSection?: boolean;
   /** Omitted, this book has no cover. That is not a defect, it is a shape that has to be tested (ADR-0010). */
   readonly cover?: CoverSpec;
   readonly resources?: readonly ResourceSpec[];
@@ -284,6 +292,12 @@ function assertCoherent(spec: EpubSpec, epubVersion: EpubVersion): void {
   if (epubVersion === "epub2" && spec.pageProgressionDirection !== undefined) {
     throw new Error(
       "EPUB 2 has no page-progression-direction (ADR-0010: EPUB 2 always lands in the \"the book did not say\" case)",
+    );
+  }
+
+  if (epubVersion === "epub2" && spec.navInsideSection === true) {
+    throw new Error(
+      "EPUB 2's navigation document is the NCX, which has no <section> to wrap a <nav> in",
     );
   }
 
@@ -539,7 +553,22 @@ function navigationItems(nodes: readonly TocSpecNode[], indent: number): string 
 }
 
 function navigationDocument(spec: EpubSpec, navigationPath: string): string {
-  const items = navigationItems(tocTree(spec, navigationPath), 8);
+  const wrapped = spec.navInsideSection === true;
+  const indent = wrapped ? "      " : "    ";
+  const items = navigationItems(tocTree(spec, navigationPath), wrapped ? 12 : 8);
+
+  const nav = `${indent}<nav epub:type="toc">
+${indent}  <h1>${escapeXml(spec.title)}</h1>
+${indent}  <ol>
+${items}
+${indent}  </ol>
+${indent}</nav>`;
+
+  const body = wrapped
+    ? `    <section epub:type="frontmatter">
+${nav}
+    </section>`
+    : nav;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
@@ -549,12 +578,7 @@ function navigationDocument(spec: EpubSpec, navigationPath: string): string {
     <title>${escapeXml(spec.title)}</title>
   </head>
   <body>
-    <nav epub:type="toc">
-      <h1>${escapeXml(spec.title)}</h1>
-      <ol>
-${items}
-      </ol>
-    </nav>
+${body}
   </body>
 </html>
 `;

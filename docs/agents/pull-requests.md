@@ -119,4 +119,11 @@ test("直排下的句點位置", async ({ page }, testInfo) => {
 
 **圖片會永遠留在 git 歷史裡。** 只放真正解釋得了東西的圖，裁掉沒有資訊的留白。同一張圖如果也值得長期保存，`docs/browser-quirks.md` 之類的文件可以用相對路徑引用它——repo 內的 Markdown 檔案吃相對路徑，PR 說明不吃，所以兩邊寫法不同但可以共用同一個檔案。
 
-**不要截版權內的書。** ADR-0007 禁止把商業書 commit 進 repo，截圖同樣適用——這是公開 repo，截圖等於發佈內容。要示範實際書籍的排版就用青空文庫或 Project Gutenberg 的公版書。
+**不要截版權內的書。** ADR-0007 禁止把商業書 commit 進 repo，截圖同樣適用——這是公開 repo，截圖等於發佈內容。要示範實際書籍的排版就用 `tests/books/public/` 底下那兩本公版書（ADR-0007 的第二層）：
+
+```
+tests/books/public/kusamakura-vertical-japanese.epub    直排日文——草枕／夏目漱石，ruby、傍點、rtl
+tests/books/public/alice-in-wonderland-horizontal.epub  橫排英文——Alice，43 張插畫剪到 9 張、圖文混排
+```
+
+兩本的出處與授權見 ADR-0007，都可以公開重製。**它們正是「實際的書排得對」這句話唯一能拿出來的證據**：合成 fixture 那一批只證明得了「已知的那幾種病沒有復發」，動到版面的變更要附的是這兩本的圖。

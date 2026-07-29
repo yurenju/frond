@@ -55,6 +55,17 @@ export interface XmlElement {
   child(name: string): XmlElement | undefined;
   /** Every child element with this name, in document order. */
   children(name: string): readonly XmlElement[];
+  /**
+   * Every element with this name **anywhere below** this one, in document order,
+   * however deeply wrapped.
+   *
+   * This exists alongside `children` rather than replacing it, and the caller has to
+   * choose: "a direct child" and "somewhere underneath" are different questions, and
+   * answering the first with the second is how a search picks up something that merely
+   * happens to share a tag name. `toc.ts` uses both, and says there which question each
+   * of its two steps is asking.
+   */
+  descendants(name: string): readonly XmlElement[];
   attribute(name: string): string | undefined;
   /**
    * **All** the text under the element, joined in document order, trimmed at both
@@ -100,9 +111,23 @@ function element(node: Node): XmlElement {
       .filter((child): child is Node => typeof child !== "string" && child.name === name)
       .map(element);
 
+  const descendants = (name: string): readonly XmlElement[] => {
+    const found: XmlElement[] = [];
+    const walk = (current: Node): void => {
+      for (const child of current.children) {
+        if (typeof child === "string") continue;
+        if (child.name === name) found.push(element(child));
+        walk(child);
+      }
+    };
+    walk(node);
+    return found;
+  };
+
   return {
     child: (name) => children(name)[0],
     children,
+    descendants,
     attribute: (name) => node.attributes.get(name),
     // Trimming happens exactly once, here. Doing it inside the recursion would trim
     // every interior text run separately, and that is precisely where the

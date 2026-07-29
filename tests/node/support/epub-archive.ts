@@ -176,7 +176,7 @@ export function openEpub(archive: Uint8Array): EpubArchive {
   const tocTree = resolveTocTree(
     navigation.vehicle === "ncx"
       ? collectNcxTree(pickPath(navigationDocument, "ncx", "navMap"))
-      : collectNavTree(pickPath(navigationDocument, "html", "body", "nav")),
+      : collectNavTree(pickNav(navigationDocument)),
     navigation.item.archivePath,
   );
 
@@ -328,6 +328,24 @@ function pick(node: XmlNode, key: string): XmlNode {
 /** Descends a path. Stacked picks read backwards. */
 function pickPath(node: XmlNode, ...keys: readonly string[]): XmlNode {
   return keys.reduce((current, key) => pick(current, key), node);
+}
+
+/**
+ * The `<nav>` in a navigation document: directly under `<body>`, or one `<section>` down.
+ *
+ * **Exactly those two shapes, not a search.** This reader exists to read the generator's
+ * output literally (see the file header on why it deliberately implements less than
+ * `src/epub/` does), and those two are the only shapes `EpubSpec.navInsideSection` can
+ * produce. A recursive hunt would also quietly succeed on a navigation document that put
+ * its `<nav>` somewhere nobody meant it to be, and then nothing here would go red.
+ *
+ * frond itself is deliberately more permissive — EPUB 3 puts no limit on the depth, which
+ * is what `nav-inside-section` came from. That difference is the point of having two
+ * implementations.
+ */
+function pickNav(navigationDocument: XmlNode): XmlNode {
+  const body = pickPath(navigationDocument, "html", "body");
+  return body["nav"] === undefined ? pickPath(body, "section", "nav") : pick(body, "nav");
 }
 
 function pickText(node: XmlNode, key: string): string {

@@ -101,6 +101,44 @@ export async function mountFixture(
   );
 }
 
+/**
+ * The prefix that names ADR-0007's second layer — the two public-domain books in
+ * `tests/books/public/`.
+ *
+ * A colon rather than a slash: the page asks for `/book/<name>/<kind>`, and a slash inside
+ * the name would be read as another path segment.
+ */
+const PUBLIC_BOOK_PREFIX = "public:";
+
+/**
+ * The public-domain books, by the name `mountPublicBook` takes.
+ *
+ * A closed union rather than a free string: these two are the only real books in the
+ * repository, and a typo in an evidence spec should be a type error rather than a 404 that
+ * renders as an empty page — an empty page is exactly the kind of thing a visual reading
+ * can mistake for a defect in the book.
+ */
+export type PublicBook = "kusamakura-vertical-japanese" | "alice-in-wonderland-horizontal";
+
+/**
+ * Mounts one of the public-domain books (ADR-0007's second layer).
+ *
+ * These carry no CI assertions — a real book has no correct answer to pin. What they are
+ * for is the visual reading before a pull request (`docs/agents/pull-requests.md`), which
+ * is the only evidence there is that real books lay out correctly rather than merely that
+ * the known ailments have not come back.
+ */
+export async function mountPublicBook(
+  page: Page,
+  book: PublicBook,
+  options: MountOptions = {},
+): Promise<Snapshot> {
+  return page.evaluate(
+    ([name, mountOptions]) => window.frond.mount(name as string, mountOptions as MountOptions),
+    [`${PUBLIC_BOOK_PREFIX}${book}`, options] as const,
+  );
+}
+
 /** A set of reader settings can be supplied up front when mounting. */
 export interface MountOptions {
   readonly settings?: SettingsPatch;
@@ -281,6 +319,21 @@ async function readSourceFile(pathname: string): Promise<string | undefined> {
 const ALLOWED_ROOTS = new Set(["packages", "tests"]);
 
 const FIXTURE_DIRECTORY = join(REPO_ROOT, "tests", "fixtures");
+const PUBLIC_BOOK_DIRECTORY = join(REPO_ROOT, "tests", "books", "public");
+
+/**
+ * Where a mountable book's bytes are. A public-domain book is named with a `public/`
+ * prefix, and everything else is a synthetic fixture.
+ *
+ * One namespace rather than two mount functions: the page side asks for `/book/<name>/…`
+ * and should not have to know which layer of ADR-0007 the book came from, and a prefix
+ * keeps the two directories from being able to shadow each other by name.
+ */
+function pathFor(name: string): string {
+  return name.startsWith(PUBLIC_BOOK_PREFIX)
+    ? join(PUBLIC_BOOK_DIRECTORY, `${name.slice(PUBLIC_BOOK_PREFIX.length)}.epub`)
+    : join(FIXTURE_DIRECTORY, `${name}.epub`);
+}
 
 /** Opened books are kept, so remounting with different settings within one spec need not reopen. */
 const openedBooks = new Map<string, Promise<EpubBook>>();
@@ -289,9 +342,7 @@ function bookFor(name: string): Promise<EpubBook> {
   const existing = openedBooks.get(name);
   if (existing !== undefined) return existing;
 
-  const opening = readFile(join(FIXTURE_DIRECTORY, `${name}.epub`)).then((bytes) =>
-    EpubBook.open(bytes),
-  );
+  const opening = readFile(pathFor(name)).then((bytes) => EpubBook.open(bytes));
   openedBooks.set(name, opening);
   return opening;
 }
