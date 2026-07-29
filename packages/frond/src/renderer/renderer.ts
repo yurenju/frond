@@ -891,13 +891,16 @@ export class Renderer {
 
     const range = view.selection();
     if (range === undefined) {
-      this.emitter.emit("selection", { cfi: undefined, text: "" });
+      this.emitter.emit("selection", { cfi: undefined, text: "", rects: [] });
       return;
     }
 
     this.emitter.emit("selection", {
       cfi: serializeCfi(cfiForRange(range, this.sectionIndex)),
       text: range.toString(),
+      // Measured from the live `Range` rather than from the CFI just serialized: the two
+      // answer the same question, and this one has not been through a round trip.
+      rects: view.rectsFor(range),
     });
   }
 }

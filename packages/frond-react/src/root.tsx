@@ -25,6 +25,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Renderer,
   type IndexedEvent,
+  type LayoutEvent,
   type LinkActivateEvent,
   type ReaderSettings,
   type RenderLocation,
@@ -76,6 +77,15 @@ export interface RootProps {
 
   readonly onRelocate?: ((event: RenderLocation) => void) | undefined;
   readonly onLoad?: ((event: SectionLoadEvent) => void) | undefined;
+  /**
+   * The geometry was laid out again, so every rectangle measured before now is stale.
+   *
+   * **A consumer drawing its own highlight layer needs exactly this one** (`LayoutEvent`'s
+   * comment), and without it that consumer has to reach past this layer to
+   * `useReader().renderer.on("layout", …)` — for the one event the layer above frond is
+   * most likely to want.
+   */
+  readonly onLayout?: ((event: LayoutEvent) => void) | undefined;
   readonly onIndexed?: ((event: IndexedEvent) => void) | undefined;
   readonly onSelection?: ((event: SelectionEvent) => void) | undefined;
   readonly onLinkActivate?: ((event: LinkActivateEvent) => void) | undefined;
@@ -156,6 +166,7 @@ export function Root(props: RootProps): ReactNode {
         }));
         latest.current.onLoad?.(event);
       },
+      layout: (event) => latest.current.onLayout?.(event),
       indexed: (event) => latest.current.onIndexed?.(event),
       selection: (event) => latest.current.onSelection?.(event),
       linkactivate: (event) => latest.current.onLinkActivate?.(event),

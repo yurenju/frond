@@ -162,6 +162,10 @@ export interface SettingsPatch {
     readonly background: string;
     readonly link?: string;
   };
+  readonly genericFamilies?: {
+    readonly serif?: string;
+    readonly sansSerif?: string;
+  };
 }
 
 /**
