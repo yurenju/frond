@@ -92,6 +92,39 @@ describe("the injected stylesheet", () => {
     expect(css).toContain("color: #eeeeee !important;");
   });
 
+  test("a link colour is set with a selector more specific than the foreground rule", () => {
+    const css = readerStylesheet(
+      settings({
+        theme: { foreground: "#eeeeee", background: "#111111", link: "#8ab4f8" },
+      }),
+    );
+
+    // The whole mechanism is specificity: `:root a` is (0,1,1) and `:root *` is (0,1,0),
+    // and both carry `!important`. Written any less specifically, links would come out the
+    // same colour as the body text and the reader could not see what is tappable.
+    expect(css).toContain(":root a, :root a * { color: #8ab4f8 !important; }");
+    expect(css).toContain(":root, :root * { color: #eeeeee !important; }");
+  });
+
+  test("without a link colour the injected CSS is character-for-character what it was", () => {
+    // The status quo is that links take the body text's colour. This test is what stops
+    // `Theme.link` from having quietly changed every existing consumer's rendering — frond
+    // picks no default link colour, because that would be exactly the presentational
+    // opinion it declines to hold.
+    const theme = { foreground: "#eeeeee", background: "#111111" };
+
+    expect(readerStylesheet(settings({ theme }))).toBe(
+      [
+        ":root, :root * { color: #eeeeee !important; }",
+        ":root { background-color: #111111 !important; }",
+        ":root *:not(:root) { background-color: transparent !important; }",
+      ].join("\n"),
+    );
+    expect(readerStylesheet(settings({ theme: { ...theme, link: undefined } }))).toBe(
+      readerStylesheet(settings({ theme })),
+    );
+  });
+
   test("the margin does not appear in the injected CSS — it lives outside the iframe", () => {
     // Injecting into the book's CSS to fight over body's padding is exactly why spine
     // hangs a MutationObserver.

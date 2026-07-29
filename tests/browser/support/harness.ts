@@ -119,7 +119,11 @@ export interface SettingsPatch {
   readonly lineHeight?: number;
   readonly margin?: number | { readonly block: number; readonly inline: number };
   readonly columns?: 1 | 2 | "auto";
-  readonly theme?: { readonly foreground: string; readonly background: string };
+  readonly theme?: {
+    readonly foreground: string;
+    readonly background: string;
+    readonly link?: string;
+  };
 }
 
 /**

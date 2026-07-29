@@ -381,6 +381,41 @@ test.describe("a range's rectangles", () => {
 
     expect(rects).toEqual([]);
   });
+
+  /**
+   * **This pins the status quo, and it is a shape a consumer has to know about.**
+   *
+   * "Not in this section" and "in this section but on another page" are two different
+   * answers: the first is an empty array, and this one is real rectangles **outside the
+   * container**. Pages are made by scrolling one long multi-column layout, so a position on
+   * a later page simply has a large coordinate.
+   *
+   * Reporting the true geometry is the fact frond owns; which rectangles to draw is a
+   * clipping policy and belongs to the consumer (ADR-0002). Without this test the
+   * distinction lives only in a doc comment, and the symptom of a consumer missing it is a
+   * highlight painted outside the page.
+   */
+  test("a position in this section but on another page comes back outside the container", async ({
+    page,
+  }) => {
+    await mountFixture(page, "vertical-japanese", { settings: LARGE });
+    const second = await page.evaluate(() => window.frond.next());
+    await page.evaluate(() => window.frond.previous());
+
+    const [rects, size] = await Promise.all([
+      page.evaluate((cfi) => window.frond.rectsFor(cfi as string), second.cfi),
+      page.evaluate(() => window.frond.containerSize()),
+    ]);
+
+    // Not empty — the position is in this section, and it has real geometry.
+    expect(rects.length).toBeGreaterThan(0);
+    // And that geometry is off the page the reader is on. Both axes are checked because
+    // which one pages advance along depends on the writing mode (`geometry.ts`).
+    const first = rects[0]!;
+    const onScreen =
+      first.x >= 0 && first.y >= 0 && first.x < size.width && first.y < size.height;
+    expect(onScreen).toBe(false);
+  });
 });
 
 /**

@@ -34,9 +34,12 @@ writing-mode-behind-import.epub     <link> 的樣式表只有一行 @import 字�
 hidden-trailing-notes.epub          正文之後跟著 display:none 的註腳，最後一個文字節點畫不出來
 plate-taller-than-page.epub         圖版比一頁還高，包在一層沒宣告高度的 div 裡
 table-taller-than-page.epub         表格比一頁還高——三家分歧，Chromium 切欄、另兩家裁掉
+scripted-content-in-body.epub       <body> 兩段之間夾 <script> 與 <iframe>——移除它們會位移同層之後的 CFI
 ```
 
 體積小可 commit、零授權問題，且**測試紅燈直接指向唯一一個病因**——實際的書失敗得先花時間查是哪個特性造成的。橫排那六項全部來自 spine 已踩過的坑（見 ADR-0002），`healthy-epub2` 起三項來自 ADR-0010 那次掃描（#22），接下來七項照同一批樣本量到的結構合成（#23、#24）。
+
+**最後一項是表上唯一「量到 0 才做」的檔**。`scripted-content-in-body` 演的形狀在 34 本 1638 節裡出現 0 次（`<script>` 全部在 `<head>`，`<body>` 一個都沒有），所以它不是為了守某個病症的回歸——它守的是 `stripScriptedContent` 的 `remove()` 造成的 CFI 位移**有一支會紅的測試**。理由與 `table-taller-than-page` 同一個形狀（釘住現況，讓改變有人知道），差別在那一格是三家分歧、這一格是 frond 自己的移除型介入（#54，規則寫在 ADR-0008）。
 
 最後四項來自**拿 34 本書實際跑一趟渲染**才量到的病症，見下節。
 

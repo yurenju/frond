@@ -28,6 +28,27 @@ import type { ColumnChoice, Margin } from "./geometry.ts";
 export interface Theme {
   readonly foreground: string;
   readonly background: string;
+  /**
+   * The link colour. Unset, links take the same colour as the body text.
+   *
+   * ## Why this is part of the theme rather than a general CSS entry point
+   *
+   * `foreground` is applied to every element (`:root, :root *`), and `a` is one of them —
+   * so once a theme is set, a link is the same colour as the text around it and the reader
+   * cannot see what is tappable. Excluding `a` from the colour rule instead would leave the
+   * book's own dark blue sitting on a dark background, and "the content cannot be read" is
+   * the one intervention ADR-0003 does recognise: that trades one ailment for another.
+   *
+   * So the fix has to come from above, and ADR-0003 requires frond to make that possible
+   * ("where frond refuses to fix something itself, it takes on the duty of letting the layer
+   * above fix it"). It is a named field rather than an arbitrary stylesheet because an
+   * arbitrary stylesheet would hand the intervention threshold itself to the consumer — and
+   * because what a link looks like is genuinely part of the theme the reader chose.
+   *
+   * frond picks no default: a colour of its own would be exactly the presentational opinion
+   * it declines to hold.
+   */
+  readonly link?: string | undefined;
 }
 
 export interface ReaderSettings {
@@ -155,6 +176,15 @@ export function readerStylesheet(settings: ReaderSettings): string {
   }
   if (everything.length > 0) {
     rules.push(`:root, :root * { ${everything.join(" ")} }`);
+  }
+
+  if (settings.theme?.link !== undefined) {
+    // The whole mechanism is specificity: `:root a` is (0,1,1) against `:root *`'s (0,1,0),
+    // and both carry `!important`, so this rule wins over the foreground colour above with
+    // nothing else needed. Against the book it wins the same way every other reader setting
+    // does — its `!important` is already demoted for `color` (`overriddenProperties` puts
+    // `color` in scope as soon as a theme is set), including in a style attribute.
+    rules.push(`:root a, :root a * { color: ${settings.theme.link} !important; }`);
   }
 
   if (settings.theme !== undefined) {

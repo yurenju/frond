@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { mountFixture, openHarness } from "../support/harness.js";
+import { expect, test, type Page } from "@playwright/test";
+import { mountFixture, openHarness, type SettingsPatch } from "../support/harness.js";
 
 /**
  * Reader settings, and their fight with the book's cascade.
@@ -144,6 +144,77 @@ test.describe("themes", () => {
     );
 
     expect(inline).toBe("");
+  });
+});
+
+/**
+ * The theme's link colour.
+ *
+ * `foreground` is applied to every element, `a` included — so with a theme set and nothing
+ * else, a link comes out the same colour as the text around it and the reader cannot see
+ * what is tappable. Excluding `a` from the colour rule instead would leave the book's own
+ * dark blue on a dark background, and "the content cannot be read" is the one reason
+ * ADR-0003 recognises for intervening: that would trade one ailment for another.
+ *
+ * The content is hand-written through `mountInline` rather than made a committed fixture:
+ * a link is not an ailment, and ADR-0007's discipline is one file per ailment.
+ */
+test.describe("link colour", () => {
+  /** The book fights for its own link colour on both routes that can beat a stylesheet. */
+  const LINKED_SECTION = `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="ja">
+  <head>
+    <title>t</title>
+    <style>
+      a#declared { color: #003399 !important; }
+    </style>
+  </head>
+  <body>
+    <p id="prose">本文がここにあります。</p>
+    <p><a id="declared" href="#prose">宣言された色のリンク</a></p>
+    <p><a id="inline" href="#prose" style="color: #003399 !important">属性に書かれた色のリンク</a></p>
+  </body>
+</html>`;
+
+  const DARK = { foreground: "#eeeeee", background: "#111111" } as const;
+
+  async function mountLinked(page: Page, theme: SettingsPatch["theme"]): Promise<void> {
+    await page.evaluate(
+      ([source, chosen]) =>
+        window.frond.mountInline([source as string], {
+          settings: { theme: chosen as SettingsPatch["theme"] },
+        }),
+      [LINKED_SECTION, theme] as const,
+    );
+  }
+
+  test("the reader's link colour beats the book's, in a stylesheet and in a style attribute", async ({
+    page,
+  }) => {
+    await mountLinked(page, { ...DARK, link: "#8ab4f8" });
+
+    // `a#declared` is (1,0,1) and the reader's `:root a` is only (0,1,1) — what makes the
+    // reader win is that the book's !important is demoted first (`overriddenProperties`
+    // puts `color` in scope as soon as a theme is set). The style attribute is the harder
+    // half: no position in the cascade beats an !important written there.
+    expect(await computed(page, "a#declared", "color")).toBe("rgb(138, 180, 248)");
+    expect(await computed(page, "a#inline", "color")).toBe("rgb(138, 180, 248)");
+
+    // And the point of the whole field: the link is not the colour of the text around it.
+    expect(await computed(page, "#prose", "color")).toBe("rgb(238, 238, 238)");
+  });
+
+  test("with no link colour set, links take the body text's colour — unchanged", async ({
+    page,
+  }) => {
+    // The status quo, held here so that adding `Theme.link` cannot have quietly changed
+    // what every existing consumer renders. frond picks no default of its own: a link
+    // colour it chose would be exactly the presentational opinion it declines to hold.
+    await mountLinked(page, DARK);
+
+    expect(await computed(page, "a#declared", "color")).toBe("rgb(238, 238, 238)");
+    expect(await computed(page, "a#inline", "color")).toBe("rgb(238, 238, 238)");
+    expect(await computed(page, "#prose", "color")).toBe("rgb(238, 238, 238)");
   });
 });
 

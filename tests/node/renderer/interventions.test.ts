@@ -121,7 +121,10 @@ describe("the closed list of interventions", () => {
           fontFamily: '"Noto Serif CJK JP"',
           fontSize: 24,
           lineHeight: 2,
-          theme: { foreground: "#eee", background: "#111" },
+          // The theme is given every field it has, `link` included: this check is only
+          // worth anything if what it collects is the **complete** injected surface, and a
+          // field left out here is a rule this test never sees.
+          theme: { foreground: "#eee", background: "#111", link: "#8ab4f8" },
         }),
       ),
     );

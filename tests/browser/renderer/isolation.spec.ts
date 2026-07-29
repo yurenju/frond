@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openHarness } from "../support/harness.js";
+import { mountFixture, openHarness } from "../support/harness.js";
 
 /**
  * Isolation: nothing in the book can run, and the book's CSS cannot pollute the consumer
@@ -133,6 +133,88 @@ test.describe("nested browsing contexts", () => {
       expect(html).toContain("本文がここにあります");
     });
   }
+});
+
+/**
+ * What removing an element costs: **the CFI index of every following sibling shifts.**
+ *
+ * `stripScriptedContent`'s `element.remove()` is the only place frond changes the node
+ * count — every other intervention preserves it (`link.replaceWith(style)` is 1:1, frond's
+ * own two `<style>` elements only append to `<head>`). A CFI numbers an element by its
+ * position among its siblings, so one removal moves everything after it by two, and the
+ * symptom is a reader's highlight silently landing on different text.
+ *
+ * ## Measured, this has never once happened
+ *
+ * 34 books in circulation, 1638 sections: `<script>` in `<body>` is **0**, and so are
+ * `<iframe>` / `<object>` / `<embed>` / `<frame>` and `on*` attributes. The 1456 scripts that
+ * do exist are all in `<head>` — and removing something there shifts nothing an annotation
+ * could point at, because `<head>` is `/2` and `<body>` is `/4` regardless of what is inside
+ * `<head>`. So the `scripted-content-in-body` fixture is synthetic; no real book has this
+ * shape (ADR-0007).
+ */
+test.describe("removing an element shifts the CFIs after it", () => {
+  /**
+   * The **status quo**, not the ideal behaviour.
+   *
+   * `/4/6` is the paragraph's index **after** the `<script>` and `<iframe>` between it and
+   * the paragraph above have been removed; in the file on disk it is `/4/10`. Nothing here
+   * argues that this is right — a placeholder element preserving the node count would be a
+   * defensible choice too, and the measurement above is the reason not to make it now.
+   *
+   * What this test buys is that **making that change has to go through changing this test**,
+   * the same shape as `INTERVENTIONS` being guarded by set equality. The rule the numbers
+   * below imply — a removal-shaped intervention is a CFI-level breaking change — is written
+   * down in ADR-0008.
+   */
+  test("the paragraph after the removed nodes answers to its shifted CFI", async ({
+    page,
+  }) => {
+    await mountFixture(page, "scripted-content-in-body");
+
+    // `/6/2` is the first itemref, `!/4` the body, `/6` the body's third element child:
+    // <h1>, <p>, <p> — with the <script> and <iframe> gone.
+    const shifted = await page.evaluate(() =>
+      window.frond.textAt("epubcfi(/6/2!/4/6/1:0)", 5),
+    );
+    expect(shifted).toBe("机の上には");
+
+    // And the index that paragraph has in the file on disk now walks into nothing: the body
+    // has four element children, not five. **This is the failure mode in the abstract**: a
+    // CFI written against the untouched document does not resolve to the text it named.
+    expect(
+      await page.evaluate(() => window.frond.textAt("epubcfi(/6/2!/4/10/1:0)", 5)),
+    ).toBeNull();
+  });
+
+  test("the removal is what shifted it — the same paragraph is /4/10 in the file itself", async ({
+    page,
+  }) => {
+    // Without this half, the case above only says "that CFI points at that text" and would
+    // stay green even if `stripScriptedContent` stopped removing anything. It parses the
+    // section's own bytes, so what it measures is the document **before** frond touched it.
+    // Mounted only to learn where this section lives inside the archive; what is measured
+    // below is the file's own bytes, fetched from the harness's route.
+    const location = await mountFixture(page, "scripted-content-in-body");
+
+    const before = await page.evaluate(async (path) => {
+      const source = await (
+        await fetch(
+          `/book/scripted-content-in-body/bytes?path=${encodeURIComponent(path as string)}`,
+        )
+      ).text();
+      const parsed = new DOMParser().parseFromString(source, "application/xhtml+xml");
+      const children = [...(parsed.body?.children ?? [])];
+      return {
+        names: children.map((child) => child.localName),
+        // The CFI step is twice the 1-based position among element children.
+        step: (children.findIndex((child) => child.textContent?.startsWith("机の上には")) + 1) * 2,
+      };
+    }, location.sectionPath);
+
+    expect(before.names).toEqual(["h1", "p", "script", "iframe", "p", "p"]);
+    expect(before.step).toBe(10);
+  });
 });
 
 test.describe("style isolation", () => {

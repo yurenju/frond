@@ -39,6 +39,7 @@ export type {
 
 export type {
   IndexedEvent,
+  LayoutEvent,
   LinkActivateEvent,
   Listener,
   RenderLocation,

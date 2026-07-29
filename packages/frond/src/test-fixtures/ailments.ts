@@ -442,6 +442,12 @@ body {
       "a table taller than one page — Chromium breaks it across adjacent columns while Firefox and WebKit do not, so the lower half is clipped and unreadable (the three disagree; this holds the status quo)",
     afflict: tableTallerThanPage,
   },
+  {
+    name: "scripted-content-in-body",
+    description:
+      "a <script> and an <iframe> sit between two paragraphs of the body — removing them (ADR-0006) shifts the CFI index of every following sibling, and this file is what pins that",
+    afflict: scriptedContentInBody,
+  },
 ] as const satisfies readonly Ailment[];
 
 /** The ailment's name. Also the `<name>.epub` filename. */
@@ -714,6 +720,64 @@ function tableTallerThanPage(base: EpubSpec): EpubSpec {
         : section,
     ),
   };
+}
+
+/**
+ * A `<script>` and an `<iframe>` between two paragraphs of the **body**.
+ *
+ * ## No real book has this shape, which is why it has to be synthetic
+ *
+ * Measured over 34 books in circulation (1638 sections): `<script>` in `<body>` is **0**,
+ * and so are `<iframe>` / `<object>` / `<embed>` / `<frame>` and `on*` attributes. The 1456
+ * `<script>` elements that do exist are all in `<head>`, all one shape (the Kobo toolchain's
+ * `<script type="text/javascript" src="../js/kobo.js"/>`), and removing something from
+ * `<head>` shifts no CFI an annotation could be pointing at.
+ *
+ * ## What it holds
+ *
+ * `stripScriptedContent` (ADR-0006) `remove()`s those elements, and that is the **only**
+ * place frond changes the node count — every other intervention preserves it
+ * (`link.replaceWith(style)` is 1:1, frond's own two `<style>` elements only append to
+ * `<head>`). One removed element shifts the CFI index of every following sibling by two, and
+ * the symptom of that is a reader's highlight silently landing somewhere else.
+ *
+ * So this file exists to make that shift **visible to a test** (`isolation.spec.ts`'s "the
+ * CFI of a following sibling"), not because the shape was measured. The two removed elements
+ * sit **between** paragraphs rather than at the end for exactly that reason: at the end there
+ * is no following sibling and the shift would have nothing to show.
+ *
+ * The script is written inline rather than with a `src`: a `src` would need a resource in the
+ * manifest, and "this book carries an extra resource" is a second axis this file must not
+ * grow (`single-ailment.test.ts`).
+ */
+function scriptedContentInBody(base: EpubSpec): EpubSpec {
+  return {
+    ...base,
+    readingOrder: base.readingOrder.map((section, index) =>
+      index === 0
+        ? { ...section, body: withScriptedContentAfterFirstParagraph(section.body) }
+        : section,
+    ),
+  };
+}
+
+/**
+ * Splices the two elements in after the body's first paragraph.
+ *
+ * Written against the assembled body text rather than by rebuilding it from `PROSE`: the
+ * paragraphs either side of the insertion have to be **character-for-character** the healthy
+ * skeleton's, or the difference from the control stops being a single point.
+ */
+function withScriptedContentAfterFirstParagraph(body: string): string {
+  const lines = body.split("\n");
+  const firstParagraph = lines.findIndex((line) => line.includes("<p"));
+
+  return [
+    ...lines.slice(0, firstParagraph + 1),
+    `    <script type="text/javascript">document.title = "scripted";</script>`,
+    `    <iframe src="about:blank"></iframe>`,
+    ...lines.slice(firstParagraph + 1),
+  ].join("\n");
 }
 
 /**
