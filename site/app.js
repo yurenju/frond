@@ -17,23 +17,27 @@
 
 import { EpubBook } from "./frond/epub/index.js";
 import { Renderer } from "./frond/renderer/index.js";
+import {
+  connectChoiceControl,
+  currentBookTheme,
+  subscribe,
+} from "./theme.js";
 
 const $ = (id) => document.getElementById(id);
 
-/** The reader settings' current values. `undefined` means "not set" — which differs from "set to the book's default". */
+/**
+ * The reader settings' current values. `undefined` means "not set" — which differs from "set
+ * to the book's default".
+ *
+ * `theme` is the exception on this page: it is never unset, because it is not this toolbar's
+ * to set. It mirrors the site's light/dark choice, and `theme.js` explains what that costs.
+ */
 const settings = {
   fontSize: undefined,
   lineHeight: undefined,
   margin: 24,
   columns: "auto",
-  theme: undefined,
-};
-
-const THEMES = {
-  book: undefined,
-  light: { foreground: "#1a1a1a", background: "#ffffff" },
-  sepia: { foreground: "#3b3229", background: "#f4ecd8" },
-  dark: { foreground: "#d6d6d6", background: "#16181c" },
+  theme: currentBookTheme(),
 };
 
 /** The currently open book and renderer. On a book change the old one has to be torn down. */
@@ -262,24 +266,21 @@ $("columns").addEventListener("change", (event) =>
     columns: event.target.value === "auto" ? "auto" : Number(event.target.value),
   }),
 );
-$("theme").addEventListener("change", (event) =>
-  apply({ theme: THEMES[event.target.value] }),
-);
 
 $("reset-settings").addEventListener("click", () =>
   // Each item is set back to undefined rather than to some "default value". For an unset
   // field frond overrides not one character and the book's own declarations stand untouched
   // — those are two different states in frond.
+  //
+  // `theme` is deliberately not in the list. It is the site's answer, not a reader setting
+  // made here, and clearing it would leave a white book on a dark page — which is the state
+  // this button exists to get *out* of, not into.
   apply({
     fontSize: undefined,
     lineHeight: undefined,
-    theme: undefined,
     columns: "auto",
     margin: 24,
-  }).then(() => {
-    $("theme").value = "book";
-    syncControls();
-  }),
+  }).then(syncControls),
 );
 
 /**
@@ -313,6 +314,22 @@ function onKeyDown(event) {
 }
 
 window.addEventListener("keydown", onKeyDown);
+
+// --- the site's theme -------------------------------------------------------
+//
+// One switch, in the masthead, for the whole site. Everything outside the book is CSS and
+// never reaches this file; the book is the exception, because it renders in an iframe and the
+// page's stylesheet stops at its edge. So this is where the two sides are joined — the same
+// choice, handed to frond as colours.
+//
+// The subscription covers both halves of "the choice changed": the reader picking from the
+// control, and the operating system flipping underneath a reader who picked "System".
+
+connectChoiceControl($("theme-choice"));
+
+subscribe(() => {
+  void apply({ theme: currentBookTheme() });
+});
 
 // --- panel switching --------------------------------------------------------
 

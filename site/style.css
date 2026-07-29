@@ -6,28 +6,41 @@
  * compiled would make that sentence only half true.
  */
 
+/*
+ * The palette, and the one switch that flips it.
+ *
+ * Every colour is a `light-dark()` pair, so **`color-scheme` is the whole theme mechanism**
+ * — the pairs resolve against whatever it says, and nothing else has to be redeclared. The
+ * alternative, a second block of custom properties under `prefers-color-scheme`, would have
+ * to be written twice over once an explicit choice exists (once for the media query, once for
+ * the attribute), and the two copies drift.
+ *
+ * Choosing `color-scheme` as the switch buys one thing a palette cannot: the native controls
+ * on these pages — the `<select>`s, the range sliders, the scrollbars — follow it on their
+ * own. They are drawn by the browser, and no custom property reaches them.
+ */
 :root {
+  /* Unset, the site follows the system. That is this page's default, and it needs no
+     JavaScript at all — `theme.js` only ever writes the attribute below. */
   color-scheme: light dark;
 
-  --ink: #1c1e21;
-  --ink-soft: #5c6169;
-  --paper: #fbfaf8;
-  --panel: #ffffff;
-  --line: #e2ddd5;
-  --accent: #2f6b4f;
-  --danger: #a4362c;
+  --ink: light-dark(#1c1e21, #dfe1e4);
+  --ink-soft: light-dark(#5c6169, #9aa1ab);
+  --paper: light-dark(#fbfaf8, #14161a);
+  --panel: light-dark(#ffffff, #1b1e23);
+  --line: light-dark(#e2ddd5, #2e333a);
+  --accent: light-dark(#2f6b4f, #6fbf95);
+  --danger: light-dark(#a4362c, #e0796d);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ink: #dfe1e4;
-    --ink-soft: #9aa1ab;
-    --paper: #14161a;
-    --panel: #1b1e23;
-    --line: #2e333a;
-    --accent: #6fbf95;
-    --danger: #e0796d;
-  }
+/* The reader's explicit choice, set by `theme.js`. "System" removes the attribute rather than
+   resolving it here, so the line above stays in charge and keeps following the system. */
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 * {
@@ -88,11 +101,46 @@ pre {
   color: var(--ink-soft);
 }
 
+/*
+ * The row under the tagline: the links at one end, the theme choice at the other.
+ *
+ * The theme control belongs here rather than on the reading toolbar because what it switches
+ * is **the whole site** — this page's chrome and the book inside the iframe together (see
+ * `theme.js`). Sitting between the font size and the margin sliders it would read as one more
+ * property of the book, which is exactly the confusion of having had two theme switches.
+ */
 .masthead-links {
   margin-top: 0.6rem;
   display: flex;
-  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
   font-size: 0.9rem;
+}
+
+.masthead-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.theme-choice {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--ink-soft);
+}
+
+.theme-choice select {
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: inherit;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
 }
 
 main {
@@ -503,6 +551,10 @@ body:has(#workspace:not([hidden])) .masthead h1 {
 body:has(#workspace:not([hidden])) .masthead-links {
   margin-top: 0;
   font-size: 0.85rem;
+  /* The masthead is a single row while reading, and this claims what is left of it — which is
+     what keeps the theme choice against the right-hand edge rather than up against the
+     links. */
+  flex: 1;
 }
 
 /* While reading, the tagline and the colophon hold nothing the reader wants, and together

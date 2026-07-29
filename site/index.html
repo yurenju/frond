@@ -13,6 +13,28 @@
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%8C%BF%3C/text%3E%3C/svg%3E"
     />
     <link rel="stylesheet" href="./style.css" />
+
+    <!--
+      The stored theme choice, applied before the first paint.
+
+      Everything else about the theme is in `theme.js`, and this line would be too were it not
+      for the timing: `app.js` is a module, so it is deferred, and by the time it runs the page
+      has already been painted in the system's scheme. A reader who chose Dark on a light
+      machine would see a white flash on every single load.
+
+      Only the explicit choices need this. "System" is `style.css`'s own default and needs no
+      JavaScript at all, which is why there is nothing here to undo.
+    -->
+    <script>
+      try {
+        const choice = localStorage.getItem("frond-site-theme");
+        if (choice === "light" || choice === "dark") {
+          document.documentElement.dataset.theme = choice;
+        }
+      } catch {
+        // Storage can be blocked outright, and that is not worth failing a page load over.
+      }
+    </script>
   </head>
   <body>
     <header class="masthead">
@@ -21,11 +43,22 @@
         An EPUB rendering library for TypeScript. Vertical and horizontal treated as
         equals, verified empirically on Chromium, Firefox and WebKit.
       </p>
-      <nav class="masthead-links">
-        <a href="./react/">Using React? See frond-react</a>
-        <a href="https://github.com/yurenju/frond">GitHub</a>
-        <a href="https://github.com/yurenju/frond#readme">Documentation</a>
-      </nav>
+      <div class="masthead-links">
+        <nav class="masthead-nav">
+          <a href="./react/">Using React? See frond-react</a>
+          <a href="https://github.com/yurenju/frond">GitHub</a>
+          <a href="https://github.com/yurenju/frond#readme">Documentation</a>
+        </nav>
+        <!-- One switch for the whole site, the book included. See `theme.js`. -->
+        <label class="theme-choice">
+          Theme
+          <select id="theme-choice" aria-label="Colour theme">
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
+      </div>
     </header>
 
     <main>
@@ -52,7 +85,9 @@
               <li>
                 <strong>Read</strong> — how the book lays out. Vertical or horizontal is
                 the book's own decision; page turning, chapter jumps, font size, line
-                height, margin, one or two columns and the theme are all adjustable.
+                height, margin and one or two columns are all adjustable. The book takes
+                its colours from this site's theme, up in the masthead — one switch, and
+                the page and the book turn together.
               </li>
               <li>
                 <strong>Inspect</strong> — the facts frond read from this book. The EPUB
@@ -166,16 +201,9 @@
                   <option value="2">Two</option>
                 </select>
               </label>
-              <label>
-                Theme
-                <select id="theme">
-                  <option value="book">As the book</option>
-                  <option value="light">Light</option>
-                  <option value="sepia">Sepia</option>
-                  <option value="dark">Dark</option>
-                </select>
-              </label>
-              <button id="reset-settings" title="Clear every reader setting and return to the book's own declarations">
+              <!-- There is no theme control here. The book follows the site's, in the
+                   masthead — see `theme.js`. -->
+              <button id="reset-settings" title="Clear the typography settings and return to the book's own declarations. The theme is the site's, and stays.">
                 Clear settings
               </button>
             </div>
