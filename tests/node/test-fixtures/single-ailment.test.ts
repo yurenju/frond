@@ -69,6 +69,10 @@ const REQUIRED_BY_ADR_0007 = [
   // `<body>` never appeared in the sample, and this file exists so that the CFI shift
   // `stripScriptedContent`'s `remove()` causes has a test holding it.
   "scripted-content-in-body",
+  // The first one ADR-0007's second layer found rather than the first (#35). A real
+  // public-domain book turned it up; this is its synthetic copy, because the real book
+  // deliberately carries no CI assertion.
+  "nav-inside-section",
 ];
 
 const books = new Map<string, EpubArchive>(
@@ -144,6 +148,17 @@ const PROBES: readonly Probe[] = [
     symptom: "the TOC has a second level",
     expectedIn: ["nested-toc", "nested-toc-epub2"],
     matches: (book) => book.tocTree.some((node) => node.children.length > 0),
+  },
+  {
+    symptom: "the toc <nav> is wrapped rather than hanging off <body>",
+    expectedIn: ["nav-inside-section"],
+    // Read off the navigation document's source rather than through `tocTree`: this
+    // ailment is about **where the nav sits**, and every reader that handles it correctly
+    // produces exactly the same tree as the healthy fixtures. There is nothing to see in
+    // the product — which is what made it invisible until a real book turned it up (#35).
+    matches: (book) =>
+      book.navigationVehicle === "nav" &&
+      /<body>\s*<section/.test(book.text(book.navigationPath)),
   },
   {
     symptom: "a page-progression-direction is declared",

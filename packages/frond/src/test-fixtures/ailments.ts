@@ -371,6 +371,17 @@ body {
     afflict: nestedToc,
   },
   {
+    name: "nav-inside-section",
+    description:
+      "the toc <nav> is wrapped in a <section> rather than hanging directly off <body> — conforming, and an implementation looking only at <body>'s direct children reads the whole table of contents as empty",
+    // Not synthesised from the spec but copied from a book: the EPUB 3 sample publication
+    // `草枕` writes its navigation document this way, and that is how frond's own defect
+    // was found (#35). ADR-0007's second layer is what turned it up, and this fixture is
+    // the first layer's copy of it — the real book stays out of CI's assertions, and
+    // without this file nothing would keep the fix from being undone.
+    afflict: (base) => ({ ...base, navInsideSection: true }),
+  },
+  {
     name: "manifest-href-parent-prefix",
     description:
       "a manifest href walks up to the package root with ../ and the target really exists — a good book, used to block the false positive \"the OPF points at a missing file\"",

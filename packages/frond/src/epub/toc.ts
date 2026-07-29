@@ -174,21 +174,38 @@ function pickNavigationDocument(
  * implementation taking the first `<nav>` as the TOC stands a chance of picking up a
  * different list in those 27.
  *
- * When no such declaration is found, this falls back to the first `<nav>` — that is
- * "the book did not say" rather than "the book has no table of contents", and not one
- * book in the sample lands there, so this fallback is kept for books not yet measured,
- * not for the sample.
+ * ## The declared one is looked for at any depth; the fallback is not
  *
- * `<nav>` is always looked for as a direct child of `<body>` (measured: 31/31 are).
- * Recursing further down would also gather lists inside content documents, and those
- * are not the TOC.
+ * The two steps ask different questions on purpose.
+ *
+ * The declared `<nav>` is searched for **anywhere below `<body>`**, because the spec
+ * puts no constraint there: "there are no restrictions on the structure or content of
+ * the EPUB navigation document outside of the specialized navigation elements", and the
+ * requirement is that the document *include* exactly one `toc` nav — the restrictions
+ * that follow govern that element's own content model and its descendants, never its
+ * ancestors. This was originally written as "a direct child of `<body>`" on a measured
+ * 31/31, and it took **one book outside that sample** to break: the EPUB 3 sample
+ * publication `草枕` wraps its perfectly conforming `<nav epub:type="toc">` in a
+ * `<section epub:type="frontmatter">`, and frond read that book's table of contents as
+ * empty (ADR-0007's second layer, #35). The measurement was not wrong; it was a
+ * measurement of 31 books, and the shape it did not contain is legal.
+ *
+ * The fallback — the book declared no `epub:type` anywhere — stays a **direct child of
+ * `<body>`**, and that asymmetry is the point. Without a declaration there is nothing
+ * to distinguish the table of contents from any other list, and a navigation document
+ * may be part of the linear reading order, so recursing at this step would let a `<nav>`
+ * belonging to the prose become the TOC. Not one book in the sample reaches this branch;
+ * it is kept for books not yet measured, and it should stay the conservative one.
  */
 function pickTocNav(document: XmlElement): XmlElement | undefined {
-  const navs = document.child("html")?.child("body")?.children("nav") ?? [];
-  return (
-    navs.find((nav) => (nav.attribute("type") ?? "").split(/\s+/).includes("toc")) ??
-    navs[0]
-  );
+  const body = document.child("html")?.child("body");
+  if (body === undefined) return undefined;
+
+  const declared = body
+    .descendants("nav")
+    .find((nav) => (nav.attribute("type") ?? "").split(/\s+/).includes("toc"));
+
+  return declared ?? body.children("nav")[0];
 }
 
 /** One node whose href has not been resolved yet. */
