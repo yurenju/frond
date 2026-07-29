@@ -236,12 +236,48 @@ test("an explicit choice overrides the system, keeps the reader's place, and is 
   // change *while* reading.
   await expect(page.locator("#status-cfi")).toHaveText(where ?? "");
 
-  // Remembered, and applied before the first paint: the `<head>` script is what puts the
-  // attribute on `<html>`, and `theme.js` only agrees with it afterwards.
+  // Remembered: the choice is in `localStorage`, so the page comes back light on a machine
+  // that is still dark, and the control agrees with it.
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   await expect(page.locator("#theme-choice")).toHaveValue("light");
+  await expect.poll(() => backgroundOfPage(page)).toBe(PAGE_BACKGROUND.light);
+});
+
+/**
+ * The stored choice is applied **before the first paint**.
+ *
+ * This is the `<head>` script's whole reason for existing, and it needs a test of its own:
+ * the reload in the test above cannot show it. There, `theme.js` has loaded by the time the
+ * background is read and would have set the very same attribute a moment later — so those
+ * assertions pass with the `<head>` script deleted outright (measured, not assumed). What a
+ * reader would get is a white flash on every load, and nothing would have gone red.
+ *
+ * So this one lets nothing but that script run: `app.js` never arrives, which takes the
+ * `theme.js` it imports with it. Whatever is on `<html>` afterwards was put there before the
+ * page was painted, because there was nothing else left to do it.
+ */
+test("the stored choice is applied before the first paint, with no module loaded", async ({
+  page,
+}) => {
+  await serveSite(page);
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto(`${ORIGIN}/`);
+  await page.locator("#theme-choice").selectOption("light");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+
+  // Registered after `serveSite`'s catch-all, and so consulted before it: Playwright matches
+  // routes newest first.
+  await page.route(`${ORIGIN}/app.js`, (route) => route.abort());
+  await page.reload();
+
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   expect(await backgroundOfPage(page)).toBe(PAGE_BACKGROUND.light);
+
+  // And the module really did not run — otherwise this proves nothing. The control is left
+  // at the markup's own first option, which is exactly what `connectChoiceControl` would
+  // have corrected.
+  await expect(page.locator("#theme-choice")).toHaveValue("system");
 });
 
 /** The reader toolbar no longer has a theme of its own — one question, one switch. */
