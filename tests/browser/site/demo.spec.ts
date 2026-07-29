@@ -4,6 +4,12 @@ import { fileURLToPath } from "node:url";
 import { type Page, expect, test } from "@playwright/test";
 import { buildDemoBook } from "../../../packages/frond/src/test-fixtures/demo-book.ts";
 import { collectPageErrors } from "../support/page-errors.js";
+import {
+  BOOK_BACKGROUND,
+  PAGE_BACKGROUND,
+  backgroundInsideBook,
+  backgroundOfPage,
+} from "./palette.js";
 
 /**
  * The demo page (`site/`) really does run.
@@ -163,4 +169,94 @@ test("the viewer frame is a spread on a wide screen and a single page on a narro
   // The book has to relayout after the size change — frond watches the container itself
   // (`Renderer`'s ResizeObserver), and the page count is the evidence that it did.
   await expect(page.locator("#status-page")).toContainText("Page 1 /");
+});
+
+/**
+ * The theme is the site's, and the book is inside it.
+ *
+ * ## Why this needs a test rather than an eyeball
+ *
+ * The two halves of the switch travel by completely different routes. Outside the book it is
+ * `color-scheme` on `<html>` and `light-dark()` pairs in the stylesheet, and it is impossible
+ * to get subtly wrong — it either flips or it does not. **Inside the book nothing of the sort
+ * applies**: the book renders in an iframe, the page's CSS stops at its edge, and the colours
+ * only arrive because `app.js` hands them to frond as `settings.theme`. Break that one wiring
+ * and the page turns dark while the book stays a sheet of white paper — with nothing thrown,
+ * nothing logged, and every other test still green.
+ *
+ * That is why the assertions below reach into `contentDocument` rather than settling for the
+ * container behind it: the container is `--panel` by stylesheet regardless, so it would look
+ * right even with the theme never reaching frond at all.
+ */
+test("the site follows the system's colour scheme, and the book turns with it", async ({ page }) => {
+  await serveSite(page);
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto(`${ORIGIN}/`);
+
+  // Nothing has been chosen, so there is no attribute at all — `:root`'s own
+  // `color-scheme: light dark` is what follows the system, and it does so with no JavaScript.
+  await expect(page.locator("html")).not.toHaveAttribute("data-theme");
+  await expect(page.locator("#theme-choice")).toHaveValue("system");
+  expect(await backgroundOfPage(page)).toBe(PAGE_BACKGROUND.light);
+
+  await page.setInputFiles("#file-input", DEMO_EPUB);
+  await expect(page.locator("#status-cfi")).toContainText("epubcfi(");
+  expect(await backgroundInsideBook(page, "#viewer")).toBe(BOOK_BACKGROUND.light);
+
+  // The system changes underneath a reader who never chose anything. The page follows because
+  // of the stylesheet; the book follows only because `theme.js` woke `app.js` up and it
+  // re-applied the settings.
+  await page.emulateMedia({ colorScheme: "dark" });
+
+  await expect.poll(() => backgroundOfPage(page)).toBe(PAGE_BACKGROUND.dark);
+  await expect.poll(() => backgroundInsideBook(page, "#viewer")).toBe(BOOK_BACKGROUND.dark);
+  await expect(page.locator("html")).not.toHaveAttribute("data-theme");
+});
+
+test("an explicit choice overrides the system, keeps the reader's place, and is remembered", async ({ page }) => {
+  await serveSite(page);
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto(`${ORIGIN}/`);
+  await page.setInputFiles("#file-input", DEMO_EPUB);
+  await expect(page.locator("#status-cfi")).toContainText("epubcfi(");
+
+  // Somewhere other than the first page, so that "the theme did not throw the reader back to
+  // the start" has something to say.
+  await page.locator("#next").click();
+  const where = await page.locator("#status-cfi").textContent();
+
+  await page.locator("#theme-choice").selectOption("light");
+
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await expect.poll(() => backgroundOfPage(page)).toBe(PAGE_BACKGROUND.light);
+  await expect.poll(() => backgroundInsideBook(page, "#viewer")).toBe(BOOK_BACKGROUND.light);
+
+  // A theme change goes through `applySettings()`, not another `attach()`. A remount would put
+  // the reader back on page one — and this is the one setting a reader is most likely to
+  // change *while* reading.
+  await expect(page.locator("#status-cfi")).toHaveText(where ?? "");
+
+  // Remembered, and applied before the first paint: the `<head>` script is what puts the
+  // attribute on `<html>`, and `theme.js` only agrees with it afterwards.
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await expect(page.locator("#theme-choice")).toHaveValue("light");
+  expect(await backgroundOfPage(page)).toBe(PAGE_BACKGROUND.light);
+});
+
+/** The reader toolbar no longer has a theme of its own — one question, one switch. */
+test("clearing the reader settings leaves the site's theme alone", async ({ page }) => {
+  await serveSite(page);
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto(`${ORIGIN}/`);
+  await page.setInputFiles("#file-input", DEMO_EPUB);
+  await expect(page.locator("#status-cfi")).toContainText("epubcfi(");
+
+  await page.locator("#font-size").fill("34");
+  await page.locator("#reset-settings").click();
+
+  // The typography went back to the book's own declarations, but the theme is not a reader
+  // setting made on this toolbar — cleared, it would leave a white book on a dark page.
+  await expect.poll(() => backgroundInsideBook(page, "#viewer")).toBe(BOOK_BACKGROUND.dark);
+  await expect(page.locator("#theme")).toHaveCount(0);
 });

@@ -4,6 +4,12 @@ import { fileURLToPath } from "node:url";
 import { type Page, expect, test } from "@playwright/test";
 import { buildDemoBook } from "../../../packages/frond/src/test-fixtures/demo-book.ts";
 import { collectPageErrors } from "../support/page-errors.js";
+import {
+  BOOK_BACKGROUND,
+  PAGE_BACKGROUND,
+  backgroundInsideBook,
+  backgroundOfPage,
+} from "./palette.js";
 
 /**
  * The demo site's React page (`site/react/`) really does run.
@@ -253,4 +259,59 @@ test("the table of contents navigates", async ({ page }) => {
   await toc.selectOption({ index: 2 });
 
   await expect(page.getByTestId("status-cfi")).not.toHaveText(first ?? "");
+});
+
+/**
+ * The theme is the site's on this page too, and it reaches the book through a prop.
+ *
+ * The home page's version of this test (`demo.spec.ts`) explains why the assertion has to
+ * reach inside `contentDocument`. What is different here is the route the colours take: the
+ * masthead is **outside** the React root, so the control is wired imperatively while the book
+ * reads the same choice back through `useSyncExternalStore`. Those two halves can come apart
+ * — the control flipping the page while the prop never updates is a live failure mode, and it
+ * looks exactly like "the theme works" until you open a book.
+ */
+test("the site's theme reaches the book, and switching it keeps the reader's place", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await openDemoBook(page);
+
+  await expect(page.locator("html")).not.toHaveAttribute("data-theme");
+  await expect(page.locator("#theme-choice")).toHaveValue("system");
+  expect(await backgroundOfPage(page)).toBe(PAGE_BACKGROUND.light);
+  expect(await backgroundInsideBook(page, "[data-testid='viewport']")).toBe(
+    BOOK_BACKGROUND.light,
+  );
+
+  // Away from the first page, so "the theme did not remount the book" has something to say.
+  await page.getByTestId("next").click();
+  const where = await page.getByTestId("status-cfi").textContent();
+
+  await page.locator("#theme-choice").selectOption("dark");
+
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect.poll(() => backgroundOfPage(page)).toBe(PAGE_BACKGROUND.dark);
+  await expect
+    .poll(() => backgroundInsideBook(page, "[data-testid='viewport']"))
+    .toBe(BOOK_BACKGROUND.dark);
+
+  // `settings` changing is `applySettings()`, not another `attach()` — one iframe, same place
+  // in the book. A remount here would be especially visible: `Root` rebuilds the iframe and
+  // waits on fonts again.
+  await expect(page.getByTestId("status-cfi")).toHaveText(where ?? "");
+  await expect(page.getByTestId("viewport").locator("iframe")).toHaveCount(1);
+});
+
+test("the system changing reaches a book already on screen", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await openDemoBook(page);
+
+  await page.emulateMedia({ colorScheme: "dark" });
+
+  // Nothing was chosen, so the page follows by stylesheet alone; the book follows only
+  // because the subscription re-rendered `App` with new colours.
+  await expect.poll(() => backgroundOfPage(page)).toBe(PAGE_BACKGROUND.dark);
+  await expect
+    .poll(() => backgroundInsideBook(page, "[data-testid='viewport']"))
+    .toBe(BOOK_BACKGROUND.dark);
+  await expect(page.locator("html")).not.toHaveAttribute("data-theme");
 });

@@ -31,11 +31,25 @@
  * reference first.
  */
 
-import { StrictMode, useCallback, useEffect, useState } from "react";
+import {
+  StrictMode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { createRoot } from "react-dom/client";
 import * as Reader from "@yurenju/frond-react";
 import { EpubBook } from "@yurenju/frond/epub";
 import type { TocItem } from "@yurenju/frond/epub";
+import {
+  connectChoiceControl,
+  currentBookTheme,
+  currentScheme,
+  subscribe,
+  type BookTheme,
+} from "../theme.js";
 
 // --- opening a book ---------------------------------------------------------
 
@@ -78,12 +92,19 @@ function App() {
 
   useDefaultStylesheet(styled);
 
+  // The site's light/dark, as colours frond can use. Outside the book the theme is entirely
+  // CSS and React never hears about it; inside the book it has to be a prop, because the
+  // iframe is where the page's stylesheet stops.
+  const theme = useSiteBookTheme();
+
   if (opened === undefined) {
     return <Dropzone failure={failure} onFile={open} />;
   }
 
   return (
-    <Reader.Root book={opened.book} settings={{ fontSize, margin: 32 }}>
+    // `settings` is compared field by field and deep, so a fresh object literal every render
+    // costs nothing — a theme change re-applies, a re-render for any other reason does not.
+    <Reader.Root book={opened.book} settings={{ fontSize, margin: 32, theme }}>
       {/* Policy: whether keyboard and swipe input is consumed. Without this component, not one gesture is. */}
       {paging ? <Paging /> : null}
 
@@ -255,6 +276,24 @@ function TableOfContents({ toc }: { readonly toc: readonly TocItem[] }) {
 }
 
 /**
+ * The site's theme, as the colours to hand `<Root settings>`.
+ *
+ * `useSyncExternalStore` rather than a `useState` plus a subscribing effect: the theme is
+ * genuinely outside React (a `<select>` in the masthead, and the operating system underneath
+ * it), and this is the hook that exists for exactly that. It also means the very first render
+ * already has the right value — an effect would render once in the wrong scheme first, and
+ * the reader would see the book flash white.
+ *
+ * It subscribes to the **scheme**, a string, rather than to the theme object: the snapshot has
+ * to be referentially stable between changes, and `currentBookTheme()` returns a fresh object
+ * on every call.
+ */
+function useSiteBookTheme(): BookTheme {
+  const scheme = useSyncExternalStore(subscribe, currentScheme);
+  return useMemo(() => currentBookTheme(), [scheme]);
+}
+
+/**
  * The default stylesheet switch.
  *
  * What it toggles is a `<link>`'s `disabled` rather than importing the CSS into the bundle —
@@ -315,6 +354,14 @@ function Dropzone({
     </div>
   );
 }
+
+// The theme control is in the masthead, outside `#app`, so React never sees it — the page
+// shell owns it and `useSiteBookTheme()` above reads the same choice back for the book.
+const themeChoice = document.getElementById("theme-choice");
+if (!(themeChoice instanceof HTMLSelectElement)) {
+  throw new Error("there is no #theme-choice on the page");
+}
+connectChoiceControl(themeChoice);
 
 const container = document.getElementById("app");
 if (container === null) throw new Error("there is no #app on the page");

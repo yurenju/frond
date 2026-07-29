@@ -18,6 +18,15 @@
     // resolution accepts both.
     "allowImportingTsExtensions": true,
 
+    // For `site/theme.js` alone — the demo site's theme module, which both pages import and
+    // which therefore has to be plain JavaScript (the home page has no build step). The React
+    // page imports it, so without this its exports would be untyped and `npm run typecheck`
+    // would fail to resolve the module at all.
+    //
+    // `checkJs` stays off: this maps types *out* of that file, it does not start type-checking
+    // JavaScript. `site/app.js` is still absent from `include` for the reason given there.
+    "allowJs": true,
+
     // frond-react's source is .tsx. This setting is a no-op for every other package — files
     // without JSX are unaffected — so it lives in this shared file rather than being copied
     // into each.
@@ -60,10 +69,15 @@
     // typecheck may as well cover it. It is also frond-react's usage example, and an example
     // whose types are never checked silently becomes wrong after some API change.
     //
-    // `site/app.js` is still deliberately absent: that page's whole value is "plain
-    // JavaScript, no build step at all", and including it would require allowJs while
-    // guarding nothing.
+    // `site/app.js` is still deliberately absent, `allowJs` above notwithstanding: nothing
+    // imports it, so listing it would type-check a file no other file depends on — and that
+    // page's whole value is "plain JavaScript, no build step at all". It is guarded by
+    // `tests/browser/site/demo.spec.ts`, which opens the page for real.
     "site/react/**/*.tsx",
+    // The site's theme module. Both pages import it, so it has to be plain JavaScript (the
+    // home page has no build step) — and it is here because the React page's types depend on
+    // it. See `allowJs` above.
+    "site/theme.js",
     "playwright.config.ts",
     "vitest.config.ts"
   ]

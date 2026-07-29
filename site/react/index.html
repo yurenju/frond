@@ -15,6 +15,23 @@
     <link rel="stylesheet" href="../style.css" />
 
     <!--
+      The stored theme choice, applied before the first paint. The same three lines as the
+      home page, and for the same reason — `bundle.js` is deferred, so applying the choice
+      there would let the page paint in the system's scheme and flip afterwards. The full
+      reasoning, and the one other place this storage key is written, are in `../theme.js`.
+    -->
+    <script>
+      try {
+        const choice = localStorage.getItem("frond-site-theme");
+        if (choice === "light" || choice === "dark") {
+          document.documentElement.dataset.theme = choice;
+        }
+      } catch {
+        // Storage can be blocked outright, and that is not worth failing a page load over.
+      }
+    </script>
+
+    <!--
       frond-react's default styles.
 
       **Attaching them here rather than importing them into the bundle is deliberate.** The
@@ -34,14 +51,29 @@
         frond's <strong>unstyled</strong> React component layer. Like Radix or Base UI,
         the parts carry no styling — every decision about appearance lives in your CSS.
       </p>
-      <nav class="masthead-links">
-        <a href="../">The frond demo page</a>
-        <a href="https://github.com/yurenju/frond">GitHub</a>
-        <a
-          href="https://github.com/yurenju/frond/blob/main/docs/adr/0011-monorepo-and-frond-react.md"
-          >Design decision (ADR-0011)</a
-        >
-      </nav>
+      <div class="masthead-links">
+        <nav class="masthead-nav">
+          <a href="../">The frond demo page</a>
+          <a href="https://github.com/yurenju/frond">GitHub</a>
+          <a
+            href="https://github.com/yurenju/frond/blob/main/docs/adr/0011-monorepo-and-frond-react.md"
+            >Design decision (ADR-0011)</a
+          >
+        </nav>
+        <!--
+          The masthead is **outside** `#app`, so this control is not React's. `app.tsx` hands
+          it to `connectChoiceControl()` and separately reads the scheme back for the book —
+          the page shell and the React tree are two consumers of one choice.
+        -->
+        <label class="theme-choice">
+          Theme
+          <select id="theme-choice" aria-label="Colour theme">
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
+      </div>
     </header>
 
     <main>
@@ -111,6 +143,13 @@ const book = await EpubBook.open(await file.arrayBuffer());
               frond's authority order: reader settings &gt; frond's corrections &gt; the
               book's declarations. So <code>Viewport</code> is a <strong>box</strong>, not a
               sheet of paper.
+            </p>
+            <p class="note">
+              The <strong>Theme</strong> control in the masthead is where that shows. It is
+              one switch for the whole site, and the book has no separate one — the page's
+              light/dark is turned into a <code>theme</code> in
+              <code>settings</code>, because <code>color-scheme</code> stops at the iframe
+              and colours are the only way across.
             </p>
 
             <h2>Gestures are your decision</h2>
