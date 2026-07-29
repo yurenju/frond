@@ -13,6 +13,8 @@
  * remount.
  */
 
+import type { WritingMode } from "./geometry.ts";
+
 /** The complete description of a position. This is what every `relocate` carries. */
 export interface RenderLocation {
   readonly sectionIndex: number;
@@ -47,6 +49,34 @@ export interface SectionLoadEvent {
    * (ADR-0010, docs/browser-quirks.md).
    */
   readonly writingMode: "horizontal-tb" | "vertical-rl";
+}
+
+/**
+ * The geometry has been laid out again — **every rectangle measured before this moment is
+ * stale**.
+ *
+ * This is the signal `rectsFor()` needs a companion for: it answers "which rectangles does
+ * this range occupy", and without this event nothing answers "when do those rectangles stop
+ * being true". A consumer drawing its own highlight layer subscribes to exactly one thing —
+ * this — and recomputes.
+ *
+ * It is emitted on all three routes that change the geometry: a section finished loading,
+ * `applySettings()` finished rebuilding, and `resize()` finished re-laying out. Sending it
+ * on all three is the point: the consumer should not have to know which of frond's internal
+ * routes it was, only that the geometry is valid again.
+ *
+ * **`load` is not replaced by it.** `load` answers "a new section is up" and `layout`
+ * answers "the geometry is valid now"; those are two questions, and only the second one is
+ * asked by a resize — `resize()` does not rebuild the document, so no `load` is emitted, and
+ * a `relocate` need not be either (the reader stays on page 0 of the same CFI, and
+ * `relocate`'s de-duplication correctly swallows that). Before this event existed, a resize
+ * moved every rectangle and sent no signal at all.
+ */
+export interface LayoutEvent {
+  /** The writing mode this layout ran in. */
+  readonly writingMode: WritingMode;
+  /** How many pages the current section now has. */
+  readonly pageCount: number;
 }
 
 /** The whole-book index is built, and `fraction` has a value from this moment on. */
@@ -174,6 +204,7 @@ export interface RendererEvents {
   relocate: RenderLocation;
   selection: SelectionEvent;
   load: SectionLoadEvent;
+  layout: LayoutEvent;
   indexed: IndexedEvent;
   linkactivate: LinkActivateEvent;
   error: RendererErrorEvent;

@@ -270,6 +270,7 @@ async function attach(book: RenderableBook, options: MountOptions): Promise<Snap
     on: {
       relocate: record("relocate"),
       load: record("load"),
+      layout: record("layout"),
       linkactivate: record("linkactivate"),
       error: record("error"),
       selection: record("selection"),

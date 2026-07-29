@@ -65,6 +65,10 @@ const REQUIRED_BY_ADR_0007 = [
   "hidden-trailing-notes",
   "plate-taller-than-page",
   "table-taller-than-page",
+  // The only one that plays a shape **measured at zero** (#54): scripted content in
+  // `<body>` never appeared in the sample, and this file exists so that the CFI shift
+  // `stripScriptedContent`'s `remove()` causes has a test holding it.
+  "scripted-content-in-body",
 ];
 
 const books = new Map<string, EpubArchive>(
@@ -156,6 +160,18 @@ const PROBES: readonly Probe[] = [
     expectedIn: ["empty-and-image-only-sections"],
     matches: (book) =>
       book.readingOrder.some((section) => !/<p[\s>]/.test(book.text(section.archivePath))),
+  },
+  {
+    symptom: "a section's body carries scripted content",
+    expectedIn: ["scripted-content-in-body"],
+    // The `<head>` of every fixture is the skeleton's, and none of them has a `<script>`
+    // there — so this probe needs no way to tell the two positions apart. Were one ever
+    // added, this is where it would have to grow one: what shifts a CFI is a removal in
+    // `<body>`.
+    matches: (book) =>
+      book.readingOrder.some((section) =>
+        /<(?:script|iframe|object|embed|frame)[\s/>]/.test(book.text(section.archivePath)),
+      ),
   },
   {
     symptom: "an obfuscated resource is declared",

@@ -459,18 +459,48 @@ export class Renderer {
 
       if (anchor !== undefined) view.goToPage(view.pageOf(view.rangeAt(anchor)));
 
+      // **This is the route that used to be silent.** No document is rebuilt, so there is no
+      // `load`; and staying on the same page of the same CFI means `relocate` is swallowed by
+      // its own de-duplication — which is correct, the position really did not move. But every
+      // rectangle did, and this is the event that says so.
+      this.emitLayout(view);
       this.emitRelocate();
       return Promise.resolve();
     }, "resize");
   }
 
   /**
-   * The rectangles a CFI occupies on screen, in coordinates relative to the container (user
-   * stories 49 and 51).
+   * The rectangles a CFI occupies on screen (user stories 49 and 51).
    *
    * frond supplies only the geometry — colour, style and animation are the consumer's
-   * decision (ADR-0002). Returns an empty array when the position is not in the current
-   * section.
+   * decision (ADR-0002).
+   *
+   * ## The coordinate system
+   *
+   * Relative to **the container element's top-left corner**, in CSS pixels, with the
+   * reader's margin already added back (the iframe is inset within the container). That is
+   * the same system `RendererPointerEvent`'s `x`/`y` are in, so a rectangle and a tap can be
+   * compared directly, and an overlay positioned on the container can use these numbers
+   * verbatim.
+   *
+   * ## Positions that are not on screen
+   *
+   * There are two cases and they answer differently:
+   *
+   * - **Not in the current section** — an empty array. Nothing is laid out, so there is no
+   *   geometry to report.
+   * - **In this section but not on the current page** — real rectangles **outside the
+   *   container**. Pages are made by scrolling one long multi-column layout, so a position
+   *   two pages ahead is simply at a large coordinate (measured: at a container width of
+   *   600, a position on page 1 comes back at `x = 632`), and a position behind is negative.
+   *
+   * The second case is deliberate: which rectangles to draw is a clipping policy and belongs
+   * to the consumer (ADR-0002), while reporting the true geometry is the fact frond owns.
+   * A consumer that draws them unconditionally paints its highlight outside the page, so the
+   * comparison against the container's own size is its job — `location.page` or the
+   * container's bounds both serve.
+   *
+   * These numbers go stale on every layout pass. **`layout` is the event that says so.**
    */
   rectsFor(cfi: string | Cfi): readonly DOMRect[] {
     const view = this.view;
@@ -645,6 +675,10 @@ export class Renderer {
     });
 
     this.applyAnchor(view, anchor);
+    // After the anchor, not before: the page the anchor lands on decides what is scrolled
+    // into view, and therefore what `rectsFor()` answers. A consumer recomputing its
+    // highlight layer on this event would otherwise measure the geometry of page 0.
+    this.emitLayout(view);
     this.emitRelocate();
   }
 
@@ -771,6 +805,24 @@ export class Renderer {
       this.sectionIndex,
       charactersBefore(textNodesIn(view.document), position.node, position.offset),
     );
+  }
+
+  /**
+   * "The geometry is valid again, recompute."
+   *
+   * **Deliberately not de-duplicated**, unlike `relocate`. The two guard different things:
+   * `relocate` is a position, and repeating an unchanged position makes a consumer believe
+   * the reader moved; `layout` is an invalidation, and a layout pass that happens to produce
+   * the same page count still moved every rectangle. Suppressing it on "nothing looks
+   * different" would silently drop exactly the case this event exists for — `applySettings({
+   * margin })` on page 0 keeps the page count and moves every rectangle by the margin's
+   * difference.
+   */
+  private emitLayout(view: SectionView): void {
+    this.emitter.emit("layout", {
+      writingMode: view.writingMode,
+      pageCount: view.pageCount,
+    });
   }
 
   private emitRelocate(): void {

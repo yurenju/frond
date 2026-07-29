@@ -135,7 +135,7 @@ export const INTERVENTIONS: readonly Intervention[] = [
   },
   {
     id: "reader-stylesheet",
-    what: "injects the reader's font-size, font-family, line-height, color and background-color, all with !important",
+    what: "injects the reader's font-size, font-family, line-height, color, link color and background-color, all with !important",
     reason: "reader-blocked",
     why: "ADR-0003 requires frond to provide an override surface. It covers only what the reader actually set — for an unset field not one character is injected",
     where: "src/renderer/settings.ts",
@@ -166,7 +166,7 @@ export const INTERVENTIONS: readonly Intervention[] = [
  * making it data would only put the same explanation in two places.
  *
  * Each entry is "we know it is there, and we know why we are not doing it now", not a
- * to-do list. **There are two kinds of reason, and telling them apart matters**:
+ * to-do list. **There are three kinds of reason, and telling them apart matters**:
  *
  * - **This shape was not measured in the sample** (entries 1 and 2). Doing something
  *   about what never once appeared in those books means writing to the spec rather than
@@ -177,6 +177,11 @@ export const INTERVENTIONS: readonly Intervention[] = [
  *   of gap cannot be waved away with "not measured", so it carries an extra requirement:
  *   the status quo needs a fixture and a test holding it, so that someone knows if it
  *   changes.
+ * - **It was measured, and the measurement is zero** (entry 4). This is not the same as
+ *   "not measured": the number exists, and so does the subject bias of the sample that
+ *   produced it — both have to be written down, because the value of a zero is entirely in
+ *   knowing which books it was counted over. It carries the same extra requirement as the
+ *   kind above, for the same reason.
  *
  * 1. **Absolute font sizes inside the `font` shorthand are not converted to `rem`.** The
  *    shorthand's value has to be taken apart to know which part is the size
@@ -215,6 +220,39 @@ export const INTERVENTIONS: readonly Intervention[] = [
  *    tables that test turns red, and this entry can be removed then — in other words this
  *    gap may well disappear without frond changing at all, and that is exactly what
  *    "holding the status quo" buys.
+ *
+ * 4. **`strip-scripted-content` shifts the CFI index of every sibling after what it
+ *    removed.** `element.remove()` is the **only** place frond changes the node count;
+ *    everything else preserves it (`link.replaceWith(style)` is 1:1, the two `<style>`
+ *    elements frond adds only append to `<head>`). A CFI numbers an element by its position
+ *    among its siblings, so one removal moves everything after it by two, and the symptom is
+ *    a reader's highlight landing on different text **without anything raising an error**.
+ *
+ *    This is the third kind of reason, and it is worth naming: **it was measured, and the
+ *    measurement is zero.** Across 34 books in circulation (1638 sections), `<script>` in
+ *    `<body>` is 0/1638, and so are `<iframe>` / `<object>` / `<embed>` / `<frame>` and `on*`
+ *    attributes. Every `<script>` that exists is in `<head>` — 33 of the 34 books, 1456 of
+ *    the 1638 sections (89%), all of them the same shape (the Kobo toolchain's
+ *    `<script type="text/javascript" src="../js/kobo.js"/>`, followed by a
+ *    `id="koboSpanStyle"` `<style>`), injected by the retailer rather than written by the
+ *    book. Removing from `<head>` shifts nothing an annotation could point at: `<head>` is
+ *    `/2` and `<body>` is `/4`, and `<head>` itself stays.
+ *
+ *    **The sample's subject bias has to be recorded with the number.** All 34 are Traditional
+ *    or Simplified Chinese trade non-fiction. The EPUBs that genuinely use scripting are
+ *    fixed-layout, children's books and textbooks, and not one of those three is in the
+ *    sample. So the accurate statement is "**zero within trade non-fiction**", not "zero in
+ *    EPUB". The bias runs in the current consumer's favour (spine is a trade-book reader),
+ *    but that is luck rather than a guarantee.
+ *
+ *    So the behaviour is left alone and the status quo is held by a fixture plus a test
+ *    (`scripted-content-in-body`, `isolation.spec.ts`'s "removing an element shifts the CFIs
+ *    after it") — swapping in a count-preserving placeholder would be writing to the spec
+ *    rather than to the shape books actually have, which is the exact mirror of the mistake
+ *    the postscript below records. What a behaviour change would **not** buy is the more
+ *    important half: it would make this one slot safe without making the next
+ *    removal-shaped intervention safe. The rule that covers that one — every removal-shaped
+ *    intervention is a CFI-level breaking change — is in ADR-0008.
  *
  * ## Postscript: what used to be entries 2 and 3 are no longer gaps
  *
