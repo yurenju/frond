@@ -6,6 +6,7 @@ import {
   type ReaderSettings,
   type RenderableBook,
 } from "../../../../packages/frond/src/renderer/index.ts";
+import { LAYOUT_STYLE_ID, READER_STYLE_ID } from "../../../../packages/frond/src/renderer/layout.ts";
 import { textNodesIn } from "../../../../packages/frond/src/renderer/text-index.ts";
 import type {
   EventRecord,
@@ -49,6 +50,11 @@ const harness: FrondHarness = {
         sections: sections.map((content, index) => ({
           path: `inline-${index + 1}.xhtml`,
           content,
+        })),
+        resources: Object.entries(options.resources ?? {}).map(([path, text]) => ({
+          path,
+          mediaType: path.endsWith(".css") ? "text/css" : "application/octet-stream",
+          bytes: new TextEncoder().encode(text),
         })),
       }),
       options,
@@ -200,6 +206,14 @@ const harness: FrondHarness = {
     return active().writingMode === "vertical-rl"
       ? document.documentElement.scrollTop
       : document.documentElement.scrollLeft;
+  },
+
+  bookStylesheets(): readonly string[] {
+    const document = contentDocument();
+    if (document === undefined) return [];
+    return [...document.querySelectorAll("style")]
+      .filter((style) => style.id !== LAYOUT_STYLE_ID && style.id !== READER_STYLE_ID)
+      .map((style) => style.textContent ?? "");
   },
 
   events(): readonly EventRecord[] {

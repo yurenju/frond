@@ -144,6 +144,14 @@ export interface MountOptions {
   readonly settings?: SettingsPatch;
   /** The container's size. Omitted uses the shell page's default. */
   readonly viewport?: { readonly width: number; readonly height: number };
+  /**
+   * Extra files the book carries, by path — a `<link rel="stylesheet">` target, say.
+   *
+   * `mountInline` alone gives sections and nothing else, so a book whose stylesheet is *linked*
+   * rather than inline could not be expressed, and that is the one shape the transform pipeline
+   * treats differently (`document-source.ts`'s ordering comment).
+   */
+  readonly resources?: Record<string, string>;
   /** Where in the first section to render. Corresponds to `RendererOptions.start`. */
   readonly start?:
     | { readonly cfi: string }
@@ -239,6 +247,14 @@ export interface FrondHarness {
   computed(selector: string, property: string): string;
   /** The outerHTML of the current section's iframe document — for inspecting rewrites. */
   html(): string;
+  /**
+   * The text of the book's own `<style>` elements, excluding the two frond appends.
+   *
+   * `html()` cannot answer "how many times was the book's stylesheet rewritten", because frond's
+   * own layout sheet declares some of the same properties — a count over the whole document
+   * measures both and can only be read by eye.
+   */
+  bookStylesheets(): readonly string[];
   /** The document coordinate of the first character drawn on this section's current page. */
   scrollOffset(): number;
   /** The names and payloads of the events received, in order. */
