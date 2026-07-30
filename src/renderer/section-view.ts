@@ -526,6 +526,7 @@ export class SectionView {
       y: event.clientY + this.insets.top,
       width: this.host.clientWidth,
       height: this.host.clientHeight,
+      pointerType: event.pointerType,
       hasSelection: this.selection() !== undefined,
       isLink: (element?.closest("a[href]") ?? null) !== null,
     };
@@ -612,6 +613,7 @@ function sizeFrame(frame: HTMLIFrameElement, host: HTMLElement, insets: Insets):
 interface PointerFacts {
   readonly clientX: number;
   readonly clientY: number;
+  readonly pointerType: string;
   readonly target: EventTarget | null;
 }
 

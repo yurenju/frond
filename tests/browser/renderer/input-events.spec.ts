@@ -118,6 +118,37 @@ test.describe("pointer events", () => {
     expect(up).toBeLessThan(activate);
   });
 
+  /**
+   * `pointerType` separates a finger from a mouse.
+   *
+   * The consumer's reason for asking: tapping the edge of the page is the only way to turn it
+   * on a phone, while the same click on a desktop competes with placing the caret and with
+   * double-click to select a word — and a desktop has a keyboard and on-screen buttons for
+   * turning. Without this field the two are one event and the policy cannot differ.
+   */
+  test("pointerType says a mouse is a mouse", async ({ page }) => {
+    await mountFixture(page, "vertical-japanese");
+
+    await page.mouse.click(400, 300);
+
+    expect((await waitForEvent(page, "pointerup")).pointerType).toBe("mouse");
+  });
+
+  test("pointerType says a finger is a finger", async ({ browser }) => {
+    const context = await browser.newContext({ hasTouch: true });
+    const page = await context.newPage();
+    try {
+      await openHarness(page);
+      await mountFixture(page, "vertical-japanese");
+
+      await page.touchscreen.tap(400, 300);
+
+      expect((await waitForEvent(page, "pointerup")).pointerType).toBe("touch");
+    } finally {
+      await context.close();
+    }
+  });
+
   test("hasSelection is true while text is selected — not turning the page mid-selection depends on it", async ({ page }) => {
     await mountFixture(page, "vertical-japanese");
     await page.evaluate(() => window.frond.selectText("p"));
@@ -202,6 +233,7 @@ interface PointerPayload {
   readonly y: number;
   readonly width: number;
   readonly height: number;
+  readonly pointerType: string;
   readonly hasSelection: boolean;
   readonly isLink: boolean;
 }
