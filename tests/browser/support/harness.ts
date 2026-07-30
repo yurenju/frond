@@ -3,8 +3,8 @@ import { stripTypeScriptTypes } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Page } from "@playwright/test";
-import { EpubBook } from "../../../packages/frond/src/epub/index.ts";
-import type { AilmentName } from "../../../packages/frond/src/test-fixtures/index.ts";
+import { EpubBook } from "../../../src/epub/index.ts";
+import type { AilmentName } from "../../../src/test-fixtures/index.ts";
 
 /**
  * Feeding frond into a browser.
@@ -316,7 +316,7 @@ function shell(): string {
 /**
  * Reads one source file and strips its types.
  *
- * Only `.ts` under `packages/` and `tests/` is allowed through. The restriction is not a
+ * Only `.ts` under `src/` and `tests/` is allowed through. The restriction is not a
  * security measure (this is a local test runner) but a way to give "what the page can
  * load" a definite boundary — a mistyped path gets a 404 rather than an unexpected file.
  */
@@ -336,7 +336,7 @@ async function readSourceFile(pathname: string): Promise<string | undefined> {
   }
 }
 
-const ALLOWED_ROOTS = new Set(["packages", "tests"]);
+const ALLOWED_ROOTS = new Set(["src", "tests"]);
 
 const FIXTURE_DIRECTORY = join(REPO_ROOT, "tests", "fixtures");
 const PUBLIC_BOOK_DIRECTORY = join(REPO_ROOT, "tests", "books", "public");

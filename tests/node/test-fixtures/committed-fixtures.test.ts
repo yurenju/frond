@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { sha256 } from "../support/hash.ts";
-import { buildFixture, syntheticFixtures } from "../../../packages/frond/src/test-fixtures/index.ts";
+import { buildFixture, syntheticFixtures } from "../../../src/test-fixtures/index.ts";
 
 /**
  * Whether the fixture files in the repo still agree with the generator.

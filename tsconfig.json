@@ -11,73 +11,32 @@
     "esModuleInterop": true,
     "types": ["node"],
 
-    // Under packages/*/src and scripts/, everything imports everything else with a .ts
-    // extension. The reason is that those files have to be executable by `node` directly
-    // (Node's type stripping), and the stripper does not map ./x.js back to ./x.ts — it looks
-    // for x.js literally and fails. tests/browser keeps its existing .js notation; bundler
-    // resolution accepts both.
-    "allowImportingTsExtensions": true,
+    // Under src/ and scripts/, everything imports everything else with a .ts extension. The
+    // reason is that those files have to be executable by `node` directly (Node's type
+    // stripping), and the stripper does not map ./x.js back to ./x.ts — it looks for x.js
+    // literally and fails. tests/browser keeps its existing .js notation; bundler resolution
+    // accepts both.
+    "allowImportingTsExtensions": true
 
-    // For `site/theme.js` alone — the demo site's theme module, which both pages import and
-    // which therefore has to be plain JavaScript (the home page has no build step). The React
-    // page imports it, so without this its exports would be untyped and `npm run typecheck`
-    // would fail to resolve the module at all.
+    // **There is deliberately no `paths` here.** There used to be one, mapping
+    // `@yurenju/frond/*` onto `src/` so that frond-react could typecheck against an unbuilt
+    // tree; with the repo collapsed back to a single package (ADR-0008's revision), nothing
+    // inside it reaches frond through a bare specifier any more — every import is relative.
     //
-    // `checkJs` stays off: this maps types *out* of that file, it does not start type-checking
-    // JavaScript. `site/app.js` is still absent from `include` for the reason given there.
-    "allowJs": true,
-
-    // frond-react's source is .tsx. This setting is a no-op for every other package — files
-    // without JSX are unaffected — so it lives in this shared file rather than being copied
-    // into each.
+    // The one place that still names the package is `tests/node/epub-book/open.test.ts`,
+    // which goes through `exports` **on purpose** and routes the specifier through a variable
+    // so tsc gives up resolving it. A mapping here would defeat that test.
     //
-    // `react-jsx` rather than `react`: the former emits calls to `react/jsx-runtime`, so
-    // consumers need not import React at the top of every file.
-    "jsx": "react-jsx",
-
-    // **This setting serves only "working inside this repo"; the shipping build configuration
-    // turns it off.**
-    //
-    // frond-react consumes frond through the bare specifier `@yurenju/frond/renderer`, and
-    // that route (package.json's `exports`) points at `packages/frond/dist/`. Without this
-    // mapping, a freshly cloned, unbuilt tree cannot even run `npm run typecheck` — and that
-    // error message (module not found) gives no hint that the real cause is "it has not been
-    // built".
-    //
-    // Mapping to `src/` also makes "change frond, see whether frond-react breaks with it"
-    // immediate, without a build step in between.
-    //
-    // The cost is that this route **bypasses the shipped `.d.ts`**, so it cannot prove the
-    // types a consumer receives are sound. That is guarded in two places:
-    // `packages/frond-react/tsconfig.build.json` clears `paths`, so the build goes through
-    // real node_modules resolution; and `release.yml` verifies it again outside the repo with
-    // a fake consumer and `skipLibCheck: false`.
-    "paths": {
-      "@yurenju/frond/epub": ["./packages/frond/src/epub/index.ts"],
-      "@yurenju/frond/renderer": ["./packages/frond/src/renderer/index.ts"],
-      "@yurenju/frond-react": ["./packages/frond-react/src/index.ts"]
-    }
+    // `tsconfig.build.json` keeps `"paths": {}` regardless — see the comment there.
   },
   "include": [
-    "packages/*/src/**/*.ts",
-    "packages/*/src/**/*.tsx",
+    "src/**/*.ts",
     "scripts/**/*.ts",
     "tests/**/*.ts",
-    "tests/**/*.tsx",
-    // The demo site's React page. It is .tsx rather than plain JavaScript like
-    // `site/app.js` — that page needs a bundler anyway (see scripts/bundle-site-react.ts), so
-    // typecheck may as well cover it. It is also frond-react's usage example, and an example
-    // whose types are never checked silently becomes wrong after some API change.
-    //
-    // `site/app.js` is still deliberately absent, `allowJs` above notwithstanding: nothing
-    // imports it, so listing it would type-check a file no other file depends on — and that
-    // page's whole value is "plain JavaScript, no build step at all". It is guarded by
+    // `site/app.js` and `site/theme.js` are deliberately absent. The home page's whole value
+    // is "plain JavaScript, no build step at all", and nothing type-checked imports them, so
+    // listing them would check files no other file depends on. They are guarded by
     // `tests/browser/site/demo.spec.ts`, which opens the page for real.
-    "site/react/**/*.tsx",
-    // The site's theme module. Both pages import it, so it has to be plain JavaScript (the
-    // home page has no build step) — and it is here because the React page's types depend on
-    // it. See `allowJs` above.
-    "site/theme.js",
     "playwright.config.ts",
     "vitest.config.ts"
   ]

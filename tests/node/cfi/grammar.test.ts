@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { CfiParseError, parseCfi, serializeCfi } from "../../../packages/frond/src/epub/index.ts";
+import { CfiParseError, parseCfi, serializeCfi } from "../../../src/epub/index.ts";
 
 /**
  * The CFI grammar: the round trip between string and structure.

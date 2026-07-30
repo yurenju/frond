@@ -4,7 +4,7 @@ import {
   buildFixture,
   syntheticFixtures,
   type AilmentName,
-} from "../../../packages/frond/src/test-fixtures/index.ts";
+} from "../../../src/test-fixtures/index.ts";
 
 /**
  * The generator's acceptance criterion: the output has to be a real EPUB, not "the

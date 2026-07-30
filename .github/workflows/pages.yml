@@ -36,10 +36,10 @@ jobs:
           node-version: 24
           cache: npm
 
-      # `--ignore-scripts` blocks the root package.json's `prepare`. That script runs
-      # `npm run build`, and the `npm run site` below builds frond again — doing it twice does
-      # no harm, but blocking it here means that when the site fails to build, what turns red
-      # is the `npm run site` step, and the message points precisely.
+      # `--ignore-scripts` blocks package.json's `prepare`. That script runs `npm run build`,
+      # and the `npm run site` below builds frond again — doing it twice does no harm, but
+      # blocking it here means that when the site fails to build, what turns red is the
+      # `npm run site` step, and the message points precisely.
       - run: npm ci --ignore-scripts
 
       # It is only worth deploying if the types pass. The example code on the site
@@ -47,11 +47,10 @@ jobs:
       # are red.
       - run: npm run typecheck
 
-      # Builds both packages and assembles the site. The site has two pages, and **the two are
-      # built deliberately differently**: the home page is a single cp (proving frond's build
-      # output is importable directly by a browser), and the React page goes through esbuild
-      # (proving the package frond-react ships is digestible by an ordinary bundler). The full
-      # reasoning is in `scripts/build-site.sh`'s file header.
+      # Builds the package and assembles the site. The site is a single cp of `dist/`, with no
+      # bundling step — which is what makes the deploy proof that frond's build output is
+      # importable directly by a browser. The full reasoning is in `scripts/build-site.sh`'s
+      # file header.
       - run: npm run site
 
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0

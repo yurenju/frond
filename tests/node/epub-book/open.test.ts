@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { describe, expect, test } from "vitest";
-import { EpubBook } from "../../../packages/frond/src/epub/index.ts";
+import { EpubBook } from "../../../src/epub/index.ts";
 import { readFixture } from "../support/fixtures.ts";
 
 /**
@@ -96,7 +96,7 @@ describe("the published entry point", () => {
     // message that points at the `exports` configuration when the real cause is "not
     // built yet". Say so first.
     expect(
-      existsSync(new URL("../../../packages/frond/dist/epub/index.js", import.meta.url)),
+      existsSync(new URL("../../../dist/epub/index.js", import.meta.url)),
       "dist/ does not exist. This test goes through the shipped artifact; run `npm run build` first",
     ).toBe(true);
 

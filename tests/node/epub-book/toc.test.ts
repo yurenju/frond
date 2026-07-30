@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { EpubBook, type TocItem } from "../../../packages/frond/src/epub/index.ts";
+import { EpubBook, type TocItem } from "../../../src/epub/index.ts";
 import { readFixture } from "../support/fixtures.ts";
 import {
   handmadeBook,

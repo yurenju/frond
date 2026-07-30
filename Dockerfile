@@ -89,37 +89,25 @@ RUN chmod +x /usr/local/bin/frond-verify-fonts && frond-verify-fonts
 # ---------------------------------------------------------------------------
 WORKDIR /work
 
-# Copy only the manifests first, so the dependency layer still hits the build cache when the
+# Copy only the manifest first, so the dependency layer still hits the build cache when the
 # source changes.
-#
-# Every package in the workspace has to have its own manifest present, or `npm ci` will not
-# recognise the directories `workspaces` points at and fails as if packages were missing.
-# They are listed one by one rather than `COPY packages/*/package.json` — under Docker's COPY
-# semantics the latter flattens each of them onto `packages/package.json`, with the last
-# overwriting the previous, and the symptom is npm complaining about a package whose name
-# does not match.
 COPY package.json package-lock.json ./
-COPY packages/frond/package.json packages/frond/
-COPY packages/frond-react/package.json packages/frond-react/
 # The browsers are already in the base image and need not be downloaded again.
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 #
-# `--ignore-scripts` is for the root package.json's `prepare`. That script runs
-# `npm run build`, and the build needs `packages/*/src/` and `scripts/` — while this layer has
-# only copied a few manifests (which is precisely why it can hit the cache). Without blocking
-# it, this step fails outright.
+# `--ignore-scripts` is for package.json's `prepare`. That script runs `npm run build`, and
+# the build needs `src/` and `scripts/` — while this layer has only copied the manifest
+# (which is precisely why it can hit the cache). Without blocking it, this step fails
+# outright.
 RUN npm ci --ignore-scripts
 
 COPY . .
 
-# The build only works once the source is all here. Three things need it:
+# The build only works once the source is all here. Two things need it:
 # `tests/node/epub-book/open.test.ts` goes through package.json's `exports` entry point (which
-# points at `packages/frond/dist/`), frond-react's browser tests need its own `dist/`, and the
-# demo page's screenshots need build output under `site/frond/`.
+# points at `dist/`), and the demo page's screenshots need build output under `site/frond/`.
 #
-# Two steps rather than one: `npm run site` only builds `@yurenju/frond` (for the reason see
-# `scripts/build-site.sh`), so frond-react relies on the full build in the line before.
-RUN npm run build
+# One step is enough — `npm run site` runs `npm run build` itself.
 RUN npm run site
 
 CMD ["npx", "playwright", "test"]

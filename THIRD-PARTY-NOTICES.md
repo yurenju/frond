@@ -1,22 +1,20 @@
 # Third-party notices
 
-This file covers material incorporated into the repository itself, across every
-package in the workspace. It is deliberately **not** shipped inside any tarball:
-`npm` cannot reach outside a package directory, and a per-package copy would be
-a second document to keep in sync with this one.
+This file covers material incorporated into the repository itself. It is
+deliberately **not** shipped inside the tarball — `package.json`'s `files`
+brings in `dist` and `src` and nothing else — because everything it describes is
+test material that never reaches a consumer.
 
-`@yurenju/frond` ships no runtime dependencies at all. `@yurenju/frond-react`
-declares `react` and `@yurenju/frond` as peer dependencies and bundles neither —
-so neither tarball carries third-party code, and the notices below are about the
-repository, not about anything a consumer installs.
+`@yurenju/frond` ships no runtime dependencies at all, so the tarball carries no
+third-party code, and the notices below are about the repository rather than
+about anything a consumer installs.
 
 ## foliate-js
 
 <https://github.com/johnfactotum/foliate-js>
 
-frond is a reimplementation, not a port: no foliate-js code is used in
-`packages/frond/src/`, and foliate-js is not a dependency of any published
-package (ADR-0001).
+frond is a reimplementation, not a port: no foliate-js code is used in `src/`,
+and foliate-js is not a dependency of the published package (ADR-0001).
 
 What *is* incorporated is upstream's `tests/epubcfi-tests.js` — the CFI strings
 and comparison cases from it are used verbatim as an acceptance table in

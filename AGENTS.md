@@ -1,23 +1,27 @@
 # frond
 
-## 這是一個 workspace，兩個套件（**正在塌回一個**）
+## 一個 repo，一個套件
 
 ```
-packages/frond/         @yurenju/frond         核心，零相依（ADR-0005）
-packages/frond-react/   @yurenju/frond-react   unstyled React 元件（即將收掉，見下）
+src/       @yurenju/frond 的原始碼，核心，零相依（ADR-0005）
+tests/     兩個 test runner（ADR-0009 切的是 Node 與瀏覽器）
+scripts/   npm scripts 的實作
+site/      展示站
+docs/      ADR 與量測紀錄
 ```
 
-**`@yurenju/frond-react` 已決定收掉，repo 塌回單一套件**——決定記在 ADR-0008 的修訂，
-ADR-0011 已 superseded。上面的目錄結構是現況（還沒搬），但**不要再往 frond-react 加東西**，
-也不要拿它當「政策可以放這裡」的落點：ADR-0002 的拒收現在是絕對的，frond 裡沒有任何一層
-擺得下預設的 UI 政策。
+repo 根目錄**就是**那個套件——`package.json` 是它的 manifest，`npm publish` 從這裡發。
+曾經有第二個套件 `@yurenju/frond-react`，已經收掉（ADR-0008 的修訂，ADR-0011 已
+superseded）。**不要把它加回來，也不要另外開一層放 UI 政策**：ADR-0002 的拒收現在是
+絕對的，frond 裡沒有任何一層擺得下預設的 UI 政策。
 
-`tests/`、`scripts/`、`site/`、`docs/` 在根目錄，**兩個 test runner 也在根目錄**
-——ADR-0009 那一刀切的是 Node 與瀏覽器，不是套件，所以它沒有變成四個。
+`src/` 的**出貨相依必須是零**，而那不是靠 review 守的，三道機制是
+`tsconfig.build.json` 的 `"types": []` 與 `"paths": {}`，加上 `scripts/finish-build.ts`
+從 `package.json` 的宣告推導放行清單（理由記在 ADR-0011〈兩個套件的邊界，機器守得住〉，
+那一節沒有隨著 ADR 作廢）。在 `src/` 底下加一個 npm 相依，紅的是 `npm run build`。
 
-改動落在哪個套件會決定一件事：`packages/frond` 的**出貨相依必須是零**，而那不是
-靠 review 守的，三道機制寫在 ADR-0011。在那底下加一個 npm 相依，紅的是
-`npm run build`。
+實際擋下東西的是第一道與第三道；`"paths": {}` 目前是 no-op（根 `tsconfig.json` 沒有
+`paths`），它留著是為了擋將來被加進去的對應。別因為「反正它沒作用」就把它拿掉。
 
 ## 程式碼一律用英文，文件用中文
 
@@ -61,13 +65,11 @@ frond 排的是直排中日文，所以有些地方的 CJK **不是可以翻譯�
 
 ## 跑東西一律走 `npm run`
 
-根 `package.json` 的 `scripts` 是這個 repo 唯一的指令入口。**不要直接叫 `npx`、
+`package.json` 的 `scripts` 是這個 repo 唯一的指令入口。**不要直接叫 `npx`、
 `node_modules/.bin/` 或工具的裸執行檔**——版本、flag 與路徑都釘在 script 裡，繞過
 去就等於在本機跑一套與 CI 不同的設定，而差異只會在 CI 紅燈時才被發現。
 
-**一律從根目錄跑。** 套件底下那幾支 `build` 是給根目錄的 script 叫的，不是入口
-——單獨跑 `npm run build -w @yurenju/frond-react` 而沒先建 frond，會紅在一個看起來
-像型別錯誤的地方（它解析的是 frond 出貨的 `.d.ts`）。
+**一律從根目錄跑。** `scripts/` 底下那幾支不是入口，路徑都是相對於 repo 根寫的。
 
 需要縮小範圍時用 npm 的 `--` 傳參，而不是換一支指令：
 

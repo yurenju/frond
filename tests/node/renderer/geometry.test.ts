@@ -10,7 +10,7 @@ import {
   pageOffsetFor,
   resolveColumns,
   type PageMetrics,
-} from "../../../packages/frond/src/renderer/geometry.ts";
+} from "../../../src/renderer/geometry.ts";
 
 /**
  * Unit tests for the pagination arithmetic. This layer is pure functions, so it sits at

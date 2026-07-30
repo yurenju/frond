@@ -2,15 +2,10 @@
 node_modules
 test-results
 playwright-report
-# The `**/` is necessary: .dockerignore uses Go's filepath.Match, so a bare `dist` only
-# excludes the one at the root, while there is now one under each package
-# (packages/frond/dist, …). Missed, locally built artifacts join the build context and are
-# then overwritten by the build inside the image — harmless, but transferred for nothing
-# every time.
-**/dist
+# The build output. Missed, a locally built artifact joins the build context and is then
+# overwritten by the build inside the image — harmless, but transferred for nothing every
+# time.
+dist
 # The demo site's artifacts, same reasoning: `npm run site` inside the image regenerates
 # them.
 site/frond
-site/react/bundle.js
-site/react/bundle.js.map
-site/react/frond-react.css

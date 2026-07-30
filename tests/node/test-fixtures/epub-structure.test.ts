@@ -8,7 +8,7 @@ import {
   buildFixture,
   syntheticFixtures,
   type AilmentName,
-} from "../../../packages/frond/src/test-fixtures/index.ts";
+} from "../../../src/test-fixtures/index.ts";
 
 /**
  * The generator's acceptance criterion cannot just be "the script threw no exception".

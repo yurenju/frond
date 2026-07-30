@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { EpubBook } from "../../packages/frond/src/epub/index.ts";
+import { EpubBook } from "../../src/epub/index.ts";
 
 /**
  * The two public-domain books of ADR-0007's second layer, checked for **being intact** —

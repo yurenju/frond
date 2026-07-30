@@ -7,7 +7,7 @@ import {
   buildFixture,
   syntheticFixtures,
   writeFixtures,
-} from "../../../packages/frond/src/test-fixtures/index.ts";
+} from "../../../src/test-fixtures/index.ts";
 
 /**
  * Determinism is a hard requirement, not reproducibility hygiene.
