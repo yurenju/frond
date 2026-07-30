@@ -514,6 +514,31 @@ export class Renderer {
     return range === undefined ? [] : view.rectsFor(range);
   }
 
+  /**
+   * Drops whatever is selected in the section on screen. A no-op when nothing is selected.
+   *
+   * ## Why a renderer needs this at all
+   *
+   * The selection lives in the iframe's document, which is frond's alone — a consumer holds
+   * the container, and `container.ownerDocument.getSelection()` answers about the outer page,
+   * not about the book. So without this the consumer has no way to undo a selection it did
+   * not want, short of reaching into the iframe behind frond's back.
+   *
+   * And it does have selections it does not want: **phone browsers select a word on a plain
+   * tap**, with no long press involved. Chrome for Android's Touch to Search does it, and the
+   * selection it makes is a real one — `selectionchange` fires, and `selection` is emitted
+   * with a CFI and rectangles, indistinguishable from a reader deliberately choosing a word.
+   * Telling the two apart is a policy question (how long the press lasted, where it landed),
+   * so the decision stays with the consumer (ADR-0002); what frond owes it is the ability to
+   * act on that decision.
+   *
+   * Clearing raises `selectionchange`, so a `selection` event with an empty `text` follows —
+   * the same event any other collapse produces.
+   */
+  clearSelection(): void {
+    this.view?.clearSelection();
+  }
+
   destroy(): void {
     this.destroyed = true;
     this.resizeObserver?.disconnect();

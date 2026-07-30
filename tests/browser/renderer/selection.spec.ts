@@ -49,6 +49,35 @@ test.describe("selection events", () => {
       .poll(async () => ((await lastSelection(page))?.cfi ?? null) === null)
       .toBe(true);
   });
+
+  test("clearSelection drops it, and says so with the same empty event", async ({ page }) => {
+    // The consumer's reason for wanting this: phone browsers select a word on a plain tap
+    // (Chrome for Android's Touch to Search), and only the consumer can tell that selection
+    // apart from a deliberate one. Undoing it means reaching into an iframe that belongs to
+    // frond — unless frond offers the operation, which is what this pins.
+    await mountFixture(page, "vertical-japanese");
+    await page.evaluate(() => window.frond.selectText("p"));
+    await waitForSelection(page);
+
+    await page.evaluate(() => window.frond.clearSelection());
+
+    await expect
+      .poll(async () => ((await lastSelection(page))?.cfi ?? null) === null)
+      .toBe(true);
+    expect(await selectedText(page)).toBe("");
+  });
+
+  test("clearSelection with nothing selected leaves the page alone", async ({ page }) => {
+    // A consumer clears on every tap without first asking whether there is anything to clear,
+    // so the empty case has to be as ordinary as the other one.
+    await mountFixture(page, "vertical-japanese");
+    const before = await page.evaluate(() => window.frond.snapshot().cfi);
+
+    await page.evaluate(() => window.frond.clearSelection());
+
+    expect(await selectedText(page)).toBe("");
+    expect(await page.evaluate(() => window.frond.snapshot().cfi)).toBe(before);
+  });
 });
 
 test.describe("the selection event carries its own geometry", () => {
@@ -188,6 +217,14 @@ async function waitForSelection(page: Page): Promise<SelectionPayload> {
   const payload = await lastSelection(page);
   if (payload === undefined) throw new Error("no selection event arrived");
   return payload;
+}
+
+/** What the iframe's own document has selected, read past frond rather than through it. */
+async function selectedText(page: Page): Promise<string> {
+  return await page.evaluate(() => {
+    const frame = document.querySelector("#viewport iframe");
+    return (frame as HTMLIFrameElement).contentDocument?.getSelection()?.toString() ?? "";
+  });
 }
 
 async function lastSelection(page: Page): Promise<SelectionPayload | undefined> {

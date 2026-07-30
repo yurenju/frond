@@ -362,6 +362,11 @@ export class SectionView {
     return range.collapsed ? undefined : range;
   }
 
+  /** Drops the selection in this document. Raises `selectionchange` when there was one. */
+  clearSelection(): void {
+    this.document.getSelection()?.removeAllRanges();
+  }
+
   destroy(): void {
     this.frame.remove();
     this.source.release();
@@ -521,6 +526,7 @@ export class SectionView {
       y: event.clientY + this.insets.top,
       width: this.host.clientWidth,
       height: this.host.clientHeight,
+      pointerType: event.pointerType,
       hasSelection: this.selection() !== undefined,
       isLink: (element?.closest("a[href]") ?? null) !== null,
     };
@@ -607,6 +613,7 @@ function sizeFrame(frame: HTMLIFrameElement, host: HTMLElement, insets: Insets):
 interface PointerFacts {
   readonly clientX: number;
   readonly clientY: number;
+  readonly pointerType: string;
   readonly target: EventTarget | null;
 }
 

@@ -184,6 +184,17 @@ export interface RendererPointerEvent {
   /** The container's current visible size. Tap zones need it to work out proportions. */
   readonly width: number;
   readonly height: number;
+  /**
+   * `PointerEvent.pointerType` — `"mouse"`, `"touch"`, `"pen"`, or whatever else the engine
+   * calls the device. Passed through rather than narrowed to a union: the spec lets a device
+   * report a name frond has never heard of, and a union would have to throw that away.
+   *
+   * A consumer needs it because the same press means different things from a finger and from
+   * a mouse. Tapping the edge of a phone screen is the only way to turn the page there; the
+   * identical click on a desktop competes with placing the caret and with double-click to
+   * select a word — where a keyboard and on-screen buttons are available anyway.
+   */
+  readonly pointerType: string;
   /** There is an uncollapsed selection inside the iframe at this instant. Not turning the page mid-selection needs this. */
   readonly hasSelection: boolean;
   /** The event landed inside an `a[href]`. */
