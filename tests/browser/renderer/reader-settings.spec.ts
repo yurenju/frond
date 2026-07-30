@@ -447,3 +447,65 @@ async function computed(
     [selector, property] as const,
   );
 }
+
+/**
+ * Every rewrite is applied to a book's stylesheet **once**.
+ *
+ * This is not a style preference. `inlineStylesheets` turns a `<link rel="stylesheet">` into a
+ * `<style>`, and `rewriteInlineStyles` walks every `<style>` — so in the wrong order a linked
+ * stylesheet goes through the whole pipeline twice.
+ *
+ * Twice was survivable while every rewrite was idempotent, and it still duplicated the
+ * `writing-mode` declaration that the prefix rule adds. It stopped being survivable with
+ * `resolveGenericFamilies`: that one deliberately leaves the generic keyword in place as the last
+ * resort, so a second pass substitutes the whole stack again in front of it — and the reader's
+ * faces end up listed twice with `serif` stranded in the middle, where nothing after it is
+ * reachable. Measured on a real book, the result was vertical text drawn with collapsed metrics.
+ */
+test.describe("a linked stylesheet is transformed exactly once", () => {
+  const LINKED_SECTION = `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="ja">
+  <head><title>t</title><link rel="stylesheet" href="book.css"/></head>
+  <body><p>朝の光が差す。</p></body>
+</html>`;
+
+  const BOOK_CSS = `html { -epub-writing-mode: vertical-rl }
+p { font-family: "Yu Mincho", serif }`;
+
+  test("the reader's stack is substituted once, and the keyword stays last", async ({ page }) => {
+    await page.evaluate(
+      ([section, css]) =>
+        window.frond.mountInline([section as string], {
+          settings: { genericFamilies: { serif: '"Noto Serif CJK JP"' } },
+          resources: { "book.css": css as string },
+        }),
+      [LINKED_SECTION, BOOK_CSS] as const,
+    );
+
+    const html = await page.evaluate(() => window.frond.html());
+    const substitutions = html.split("Noto Serif CJK JP").length - 1;
+    expect(substitutions, "the stack appears once per declaration").toBe(1);
+    // And the keyword is where it belongs: at the end of the list, not stranded mid-way.
+    expect(html).toContain('"Noto Serif CJK JP", serif');
+  });
+
+  test("the prefix rule adds the unprefixed writing-mode once", async ({ page }) => {
+    // The same double pass, in the form it took before anything depended on it.
+    await page.evaluate(
+      ([section, css]) =>
+        window.frond.mountInline([section as string], {
+          resources: { "book.css": css as string },
+        }),
+      [LINKED_SECTION, BOOK_CSS] as const,
+    );
+
+    // Counted **inside the book's own style block**, not over the whole document: frond appends
+    // its layout stylesheet to the same `<head>`, and that one legitimately declares
+    // `writing-mode` too.
+    const bookCss = await page.evaluate(() => window.frond.bookStylesheets().join("\n"));
+    const added = bookCss.split("writing-mode: vertical-rl").length - 1;
+    // One inside the prefixed declaration the book wrote (it contains the unprefixed spelling as
+    // a substring), one for the declaration frond adds beside it.
+    expect(added).toBe(2);
+  });
+})

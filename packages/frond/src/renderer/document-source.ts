@@ -190,8 +190,23 @@ export function buildSectionDocument(
   };
 
   stripScriptedContent(build.document);
-  inlineStylesheets(build);
+  // **`rewriteInlineStyles` goes first, and the order is load-bearing.** It walks every
+  // `<style>` in the document, and `inlineStylesheets` *creates* `<style>` elements out of
+  // `<link rel="stylesheet">` — already transformed. Run the other way round, every linked
+  // stylesheet in the book is transformed **twice**.
+  //
+  // Twice was survivable for as long as every rewrite happened to be idempotent, and it was
+  // never free: a book declaring `-epub-writing-mode: vertical-rl` came out carrying
+  // `writing-mode: vertical-rl` twice over, because the prefix rule matched again on the second
+  // pass and appended a second copy.
+  //
+  // `resolveGenericFamilies` is where it stopped being survivable. That rewrite keeps the
+  // generic keyword as the last resort, so after one pass the value **still contains the
+  // keyword** — and a second pass substitutes the whole stack again, in front of it. What the
+  // book gets is the reader's stack twice, with `serif` sitting in the middle of the list where
+  // nothing after it can ever be reached.
   rewriteInlineStyles(build);
+  inlineStylesheets(build);
   rewriteResourceReferences(build);
   appendFrondStyles(build);
 
