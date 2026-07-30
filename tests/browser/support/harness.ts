@@ -261,6 +261,8 @@ export interface FrondHarness {
   events(): readonly EventRecord[];
   /** Selects a run of text inside the iframe, for the selection event tests. */
   selectText(selector: string): void;
+  /** Drops the selection through the renderer's own API, rather than by reaching into the iframe. */
+  clearSelection(): void;
   /** Clicks a link, for the linkactivate tests. */
   clickLink(selector: string): void;
   destroy(): void;

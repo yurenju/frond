@@ -235,6 +235,10 @@ const harness: FrondHarness = {
     selection?.addRange(range);
   },
 
+  clearSelection(): void {
+    renderer?.clearSelection();
+  },
+
   clickLink(selector): void {
     const document = contentDocument();
     if (document === undefined) return;

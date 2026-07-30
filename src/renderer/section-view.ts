@@ -362,6 +362,11 @@ export class SectionView {
     return range.collapsed ? undefined : range;
   }
 
+  /** Drops the selection in this document. Raises `selectionchange` when there was one. */
+  clearSelection(): void {
+    this.document.getSelection()?.removeAllRanges();
+  }
+
   destroy(): void {
     this.frame.remove();
     this.source.release();
