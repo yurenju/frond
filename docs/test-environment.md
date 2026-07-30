@@ -48,13 +48,21 @@ browserType.launch: Executable doesn't exist at ~/.cache/ms-playwright/chromium_
 
 ## 需要先裝什麼
 
-容器引擎擇一，**建議 rootless podman**：
+要求是**跑測試不需要 root 等價的權限**，而這個專案採用的答案是 **rootless docker**：dockerd 跑在一般 uid 底下，socket 開在 `$XDG_RUNTIME_DIR`，沒有 `docker` 群組可加。開發用的機器都這樣設，`scripts/container.sh` 因此也以 docker 為第一順位。
+
+```bash
+dockerd-rootless-setuptool.sh install
+```
+
+被排除的是 **rootful** docker，不是 docker。rootful 那種的代價有兩層：socket 等同 host root，要用它就得把使用者加進 `docker` 群組，那等於給出對整台機器的讀寫權；而且 dockerd 會自行往 netfilter 插 NAT 與 `DOCKER-USER` 鏈，順序在既有的過濾規則之前，出口管制若有設定就需要重做——做錯的失敗模式是靜默放行。這兩層在 rootless 底下都不存在。
+
+`container.sh` 不靠引擎的名字去猜這件事，它問 daemon（`docker info` 的 `SecurityOptions` 會列出 `name=rootless`），rootful 就印警告。警告而不中斷：rootful docker 上測試照樣跑得完，跑到一半去重設一台機器的引擎不是測試腳本的事——但也不該悶著不說。CI 裡不印，那裡的 runner 跑完一份工作就丟掉，這個問題買不到東西。
+
+**rootless podman 一樣滿足這個要求**，是可以用的替代選項——非 root 使用者跑它本來就是 rootless，不需要任何收尾設定，而且吃同一份 Dockerfile、產出 OCI 映像。它只是不再是第一順位：以前給它優先是因為當時假設「docker」就是 rootful docker，而這個假設現在由上面那個檢查取代掉了。
 
 ```bash
 apt-get install -y podman uidmap fuse-overlayfs passt slirp4netns
 ```
-
-為什麼不是 docker：docker 的 socket 等同 host root，要用它就得把使用者加進 `docker` 群組，那等於給出對整台機器的讀寫權。dockerd 另外會自行往 netfilter 插 NAT 與 `DOCKER-USER` 鏈，順序在既有的過濾規則之前，出口管制若有設定就需要重做——而做錯的失敗模式是靜默放行。rootless podman 跑在一般 uid 底下，沒有 daemon 也沒有等同 root 的 socket，且吃同一份 Dockerfile、產出 OCI 映像。
 
 rootless podman 需要 `/etc/subuid` 與 `/etc/subgid` 內有該使用者的從屬 UID 範圍，例如：
 
@@ -62,9 +70,11 @@ rootless podman 需要 `/etc/subuid` 與 `/etc/subgid` 內有該使用者的從�
 dev:100000:65536
 ```
 
-### 用 rootless docker 的話，記得接上 client
+兩個引擎都在時要指定哪一個，用 `FROND_CONTAINER_ENGINE=podman`（或 `=docker`）。CI 就是這樣釘的。
 
-上面反對的是 **rootful** docker——rootless docker 沒有那條升權路徑，是可以用的。但它有一個裝完不會有人提醒的收尾步驟。
+### rootless docker 裝完記得接上 client
+
+這是 rootless docker 唯一的坑，而且裝完不會有人提醒。
 
 `dockerd-rootless-setuptool.sh install` 只把 daemon 跑起來，socket 開在 `$XDG_RUNTIME_DIR/docker.sock`。**client 端預設仍然指著 rootful 的 `/var/run/docker.sock`**，而那個檔案在只有 rootless 的機器上根本不存在。於是 daemon 明明跑得好好的，任何 docker 指令都回：
 

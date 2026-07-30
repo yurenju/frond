@@ -12,7 +12,7 @@
 # configurations") is very hard to trace.
 #
 # After sourcing, available are:
-#   ENGINE           podman or docker
+#   ENGINE           docker or podman
 #   REPO_ROOT        the absolute path of the repo root
 #   IMAGE_NAME       the image name
 #   container_build  builds the image
@@ -23,16 +23,33 @@
 IMAGE_NAME="${FROND_TEST_IMAGE:-frond-test}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# podman first. The reason is not preference but the permission model: docker's socket is
-# equivalent to host root, and adding a developer or an agent to the docker group opens a
-# privilege escalation path. Rootless podman runs under an ordinary uid, with no daemon and
-# no root-equivalent socket.
-if command -v podman >/dev/null 2>&1; then
-    ENGINE=podman
+# The requirement is that running the tests needs no root-equivalent access. **The answer this
+# project adopts is rootless docker**: a dockerd under an ordinary uid, its socket in
+# $XDG_RUNTIME_DIR rather than /var/run/docker.sock, and no `docker` group for anyone to join.
+# That is how the machines this is developed on are set up, so docker comes first.
+#
+# podman meets the same requirement and stays as the fallback — run by a non-root user it is
+# rootless with no setup at all. What it no longer gets is preference. It had that back when
+# "docker" could be taken to mean *rootful* docker; the order below stops taking that for
+# granted, and the check after the reachability probe replaces the assumption with a measurement.
+# The reasoning in full, including what a rootful dockerd costs, is in docs/test-environment.md.
+#
+# An explicit choice wins over both. CI needs one: the runner ships both engines, so which one
+# builds the image should not depend on what that image happens to include. Its podman writes an
+# OCI spec the crun beside it rejects, which kills every `RUN` in the build with "unknown version
+# specified" before the command inside it starts.
+if [[ -n "${FROND_CONTAINER_ENGINE:-}" ]]; then
+    ENGINE="$FROND_CONTAINER_ENGINE"
+    if ! command -v "$ENGINE" >/dev/null 2>&1; then
+        echo "FROND_CONTAINER_ENGINE is set to ${ENGINE}, which is not on PATH." >&2
+        exit 1
+    fi
 elif command -v docker >/dev/null 2>&1; then
     ENGINE=docker
+elif command -v podman >/dev/null 2>&1; then
+    ENGINE=podman
 else
-    echo "Neither podman nor docker found. For installation see docs/test-environment.md." >&2
+    echo "Neither docker nor podman found. For installation see docs/test-environment.md." >&2
     exit 1
 fi
 
@@ -61,6 +78,22 @@ if ! "$ENGINE" info >/dev/null 2>&1; then
     fi
     echo "See docs/test-environment.md." >&2
     exit 1
+fi
+
+# Rootless is the requirement, so measure it instead of reading it off the engine's name. The
+# daemon reports it, and by this point the daemon is known to be reachable.
+#
+# What a rootful dockerd costs is spelled out in docs/test-environment.md: a socket equivalent to
+# host root, and NAT plus DOCKER-USER chains written into netfilter ahead of the rules already
+# there, which quietly reopens an egress whitelist if one is set up.
+#
+# A warning, not an exit: the tests do run on a rootful docker, and rebuilding a machine's engine
+# setup mid-run is not this script's business. Staying quiet about it is not either. Silent under
+# CI, where the runner is discarded after one job and the question buys nothing.
+if [[ -z "${CI:-}" && "$ENGINE" == docker ]] &&
+    ! docker info --format '{{.SecurityOptions}}' 2>/dev/null | grep -q 'name=rootless'; then
+    echo "Warning: this dockerd is rootful. Its socket is equivalent to host root, and it puts" >&2
+    echo "  its own rules into netfilter. See docs/test-environment.md for the rootless setup." >&2
 fi
 
 # Proxies are deliberately not handled here.

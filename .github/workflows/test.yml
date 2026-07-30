@@ -28,11 +28,16 @@ jobs:
     #     unknown version specified
     #
     # That reads as "installing the fonts failed", and the `RUN` it names never executed.
-    # crun is the low-level OCI runtime podman hands off to (`scripts/container.sh` picks
-    # podman first, deliberately); `unknown version specified` is crun rejecting the
-    # `ociVersion` in the spec podman wrote for it. Two halves of the runner's own container
-    # toolchain disagreeing — nothing to do with this repo's code or its Dockerfile. Runs on
-    # image 20260720.247.2 were green and 20260726.254.1 red, with the same commit shape.
+    # crun is the low-level OCI runtime podman hands off to (back then `scripts/container.sh`
+    # picked podman first); `unknown version specified` is crun rejecting the `ociVersion` in
+    # the spec podman wrote for it. Two halves of the runner's own container toolchain
+    # disagreeing — nothing to do with this repo's code or its Dockerfile. Runs on image
+    # 20260720.247.2 were green and 20260726.254.1 red, with the same commit shape.
+    #
+    # **That particular failure mode is gone**, because this job now names its engine
+    # (`FROND_CONTAINER_ENGINE` below) and never reaches podman or crun. The image pin stays
+    # for the reason it was written: the runner is the one dependency that can move under a
+    # commit that did not, and font rendering is where that hurts most.
     #
     # **This narrows the drift, it does not end it.** `ubuntu-24.04` is itself rolling — the
     # two build numbers above are both that label — and GitHub offers no way to pin further.
@@ -56,7 +61,14 @@ jobs:
       # CI and local machines share one image, and one script. Any step that only takes
       # effect in CI creates a "green locally, red in CI" gap, and a gap at the font layer is
       # extremely hard to trace (ADR-0004).
+      #
+      # The engine is named rather than left to `scripts/container.sh` to work out. The runner
+      # ships both, so leaving it implicit means the image decides — and this is the job that
+      # already lost three runs to the runner's podman. Locally the same script picks docker on
+      # its own; the reasoning for that order is in docs/test-environment.md.
       - name: Run the test suite in the container
+        env:
+          FROND_CONTAINER_ENGINE: docker
         run: ./scripts/test-in-container.sh
 
       - name: Upload the Playwright report
