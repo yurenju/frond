@@ -48,9 +48,9 @@ frond 介入的每一項都登記成封閉清單並寫在文件裡，加一項�
 
 ## 那份封閉清單在程式碼裡（#32）
 
-清單本體是 `packages/frond/src/renderer/interventions.ts` 的 `INTERVENTIONS`，而不是這份文件裡的一段散文。理由是**文件會漂，測試不會**：`tests/node/renderer/interventions.test.ts` 拿它與一份寫死的期望集合比**集合相等**，任一側多一項或少一項都會紅。加一項介入因此一定會經過改那支測試那一步，而改它的人會讀到這裡的那段警告。這與 `single-ailment.test.ts` 守 ADR-0007 那張病症表是同一個形狀。
+清單本體是 `src/renderer/interventions.ts` 的 `INTERVENTIONS`，而不是這份文件裡的一段散文。理由是**文件會漂，測試不會**：`tests/node/renderer/interventions.test.ts` 拿它與一份寫死的期望集合比**集合相等**，任一側多一項或少一項都會紅。加一項介入因此一定會經過改那支測試那一步，而改它的人會讀到這裡的那段警告。這與 `single-ailment.test.ts` 守 ADR-0007 那張病症表是同一個形狀。
 
-清單也在公開面上（`packages/frond/src/renderer/index.ts`）：frond 動了書的哪幾處是消費端有權知道的事實，不是實作細節。
+清單也在公開面上（`src/renderer/index.ts`）：frond 動了書的哪幾處是消費端有權知道的事實，不是實作細節。
 
 ### 四種理由，不是兩種
 

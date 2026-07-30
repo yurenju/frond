@@ -4,7 +4,7 @@ import {
   parseCfi,
   serializeCfi,
   type CfiComparison,
-} from "../../../packages/frond/src/epub/index.ts";
+} from "../../../src/epub/index.ts";
 
 /**
  * foliate-js's `tests/epubcfi-tests.js` (280 lines, upstream's only test) run through

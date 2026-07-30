@@ -95,7 +95,7 @@ release note 最上面那一行、寫明「舊的重點可能對不上」的那�
 - **既有的那一格不重新宣告。** `stripScriptedContent` 從第一版就在，這條規則管的是
   **下一個**移除型介入。現況由 `scripted-content-in-body` fixture 與
   `isolation.spec.ts` 的測試釘住（量測與題材偏差記在
-  `packages/frond/src/renderer/interventions.ts` 的 Known gaps 第 4 條）。
+  `src/renderer/interventions.ts` 的 Known gaps 第 4 條）。
 
 **這裡刻意沒有規定要怎麼修。** 換成 `<template>` 一類保數的佔位元素是一個可行的做法，
 但那只讓這一格安全，不讓下一個移除型介入自動安全；真正買得到保險的是「這件事有一支
@@ -172,6 +172,14 @@ npm 上已經發出去的 `@yurenju/frond-react` 版本**用 `npm deprecate` 標
 ——理由就是上面〈從 git dependency 改成發 npm〉那段記的那項代價：撤掉會弄壞已經裝了的人
 的 lockfile，而 deprecate 只是在安裝時印一行警告。
 
+> **待辦（registry 側，不在任何 commit 裡）：** `0.1.0`–`0.4.3` 尚未 deprecate。這是一次
+> 手動動作，要一顆有發佈權的 token，`release.yml` 不碰它——那份 workflow 現在只認得
+> `@yurenju/frond` 一個套件。做完把這段刪掉。
+>
+> ```bash
+> npm deprecate "@yurenju/frond-react@<=0.4.3" "Retired; frond is a single package now. Use @yurenju/frond directly — see https://github.com/yurenju/frond/issues/70"
+> ```
+
 **二、前提從「它不只服務 spine」改成「它就是為 spine 而做」。** 開源、MIT、繼續發 npm，
 別人要用歡迎，但不承諾相容性；`0.x` 這個主版號說的就是這句話。
 
@@ -185,6 +193,35 @@ npm 上已經發出去的 `@yurenju/frond-react` 版本**用 `npm deprecate` 標
 - **界線需要一道物理阻力。** ADR-0002 的界線現在只剩論證在守（前提那根柱子抽掉了），
   而住在兩個 repo 裡意味著「把政策沉進 frond」至少要跨一次 release。抄近路要付的那點
   成本，就是這條線剩下的執行機制。
+
+### 搬完之後，上面〈出貨面〉與〈展示站〉有幾格不再成立
+
+搬遷本身沒有改變任何一項決定，但它動了三個事實，各記一行免得回頭讀原文的人被騙：
+
+**一、repo 根目錄就是套件。** `packages/frond/` 搬回根目錄、npm workspaces 拿掉，
+`package.json` 從 `private: true` 的容器變成 `@yurenju/frond` 的 manifest。連帶：
+
+- `LICENSE` 只剩根目錄一份（原本套件目錄各有一份，是因為 npm 只從套件目錄收它）。
+- 兩份 README 開始進 tarball——`files` 沒列它們，但 npm 一律收套件目錄的 `README*`，
+  而 `packages/frond/` 底下本來就沒有，所以 npm 上那個頁面在此之前是空的。
+- 〈從 git dependency 改成發 npm〉最後那段記的「那條路在 ADR-0011 之後不通了」，**理由
+  消失了**（根目錄不再是裝不出東西來的 workspace 容器）。結論不變：npm 仍然是唯一
+  建議的安裝方式，理由是上面那段講的 registry 不可變性，不是根目錄的形狀。
+
+**一之二、「兩個套件同版號一起發」那一段整段沒有對象了。** 版本號照樣從
+`package.json` 走、照樣打 `vX.Y.Z` 的 tag，但沒有第二個號碼要對齊，也沒有 peer 相依範圍
+要在發版時改寫——`release.yml` 因此少掉那一個 `npm pkg set`。
+
+**二、`THIRD-PARTY-NOTICES.md` 還是不進 tarball，但換了理由。** 原本的理由是「npm 的
+`files` 搆不到套件目錄以外的東西」，而現在它就在套件目錄裡。不收它是因為 `files` 只列
+`dist` 與 `src`，而那份文件描述的東西（foliate 的 CFI 驗收表）本來就是測試材料，不在
+出貨面上——那句話原文自己就寫了。
+
+**三、展示站只剩一頁。** 〈第二頁：frond-react〉整節作廢：那一頁存在的意義是「證明
+frond-react 出貨的那包東西被一個一般的打包器吃下去跑得動」，套件收掉之後那個證明沒有
+對象了，所以 `site/react/`、`scripts/bundle-site-react.ts` 與 esbuild 這個
+devDependency 一起移除。首頁那句「沒有建置步驟，因此每次部署都在驗證零相依」不受影響
+——它從來只屬於 frond。
 
 ## 授權
 

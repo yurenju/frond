@@ -1,8 +1,7 @@
 {
-  "name": "frond-workspace",
+  "name": "@yurenju/frond",
   "version": "0.4.3",
-  "private": true,
-  "description": "The frond workspace — @yurenju/frond and @yurenju/frond-react",
+  "description": "A TypeScript EPUB rendering library — vertical and horizontal writing, verified across Chromium, Firefox and WebKit",
   "license": "MIT",
   "author": "Yuren Ju <yurenju@gmail.com>",
   "type": "module",
@@ -14,14 +13,38 @@
   "bugs": {
     "url": "https://github.com/yurenju/frond/issues"
   },
-  "workspaces": [
-    "packages/*"
+  "keywords": [
+    "epub",
+    "epub3",
+    "reader",
+    "vertical-writing",
+    "cjk",
+    "typescript"
   ],
+  "sideEffects": false,
+  "exports": {
+    "./epub": {
+      "types": "./dist/epub/index.d.ts",
+      "default": "./dist/epub/index.js"
+    },
+    "./renderer": {
+      "types": "./dist/renderer/index.d.ts",
+      "default": "./dist/renderer/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/test-fixtures"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "build": "npm run build -w @yurenju/frond && npm run build -w @yurenju/frond-react",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && node scripts/finish-build.ts",
     "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
     "fixtures": "node scripts/generate-fixtures.ts",
@@ -38,7 +61,6 @@
     "@playwright/test": "1.61.1",
     "@types/node": "26.1.1",
     "@types/pngjs": "6.0.5",
-    "esbuild": "0.28.1",
     "fast-xml-parser": "5.10.1",
     "fflate": "0.8.3",
     "pngjs": "7.0.0",

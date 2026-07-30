@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 // input**, and that is where an independent oracle comes from. The public surface gives
 // the output bytes, and deriving a character count back from those amounts to
 // reimplementing the renderer's traversal.
-import { PROSE } from "../../../packages/frond/src/test-fixtures/prose.ts";
+import { PROSE } from "../../../src/test-fixtures/prose.ts";
 import { mountFixture, openHarness } from "../support/harness.js";
 
 /**

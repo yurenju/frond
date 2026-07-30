@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
-import { EpubBook } from "../../../packages/frond/src/epub/index.ts";
-import { MemoryBook, type RenderableBook } from "../../../packages/frond/src/renderer/book.ts";
+import { EpubBook } from "../../../src/epub/index.ts";
+import { MemoryBook, type RenderableBook } from "../../../src/renderer/book.ts";
 
 const FIXTURE_DIRECTORY = join(
   dirname(fileURLToPath(import.meta.url)),

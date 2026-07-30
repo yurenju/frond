@@ -96,7 +96,7 @@ nav-inside-section.epub             toc <nav> 包在 <section> 裡而不是直�
 
 `草枕` 進 repo 的第一次 `EpubBook.open()`，TOC 讀回來是**空的**。
 
-根因在 `packages/frond/src/epub/toc.ts` 的 `pickTocNav`：它只看 `<body>` 的直接子元素，而那份註解寫著「量測：31/31 都是」。`草枕` 把 `<nav epub:type="toc">` 包在一層 `<section epub:type="frontmatter">` 裡面。EPUB 3.3 對這件事講得很明確——「there are no restrictions on the structure or content of the EPUB navigation document outside of the specialized navigation elements」，而導覽文件的要求是**包含**（include）恰好一個 `toc` nav，接著限制的是該元素**自身與其後代**的 content model，對它的**祖先**一個字都沒說。那本書完全合規，是 frond 讀錯。
+根因在 `src/epub/toc.ts` 的 `pickTocNav`：它只看 `<body>` 的直接子元素，而那份註解寫著「量測：31/31 都是」。`草枕` 把 `<nav epub:type="toc">` 包在一層 `<section epub:type="frontmatter">` 裡面。EPUB 3.3 對這件事講得很明確——「there are no restrictions on the structure or content of the EPUB navigation document outside of the specialized navigation elements」，而導覽文件的要求是**包含**（include）恰好一個 `toc` nav，接著限制的是該元素**自身與其後代**的 content model，對它的**祖先**一個字都沒說。那本書完全合規，是 frond 讀錯。
 
 那個 31/31 沒有錯，它是 31 本書的量測；**錯的是把「量到的形狀」當成「合法的形狀」**——而且反例就在 EPUB 3 的官方樣本裡。修法是把兩個步驟分開問不同的問題：帶 `epub:type` 宣告的那個 nav 往下找到**任何深度**（規格的限制條款正好掛在這個條件上），沒有任何宣告時的 fallback 則**維持 `<body>` 的直接子元素**——沒有宣告就沒有東西能把目次和正文裡任何一份清單區分開，而導覽文件可以進 spine 當正文讀，那一步遞迴會讓正文裡的 `<nav>` 變成 TOC。
 
@@ -117,7 +117,7 @@ nav-inside-section.epub             toc <nav> 包在 <section> 裡而不是直�
 
 四者的共同形狀值得記下來：**沒有任何一個會報錯。** 頁數是一個看起來正常的數字、方向是一個看起來正常的方向、圖是一張看起來正常的圖。這正是 ADR 說「實際的書價值在發現而非回歸」時指的東西——而發現之後，每一個都各自變成一份合成 fixture（表上最後四項）與一組測試，回歸就交回第一層。
 
-**最後一格與前三格不同：它沒有被修掉。** 表格比一欄還高時，`max-block-size` 幫不上忙（`max-height` 對表格是**下限**而不是上限），而 Firefox 不把表格切到相鄰的欄（Chromium 與 WebKit 都切）。要讓那些內容讀得到，只剩「把 `display: table` 換掉」這一類會**犧牲表格對齊**的做法——那是一個權衡決定而不是一個 bug 修正，所以它登記成缺口（`packages/frond/src/renderer/interventions.ts`）並由 fixture 加測試**釘住現況**，寫法照 `regional-faces.spec.ts` 對 #4 的處置。`table-taller-than-page` 因此是表上第二份「不是為了守回歸、而是為了讓分歧變了有人知道」的 fixture。
+**最後一格與前三格不同：它沒有被修掉。** 表格比一欄還高時，`max-block-size` 幫不上忙（`max-height` 對表格是**下限**而不是上限），而 Firefox 不把表格切到相鄰的欄（Chromium 與 WebKit 都切）。要讓那些內容讀得到，只剩「把 `display: table` 換掉」這一類會**犧牲表格對齊**的做法——那是一個權衡決定而不是一個 bug 修正，所以它登記成缺口（`src/renderer/interventions.ts`）並由 fixture 加測試**釘住現況**，寫法照 `regional-faces.spec.ts` 對 #4 的處置。`table-taller-than-page` 因此是表上第二份「不是為了守回歸、而是為了讓分歧變了有人知道」的 fixture。
 
 **只跑一家會漏掉東西。** 表格那一格**只在 Firefox 上出現**——第一輪掃描只跑 Chromium，於是四個病只抓到三個。掃描要三家都跑，理由與測試要三家都跑是同一個（ADR-0004）。
 

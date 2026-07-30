@@ -6,7 +6,7 @@ import { unzipSync } from "fflate";
 import {
   syntheticFixtures,
   type AilmentName,
-} from "../../../packages/frond/src/test-fixtures/index.ts";
+} from "../../../src/test-fixtures/index.ts";
 
 /**
  * Every XML document in the synthetic fixtures really does parse in all three browsers.

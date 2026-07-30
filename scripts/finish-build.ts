@@ -1,23 +1,22 @@
 #!/usr/bin/env node
 //
 // The tidy-up after `tsc -p tsconfig.build.json`: rewrite the extensions inside `.d.ts`,
-// then check `dist/`'s two invariants. Run after compilation by each package's
-// `npm run build`:
+// then check `dist/`'s two invariants. Run after compilation by `npm run build`:
 //
-//     node ../../scripts/finish-build.ts .
+//     node scripts/finish-build.ts
 //
-// The argument is the **package directory** (relative to cwd or absolute). One script
-// serves every package, because both invariants hold for every shipped package — with a
-// copy per package, the day one of them is strengthened only one copy would be changed, and
-// nothing would turn the missed one red.
+// The package directory is the repository root, derived from this file's own location
+// rather than from cwd — the checks below are about a fixed pair of paths (`package.json`
+// and `dist/`), so where the script was invoked from should not change what it looks at.
 //
 // This script is executed directly by `node` (type stripping), so imports always carry a
 // .ts extension — the stripper does not map ./x.js back to ./x.ts.
 
 import { readdir, readFile, writeFile } from "node:fs/promises";
-import { extname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const packageDirectory = resolve(process.argv[2] ?? ".");
+const packageDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = join(packageDirectory, "dist");
 
 const manifest: {
@@ -40,6 +39,11 @@ const packageName = manifest.name ?? packageDirectory;
  * says it depends on" become the same thing, and the moment the two drift, the build turns
  * red. For `@yurenju/frond` both are empty, so **the zero-dependency invariant maintains
  * itself** — it is no longer a special case hard-coded into this script.
+ *
+ * That shape is kept even though there is only one package left to check (frond-react is
+ * gone; ADR-0008's revision). Hard-coding "no bare specifiers at all" would read the same
+ * today and be wrong the first time a dependency is genuinely declared — the derivation
+ * costs three lines and never needs revisiting.
  *
  * `devDependencies` do not count: those do not ship, and their appearance in `dist/` is a
  * defect.
@@ -91,8 +95,8 @@ const RELATIVE_TS_SPECIFIER = /(\bfrom\s*")(\.[^"]*)\.ts(")/g;
  * The two checks below run regular expressions over text, and tsc's emit **preserves
  * comments** — so a documentation comment like this gets treated as a real import:
  *
- *     /** ```tsx
- *      * import * as Reader from "@yurenju/frond-react";
+ *     /** ```ts
+ *      * import { Renderer } from "@yurenju/frond/renderer";
  *      * ``` *\/
  *
  * The symptom is the build going red on a dependency that does not exist at all, and the fix
@@ -189,17 +193,13 @@ for (const path of files) {
 
   // 2. Not one undeclared bare specifier should appear.
   //
-  //    `@yurenju/frond`'s `dependencies` and `peerDependencies` are both empty, so for it
-  //    this rule reads "not one bare specifier is allowed" — exactly what this check
-  //    originally looked like (commit 6f74fa8). That is not merely a matter of "few
-  //    dependencies": it is the **precondition** for both "consumers need no bundler" and
-  //    "the demo site can use a plain <script type=module>". Adding one npm package into
-  //    src/epub or src/renderer would defeat both at once, and the symptom would only be
-  //    visible when someone else's build failed. It turns red here.
-  //
-  //    `@yurenju/frond-react` is the opposite: it necessarily imports `react`, and that is
-  //    precisely its boundary with frond. For it this rule reads "you may only import what
-  //    you declared" — a quietly grown third dependency turns red here just the same.
+  //    `@yurenju/frond`'s `dependencies` and `peerDependencies` are both empty, so this rule
+  //    reads "not one bare specifier is allowed" — exactly what this check originally looked
+  //    like (commit 6f74fa8). That is not merely a matter of "few dependencies": it is the
+  //    **precondition** for both "consumers need no bundler" and "the demo site can use a
+  //    plain <script type=module>". Adding one npm package into src/epub or src/renderer
+  //    would defeat both at once, and the symptom would only be visible when someone else's
+  //    build failed. It turns red here.
   for (const match of source.matchAll(/from\s*"([^".][^"]*)"/g)) {
     const specifier = match[1] ?? "";
     if (specifier.startsWith("./") || specifier.startsWith("../")) continue;

@@ -1,9 +1,8 @@
 // The demo site's light/dark theme.
 //
-// This is the one thing the two demo pages share besides `style.css`, and for the same
-// reason: the theme is a property of **the site**, not a way of using frond. Both pages
-// import it — the home page directly (no bundler, like everything else it loads), the React
-// page through esbuild.
+// It is a module of its own rather than part of `app.js`, and for the same reason
+// `style.css` is separate: the theme is a property of **the site**, not a way of using
+// frond. The page imports it directly, with no bundler, like everything else it loads.
 //
 // ## One switch, two sides, and only one of them is CSS
 //
@@ -39,7 +38,7 @@
 /**
  * Where the reader's choice is remembered.
  *
- * **This string is repeated verbatim in both pages' `<head>`**, and deliberately: applying a
+ * **This string is repeated verbatim in the page's `<head>`**, and deliberately: applying a
  * stored choice cannot wait for a module to load without the page painting in the wrong
  * scheme first. See the comment on that script in `index.html`.
  */
@@ -111,9 +110,6 @@ export function currentBookTheme() {
  * Subscribes to changes of the scheme in effect — the reader choosing, and the system
  * changing underneath a reader who chose "System".
  *
- * Both this and `currentScheme` are module-level functions, so they are stable references and
- * can be handed to React's `useSyncExternalStore` as they are.
- *
  * @param {() => void} listener
  * @returns {() => void} the unsubscribe
  */
@@ -127,9 +123,8 @@ export function subscribe(listener) {
 /**
  * Wires up a `<select>` offering `system` / `light` / `dark`.
  *
- * The control lives in the masthead, which on the React page is **outside** the React root —
- * so both pages drive it from here, the same way, and neither has to know where the choice is
- * kept or what `<html>` has to say for it to take effect.
+ * The control lives in the masthead, and it is driven from here so that the page need not
+ * know where the choice is kept or what `<html>` has to say for it to take effect.
  *
  * @param {HTMLSelectElement} select
  */

@@ -5,11 +5,10 @@ name: release
 #
 # ## The last step of this workflow cannot be taken back
 #
-# This repo publishes two packages, **released together at the same version** (ADR-0008,
-# ADR-0011):
+# This repo publishes one package (ADR-0008; `@yurenju/frond-react` was retired and the repo
+# collapsed back to a single package):
 #
 #     npm install @yurenju/frond
-#     npm install @yurenju/frond-react
 #
 # **A version on npm cannot be taken back.** unpublish has only a 72-hour window, and pulling
 # a version breaks everyone who already installed it. A mistyped git tag can be deleted and
@@ -19,9 +18,6 @@ name: release
 # Those verification steps are not there to prove the code is correct (that is what
 # `test.yml` does on every push to main); they are there to prove **the package a consumer
 # receives is sound**.
-#
-# The `npm install github:yurenju/frond#<tag>` route **no longer works**: the repo root is now
-# a `private: true` workspace container (ADR-0011). npm is the only way to install.
 on:
   workflow_dispatch:
     inputs:
@@ -103,9 +99,9 @@ jobs:
           npm install -g npm@latest
           npm --version
 
-      # `--ignore-scripts` blocks the root package.json's `prepare`. A build is run explicitly
-      # below, and that run's failure message points precisely; mixed into `npm ci`, the red
-      # light looks like a dependency that would not install.
+      # `--ignore-scripts` blocks package.json's `prepare`. A build is run explicitly below,
+      # and that run's failure message points precisely; mixed into `npm ci`, the red light
+      # looks like a dependency that would not install.
       - run: npm ci --ignore-scripts
 
       - run: npm run typecheck
@@ -115,15 +111,13 @@ jobs:
       # Everything up to here verifies the inside of the repo. The two steps below verify
       # **what other people receive**.
 
-      # Both packages are built in order (frond first, frond-react second — the latter's build
-      # resolves the former's shipped `.d.ts`). This step also checks each dist/'s two
-      # invariants: no .ts specifiers, and no bare specifier beyond what that package declared
-      # as a dependency; see scripts/finish-build.ts.
+      # This step also checks dist/'s two invariants: no .ts specifiers, and no bare specifier
+      # beyond what package.json declared as a dependency (for frond: none at all); see
+      # scripts/finish-build.ts.
       #
-      # **No lifecycle script stands in for this step.** Since the move to workspaces the
-      # packages have no `prepare` of their own (for the reason see ADR-0008), so what
-      # `npm pack` picks up is what was built here — omit this line and what gets packed is an
-      # empty shell with no dist/.
+      # `npm pack` below would trigger `prepare` and build anyway, so this line is not what
+      # puts `dist/` there. It is here to **fail early and point precisely**: a build error
+      # surfacing from inside `npm pack` reads like a packing problem.
       - run: npm run build
 
       # Pack, install, import.
@@ -137,75 +131,41 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Each package is packed into its own directory.
+          # Packed into a clean directory and picked up with a glob.
           #
-          # Separate directories is not fastidiousness: the glob `yurenju-frond-*.tgz` matches
-          # both `yurenju-frond-0.3.0.tgz` and `yurenju-frond-react-0.3.0.tgz`, and the shape
-          # of that mistake is "two packages installed, one of them unexpected" — which raises
-          # no error and merely makes every assertion afterwards verify the wrong thing.
-          #
-          # Nor is `tarball="$(npm pack)"` used to get the filename: any build script's stdout
-          # flows into the same pipe, and `--silent` does not stop it. Dropping into a clean
-          # directory and using a glob means the filename's composition never has to be
-          # guessed.
+          # The filename is deliberately not taken from `npm pack`'s own stdout: any build
+          # script's stdout flows into the same pipe, and `--silent` does not stop it. Dropping
+          # into an empty directory means the filename's composition never has to be guessed.
           rm -rf /tmp/pack /tmp/consumer
-          mkdir -p /tmp/pack/core /tmp/pack/react
-          npm pack --workspace @yurenju/frond --pack-destination /tmp/pack/core > /dev/null
-          npm pack --workspace @yurenju/frond-react --pack-destination /tmp/pack/react > /dev/null
-          core="$(ls /tmp/pack/core/*.tgz)"
-          react_pkg="$(ls /tmp/pack/react/*.tgz)"
-          echo "packed: $core"
-          echo "packed: $react_pkg"
+          mkdir -p /tmp/pack
+          npm pack --pack-destination /tmp/pack > /dev/null
+          tarball="$(ls /tmp/pack/*.tgz)"
+          echo "packed: $tarball"
 
           mkdir -p /tmp/consumer
           cd /tmp/consumer
           npm init -y > /dev/null
           npm pkg set type=module
-          # react is installed from the registry, because that is how a consumer gets it. The
-          # range is written broadly (`^19`) rather than pinned: what is being verified here is
-          # whether our peer range is declared correctly, and pinning would mean that question
-          # could never be asked.
-          npm install --ignore-scripts "$core" "$react_pkg" react@^19 react-dom@^19 @types/react@^19
+          npm install --ignore-scripts "$tarball"
 
           cat > check.js <<'JS'
           import { EpubBook } from "@yurenju/frond/epub";
           import { Renderer, MemoryBook } from "@yurenju/frond/renderer";
-          import * as Reader from "@yurenju/frond-react";
 
           for (const [name, value] of Object.entries({ EpubBook, Renderer, MemoryBook })) {
             if (typeof value !== "function") throw new Error(`${name} did not come out of the entry point`);
-          }
-
-          // What `forwardRef` wraps has `typeof` "object" rather than "function", so this only
-          // verifies that something came out. Verifying it is a usable component takes
-          // rendering it — and that has already been done against all three browsers in
-          // tests/browser/react/.
-          for (const name of ["Root", "Viewport", "NextTrigger", "PreviousTrigger", "Progress", "useReader", "useKeyboardPaging", "useSwipePaging", "Slot"]) {
-            if (Reader[name] === undefined) throw new Error(`frond-react's ${name} did not come out of the entry point`);
           }
           console.log("runtime entry points: OK");
           JS
           node check.js
 
-          # `./styles.css` is an exports entry point, and bundlers resolve it the same way they
-          # resolve JS. If `files` misses that file, a consumer's build turns red somewhere that
-          # looks like their own misconfiguration.
-          node --input-type=module <<'JS'
-          import { existsSync } from "node:fs";
-          if (!existsSync("node_modules/@yurenju/frond-react/styles.css")) {
-            throw new Error("styles.css is not in the tarball — check package.json's files");
-          }
-          console.log("styles.css: OK");
-          JS
-
           # The type half has to be verified separately. When a `.d.ts` is broken the import
           # still runs, and every type merely becomes any — which is exactly the hardest kind of
           # breakage to notice (TypeScript 7.0.2's rewriteRelativeImportExtensions does not
           # rewrite .d.ts; see tsconfig.build.json).
-          cat > check.tsx <<'TSX'
+          cat > check.ts <<'TS'
           import { EpubBook, type BookMetadata } from "@yurenju/frond/epub";
           import { Renderer, type RenderLocation } from "@yurenju/frond/renderer";
-          import * as Reader from "@yurenju/frond-react";
 
           export async function demo(bytes: ArrayBuffer, host: HTMLElement) {
             const book = await EpubBook.open(bytes);
@@ -216,19 +176,7 @@ jobs:
             await renderer.next();
             return meta.epubVersion;
           }
-
-          // frond-react's types have to connect to frond's types **across the package
-          // boundary**: the `book` prop takes frond's `RenderableBook`. When the two .d.ts
-          // resolve individually but will not join up, this line is what turns red.
-          export function Ui({ book }: { book: EpubBook }) {
-            return (
-              <Reader.Root book={book} settings={{ fontSize: 18 }}>
-                <Reader.Viewport className="page" />
-                <Reader.NextTrigger onClick={() => undefined}>Next</Reader.NextTrigger>
-              </Reader.Root>
-            );
-          }
-          TSX
+          TS
 
           # skipLibCheck is off: with it on, a shipped .d.ts that fails to resolve would not turn
           # anything red.
@@ -239,12 +187,11 @@ jobs:
               "moduleResolution": "nodenext",
               "target": "ES2022",
               "lib": ["ES2022", "DOM"],
-              "jsx": "react-jsx",
               "strict": true,
               "noEmit": true,
               "skipLibCheck": false
             },
-            "files": ["check.tsx"]
+            "files": ["check.ts"]
           }
           JSON
           # The repo's own tsc is invoked directly rather than installing another copy with npx.
@@ -278,26 +225,22 @@ jobs:
           }
 
           const missing = [];
-          let counted = 0;
 
-          for (const pkg of ["@yurenju/frond", "@yurenju/frond-react"]) {
-            const maps = mapsUnder(join("node_modules", pkg, "dist"));
-            if (maps.length === 0) throw new Error(`${pkg} has no .map at all; the check missed something`);
-            counted += maps.length;
+          const maps = mapsUnder(join("node_modules", "@yurenju", "frond", "dist"));
+          if (maps.length === 0) throw new Error("no .map at all; the check missed something");
 
-            for (const map of maps) {
-              const { sources } = JSON.parse(readFileSync(map, "utf8"));
-              for (const source of sources) {
-                const path = resolve(dirname(map), source);
-                if (!existsSync(path)) missing.push(`${map} → ${source}`);
-              }
+          for (const map of maps) {
+            const { sources } = JSON.parse(readFileSync(map, "utf8"));
+            for (const source of sources) {
+              const path = resolve(dirname(map), source);
+              if (!existsSync(path)) missing.push(`${map} → ${source}`);
             }
           }
 
           if (missing.length > 0) {
             throw new Error(`maps point at sources that do not exist:\n  ${missing.join("\n  ")}`);
           }
-          console.log(`map sources: OK (${counted} maps)`);
+          console.log(`map sources: OK (${maps.length} maps)`);
           JS
 
       # --- cutting the version ----------------------------------------------
@@ -310,8 +253,8 @@ jobs:
           {
             echo "## dry run: verified, nothing released"
             echo
-            echo "Both packages' build, entry points (runtime and types), styles.css and map"
-            echo "sources all passed. No version bump, no tag, no publish."
+            echo "Build, entry points (runtime and types) and map sources all passed."
+            echo "No version bump, no tag, no publish."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set the commit identity
@@ -320,49 +263,27 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      # Both packages are released together at the same version (ADR-0008).
-      #
       # ## Why this is not one line of `npm version`
       #
-      # `npm version --workspaces --include-workspace-root` bumps `version` in all three
-      # package.json files, but it **does not change cross-package dependency ranges** —
-      # frond-react's `peerDependencies["@yurenju/frond"]` would stay on the old number. That
-      # omission has a nasty shape: it installs fine (the range still covers the new version),
-      # and the compatibility range it declares is simply an out-of-date statement.
-      #
-      # So it is split into three steps: bump first (`--no-git-tag-version`, touching no git),
-      # change the peer range, update the lockfile, and finally commit and tag by hand. The two
-      # things `npm version` would have done for us (commit, tag) are written out here, and what
-      # that buys is somewhere to put that one `npm pkg set`.
+      # `npm version` would bump, commit and tag in one go — but it commits `package.json`
+      # alone, leaving `package-lock.json` behind with the old number, and the next `npm ci`
+      # then complains that the lock and the manifest disagree. So the bump runs with
+      # `--no-git-tag-version` (touching no git), the lockfile is refreshed, and the commit
+      # and tag are written out by hand.
       - id: version
         name: Bump the version and tag it
         if: ${{ !inputs.dry_run }}
         run: |
           set -euo pipefail
 
-          npm version "${{ inputs.bump }}" \
-            --workspaces --include-workspace-root --no-git-tag-version > /dev/null
+          npm version "${{ inputs.bump }}" --no-git-tag-version > /dev/null
 
           number="$(npm pkg get version | tr -d '"')"
           tag="v${number}"
 
-          # The peer range follows. In 0.x, `^` means "within the same minor", which is exactly
-          # the guarantee we are willing to give — every 0.x minor may change the API
-          # (ADR-0008).
-          #
-          # frond-react's `devDependencies["@yurenju/frond"]` is deliberately `*`, so it need
-          # not be touched here. That entry exists solely to make npm link the workspaces, and
-          # written as a concrete range it would stay on some version while the peer range moves
-          # forward with every release — on the day the two drift out of covering each other,
-          # `npm install` would start fetching an old @yurenju/frond from the registry, and
-          # changes in the repo would stop being reflected in frond-react from then on.
-          npm pkg set "peerDependencies.@yurenju/frond=^${number}" --workspace @yurenju/frond-react
-
-          # The lockfile carries these version numbers too, and it is what `npm ci` works from.
-          # Omitted, the next `npm ci` complains that the lock and the manifest disagree.
           npm install --package-lock-only --ignore-scripts
 
-          git add package.json package-lock.json packages/frond/package.json packages/frond-react/package.json
+          git add package.json package-lock.json
           git commit -m "release: ${number}"
           git tag -a "$tag" -m "$tag"
 
@@ -380,8 +301,8 @@ jobs:
       #      github-actions[bot] a bypass, or switch to a PR-opening flow.
       #   2. A commit pushed with GITHUB_TOKEN **does not trigger other workflows**, so this push
       #      runs neither test.yml nor a pages redeploy. Neither matters here: the version commit
-      #      only touches those package.json files and package-lock.json, the site's content is
-      #      unchanged, and the code itself was verified before the tag was cut.
+      #      only touches package.json and package-lock.json, the site's content is unchanged,
+      #      and the code itself was verified before the tag was cut.
       - name: Push
         if: ${{ !inputs.dry_run }}
         run: git push --follow-tags origin main
@@ -398,26 +319,14 @@ jobs:
       # There is no NODE_AUTH_TOKEN: authentication goes through trusted publishing (OIDC),
       # backed by the job's `id-token: write` and the trusted publisher configured on npmjs.
       #
-      # ## Each package's first version cannot be released by this workflow
+      # ## A package's first version cannot be released by this workflow
       #
       # A trusted publisher's settings page hangs off the package, and npm **does not accept**
       # configuring one in advance for a package that does not yet exist in the registry
       # (npm/cli#8544; PyPI allows it, npm does not). So `@yurenju/frond`'s `0.2.0` was published
       # manually from a local machine to bring the package into existence in the registry, after
       # which a trusted publisher could be configured. Everything from `0.2.1` on goes through
-      # this step and needs no token at all.
-      #
-      # **`@yurenju/frond-react` has not been through that once yet.** Its first version likewise
-      # has to be published locally with a temporary token:
-      #
-      #     npm run build
-      #     npm publish --workspace @yurenju/frond-react
-      #
-      # and then a trusted publisher has to be attached to this workflow on npmjs. Until that is
-      # done, the line below fails for frond-react (with a message that looks like not being
-      # logged in), and **that failure happens after frond has already published successfully** —
-      # which cannot be taken back. So before the first release of both packages, confirm this
-      # has been done.
+      # this step and needs no token at all. Worth remembering if the package is ever renamed.
       #
       # ## provenance need not be requested explicitly
       #
@@ -427,23 +336,12 @@ jobs:
       # requesting provenance would have made it fail outright. (`0.2.0` therefore has no
       # attestation, while every version released by this step does.)
       #
-      # `--access public` is the opposite, and lives in each package's publishConfig: scoped
-      # packages default to private, and omitting it makes the registry return an error that
-      # looks like a billing-plan problem.
-      #
-      # ## Order: frond first
-      #
-      # Published one at a time rather than with `--workspaces`, because the order matters.
-      # frond-react declares a peer dependency on frond, and publishing it first would leave a
-      # window in which the registry holds a package pointing at a version that does not exist —
-      # `npm install` warns during that window. The other way round is merely "the new core does
-      # not have its matching React layer yet", which is harmless.
+      # `--access public` is the opposite, and lives in publishConfig: scoped packages default
+      # to private, and omitting it makes the registry return an error that looks like a
+      # billing-plan problem.
       - name: Publish to npm
         if: ${{ !inputs.dry_run }}
-        run: |
-          set -euo pipefail
-          npm publish --workspace @yurenju/frond
-          npm publish --workspace @yurenju/frond-react
+        run: npm publish
 
       # --- what changed in this version --------------------------------------
 
@@ -476,7 +374,6 @@ jobs:
             echo
             echo '```bash'
             echo "npm install @yurenju/frond@${{ steps.version.outputs.number }}"
-            echo "npm install @yurenju/frond-react@${{ steps.version.outputs.number }}"
             echo '```'
             echo
             echo "The package consumers receive (build, each entry point's runtime and types,"

@@ -20,32 +20,9 @@ npm install @yurenju/frond
 你拿到的是純 ES module 加上 `.d.ts`——你這邊不需要建置步驟，也不需要有
 TypeScript。
 
-用 React 的話，上面還有一層 unstyled 的元件：
-
-```bash
-npm install @yurenju/frond-react
-```
-
-```tsx
-import * as Reader from "@yurenju/frond-react";
-
-<Reader.Root book={book} settings={{ fontSize: 18 }}>
-  <Reader.Viewport className="page" />
-  <Reader.PreviousTrigger>←</Reader.PreviousTrigger>
-  <Reader.Progress className="bar" />
-  <Reader.NextTrigger>→</Reader.NextTrigger>
-</Reader.Root>
-```
-
-跟 Radix 或 Base UI 一樣，這些零件**一個樣式都不帶**——你拿到的是掛著
-`data-frond-part` 與狀態屬性的元素，外觀的每一個決定都在你的 CSS 裡。另外有一套
-預設樣式，而且是**完全可選**的：它整份包在 `:where()` 裡，你自己一條 class 規則
-就蓋得過去。見 [ADR-0011](docs/adr/0011-monorepo-and-frond-react.md)。
-
-**[拿零件試試看 →](https://yurenju.github.io/frond/react/)**
-那一頁上有兩個開關：一個把預設樣式關掉，一個把鍵盤與滑動翻頁關掉。上面那兩句話
-你可以自己切下去看，不必信我們。原始碼是
-[`site/react/app.tsx`](site/react/app.tsx)。
+**沒有 React 層。** `@yurenju/frond-react` 出到 0.4.3 為止，已經收掉；frond 只給
+事實，怎麼用是你的決定，在 React 裡也一樣。理由見
+[ADR-0008](docs/adr/0008-distribution-and-license.md)。
 
 ## 現況：0.x，而且 API 會動
 
@@ -60,8 +37,8 @@ minor 就可能弄壞你——釘死版本，升之前先看
 自己的程式碼，蓋在平台 API 上（`DecompressionStream`、`DOMParser`、blob URL、
 `ResizeObserver`）。
 
-`@yurenju/frond-react` 剛好多兩個，而且都是 peer：`react` 與 `@yurenju/frond`。
-兩個套件都不准長出第三個——出貨產物裡出現任何一個沒有宣告過的東西，build 就紅。
+而且它也不准長出第一個——出貨產物裡出現任何一個 `package.json` 沒有宣告過的東西，
+build 就紅。
 
 有一個後果值得明說：**產物裡一個 bare specifier 都沒有，所以瀏覽器可以直接
 import 它。** 不需要打包器、不需要建置步驟、不需要 import map。
@@ -207,21 +184,17 @@ Chromium、Firefox 與 WebKit **同級對待**——任一家紅就是紅。沒�
 
 ## 開發
 
-這個 repo 是一個 npm workspace，底下兩個套件：
-
-```
-packages/frond/         @yurenju/frond         核心，零相依
-packages/frond-react/   @yurenju/frond-react   unstyled React 元件
-```
+repo 根目錄**就是**那個套件：`src/` 是出貨的東西，`tests/`、`scripts/`、`site/`、
+`docs/` 在它旁邊。
 
 所有指令一律從 repo 根目錄走 `npm run`——版本與 flag 都釘在 script 裡。
 
 ```bash
-npm run typecheck       # 對兩個套件、scripts 與 tests 跑 tsc --noEmit
+npm run typecheck       # 對 src、scripts 與 tests 跑 tsc --noEmit
 npm run test:node       # Vitest——解析層，不開瀏覽器
 npm run test:container  # 在測試映像裡跑兩個 runner（瀏覽器只存在於那裡）
-npm run build           # 產生兩個套件的 dist/，frond 先
-npm run site            # 把展示站組起來（兩頁）
+npm run build           # 產生 dist/
+npm run site            # 把展示站組起來
 ```
 
 瀏覽器測試只在容器裡跑得動：三家引擎與釘死的字型存在於測試映像中，不在你的機器

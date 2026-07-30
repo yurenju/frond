@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, test } from "vitest";
-import { sha1 } from "../../packages/frond/src/sha1.ts";
+import { sha1 } from "../../src/sha1.ts";
 
 /**
  * The hand-written SHA-1, checked entry by entry against `node:crypto`.

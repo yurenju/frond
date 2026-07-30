@@ -1,9 +1,9 @@
 import { describe, expect, test } from "vitest";
-import { mapStylesheet } from "../../../packages/frond/src/renderer/css.ts";
-import { pageMetrics } from "../../../packages/frond/src/renderer/geometry.ts";
-import { layoutStylesheet } from "../../../packages/frond/src/renderer/layout.ts";
-import { INTERVENTIONS } from "../../../packages/frond/src/renderer/interventions.ts";
-import { readerStylesheet, withSettings, DEFAULT_SETTINGS } from "../../../packages/frond/src/renderer/settings.ts";
+import { mapStylesheet } from "../../../src/renderer/css.ts";
+import { pageMetrics } from "../../../src/renderer/geometry.ts";
+import { layoutStylesheet } from "../../../src/renderer/layout.ts";
+import { INTERVENTIONS } from "../../../src/renderer/interventions.ts";
+import { readerStylesheet, withSettings, DEFAULT_SETTINGS } from "../../../src/renderer/settings.ts";
 
 /**
  * The gatekeeper for ADR-0003's **closed list**.

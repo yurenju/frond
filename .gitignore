@@ -10,23 +10,16 @@ tests/books/commercial/
 # still runs (docs/agents/pull-requests.md).
 tests/browser/evidence/
 
-# The shipped artifacts, one per package (packages/*/dist). Produced by `npm run build` —
-# committing them would only let the two fall out of sync.
+# The shipped artifact. Produced by `npm run build` — committing it would only let it fall
+# out of sync with src/.
 dist/
 
-# The demo site copies packages/frond/dist here at build time (scripts/build-site.sh).
+# The demo site copies dist/ here at build time (scripts/build-site.sh).
 site/frond/
-
-# The React page's artifacts: esbuild's bundle, plus the default styles copied over from
-# packages/frond-react. `site/react/index.html` and `app.tsx` are source and stay in the
-# repo.
-site/react/bundle.js
-site/react/bundle.js.map
-site/react/frond-react.css
 
 # The synthetic book for the demo. `npm run demo:book` produces it at any time
 # (deterministically), and its content and reasoning live in
-# packages/frond/src/test-fixtures/demo-book.ts — the artifact need not enter the repo.
+# src/test-fixtures/demo-book.ts — the artifact need not enter the repo.
 tests/books/demo-zh-tw.epub
 
 # Each person's own local Claude Code settings and worktree working directories. The former

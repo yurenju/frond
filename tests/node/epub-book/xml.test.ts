@@ -1,9 +1,9 @@
 import { XMLValidator } from "fast-xml-parser";
 import { unzipSync } from "fflate";
 import { describe, expect, test } from "vitest";
-import { EpubOpenError } from "../../../packages/frond/src/epub/errors.ts";
-import { parseXml, type XmlElement } from "../../../packages/frond/src/epub/xml.ts";
-import { buildFixture, syntheticFixtures } from "../../../packages/frond/src/test-fixtures/index.ts";
+import { EpubOpenError } from "../../../src/epub/errors.ts";
+import { parseXml, type XmlElement } from "../../../src/epub/xml.ts";
+import { buildFixture, syntheticFixtures } from "../../../src/test-fixtures/index.ts";
 
 /**
  * The hand-written XML parser: its well-formedness verdict is compared against

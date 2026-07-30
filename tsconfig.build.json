@@ -3,7 +3,7 @@
   // "working inside this repo" — it takes in scripts/ and tests/, does not emit, and pulls
   // in @types/node. This one serves exactly one thing: turning `src/epub` and
   // `src/renderer` into JavaScript that consumers can import.
-  "extends": "../../tsconfig.json",
+  "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": false,
     "rootDir": "src",
@@ -40,11 +40,16 @@
     // tool for producing synthetic fixtures, not part of the shipped surface.
     "types": [],
 
-    // The root `tsconfig.json`'s `paths` is a dev-time convenience (letting frond-react
-    // typecheck without building first). Clearing it extends the same discipline here: in
-    // this package's module graph **not one bare specifier resolves**, not even a shortcut
-    // that only holds inside the repo. Zero dependencies is therefore not held in place by
-    // review.
+    // **An empty `paths`, even though the root `tsconfig.json` no longer sets one.**
+    //
+    // It used to clear a real mapping (a dev-time shortcut from `@yurenju/frond/*` to
+    // `src/`, which existed so frond-react could typecheck against an unbuilt tree). That
+    // mapping is gone with frond-react, so this line is a no-op today — and it stays,
+    // because what it guards is not the mapping that was there but **any mapping that ever
+    // gets added**. In this build's module graph not one bare specifier resolves, not even a
+    // shortcut that only holds inside the repo, and the day someone adds a convenience
+    // `paths` to the root config that property is still true here. Zero dependencies is
+    // therefore not held in place by review.
     "paths": {}
   },
   "include": ["src/**/*.ts"],

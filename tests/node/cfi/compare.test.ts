@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { compareCfi, parseCfi, type Cfi } from "../../../packages/frond/src/epub/index.ts";
+import { compareCfi, parseCfi, type Cfi } from "../../../src/epub/index.ts";
 
 /**
  * Which of two CFIs comes first in the book (user story 22: ordering annotations by

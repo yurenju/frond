@@ -8,7 +8,7 @@ import {
   relativiseFontSizes,
   resolveGenericFamilies,
   rewriteUrls,
-} from "../../../packages/frond/src/renderer/css.ts";
+} from "../../../src/renderer/css.ts";
 
 /**
  * Every rewrite made to a book's stylesheet.

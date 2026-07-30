@@ -1,8 +1,8 @@
 import { unzipSync, zipSync } from "fflate";
 import { describe, expect, test } from "vitest";
-import { EpubOpenError } from "../../../packages/frond/src/epub/errors.ts";
-import { readZip } from "../../../packages/frond/src/epub/zip.ts";
-import { buildFixture, syntheticFixtures } from "../../../packages/frond/src/test-fixtures/index.ts";
+import { EpubOpenError } from "../../../src/epub/errors.ts";
+import { readZip } from "../../../src/epub/zip.ts";
+import { buildFixture, syntheticFixtures } from "../../../src/test-fixtures/index.ts";
 
 /**
  * The hand-written ZIP reader, compared byte for byte against `fflate`.

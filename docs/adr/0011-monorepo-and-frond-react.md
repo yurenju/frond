@@ -14,7 +14,18 @@
 >
 > **〈兩個套件的邊界，機器守得住〉那一節仍然有效**，不在作廢範圍內。零相依的三道機制
 > （`"types": []`、`"paths": {}`、`finish-build.ts` 從宣告推導放行清單）守的是核心套件
-> 本身，塌回單一套件之後照樣要守——只有路徑會變。
+> 本身，塌回單一套件之後照樣要守——變的只有路徑：
+>
+> ```
+> packages/frond/tsconfig.build.json   →  tsconfig.build.json
+> packages/frond/src/                  →  src/
+> node ../../scripts/finish-build.ts . →  node scripts/finish-build.ts
+> ```
+>
+> 第二道的形狀有一點改變值得記：根 `tsconfig.json` 現在**根本沒有 `paths`**（那個對應
+> 存在的理由就是 frond-react），所以 `"paths": {}` 今天是個 no-op。它留著不是為了清掉
+> 現有的對應，是為了清掉**將來任何被加進去的對應**——出貨的模組圖裡不准有 bare
+> specifier 解析得開，這件事不該取決於根設定當下長什麼樣。
 
 repo 改成 **npm workspaces 的 monorepo**，`packages/` 底下兩個套件：
 

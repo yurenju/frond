@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type Page, expect, test } from "@playwright/test";
-import { buildDemoBook } from "../../../packages/frond/src/test-fixtures/demo-book.ts";
+import { buildDemoBook } from "../../../src/test-fixtures/demo-book.ts";
 import { collectPageErrors } from "../support/page-errors.js";
 import {
   BOOK_BACKGROUND,

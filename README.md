@@ -21,35 +21,9 @@ npm install @yurenju/frond
 What you get is plain ES modules plus `.d.ts` files — no build step on your
 side, and no TypeScript needed in your project.
 
-Using React? There is an unstyled component layer on top:
-
-```bash
-npm install @yurenju/frond-react
-```
-
-```tsx
-import * as Reader from "@yurenju/frond-react";
-
-<Reader.Root book={book} settings={{ fontSize: 18 }}>
-  <Reader.Viewport className="page" />
-  <Reader.PreviousTrigger>←</Reader.PreviousTrigger>
-  <Reader.Progress className="bar" />
-  <Reader.NextTrigger>→</Reader.NextTrigger>
-</Reader.Root>
-```
-
-Like Radix or Base UI, the components ship no styles at all — you get elements
-carrying `data-frond-part` and state attributes, and every appearance decision
-is yours to make in CSS. A default stylesheet is available and entirely
-optional: it lives behind `:where()`, so a single class of your own overrides
-any of it. See
-[ADR-0011](docs/adr/0011-monorepo-and-frond-react.md).
-
-**[Try the components →](https://yurenju.github.io/frond/react/)** The demo page
-has two switches on it: one turns the default stylesheet off, the other turns
-keyboard and swipe paging off. Both claims above are things you can flip rather
-than take our word for. Its source is
-[`site/react/app.tsx`](site/react/app.tsx).
+There is no React layer. `@yurenju/frond-react` existed until 0.4.3 and has been
+retired; frond hands you facts and you decide what to do with them, including in
+React. See [ADR-0008](docs/adr/0008-distribution-and-license.md).
 
 ## Status: 0.x, and the API will change
 
@@ -65,9 +39,8 @@ anyway.
 parsing, CFI and pagination are all its own code, on top of platform APIs
 (`DecompressionStream`, `DOMParser`, blob URLs, `ResizeObserver`).
 
-`@yurenju/frond-react` adds exactly two, both peers: `react` and
-`@yurenju/frond`. Neither package is allowed to grow a third — the build fails
-if anything appears in the emitted modules that the package did not declare.
+Nor is it allowed to grow one: the build fails if anything appears in the
+emitted modules that `package.json` did not declare.
 
 One consequence is worth stating plainly: **the emitted modules contain no bare
 specifiers, so a browser can import them directly.** No bundler, no build step,
@@ -231,22 +204,18 @@ logged in [`docs/browser-quirks.md`](docs/browser-quirks.md).
 
 ## Development
 
-This repository is an npm workspace with two packages:
-
-```
-packages/frond/         @yurenju/frond         the core, zero dependencies
-packages/frond-react/   @yurenju/frond-react   unstyled React components
-```
+The repository root is the package: `src/` is what ships, and `tests/`,
+`scripts/`, `site/` and `docs/` sit alongside it.
 
 Every command goes through `npm run` from the repository root; the scripts pin
 the versions and flags.
 
 ```bash
-npm run typecheck       # tsc --noEmit over both packages, scripts and tests
+npm run typecheck       # tsc --noEmit over src, scripts and tests
 npm run test:node       # Vitest — the parsing layer, no browser
 npm run test:container  # both runners inside the test image (browsers live there)
-npm run build           # emit dist/ for both packages, frond first
-npm run site            # assemble the demo site (both pages)
+npm run build           # emit dist/
+npm run site            # assemble the demo site
 ```
 
 Browser tests only run inside the container: the three engines and the pinned

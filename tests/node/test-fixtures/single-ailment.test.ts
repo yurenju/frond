@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { openEpub, type EpubArchive } from "../support/epub-archive.ts";
-import { buildFixture, syntheticFixtures } from "../../../packages/frond/src/test-fixtures/index.ts";
+import { buildFixture, syntheticFixtures } from "../../../src/test-fixtures/index.ts";
 
 /**
  * The enforcer of "one fixture carries one ailment, and everything else stays healthy".
