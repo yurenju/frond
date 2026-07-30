@@ -89,7 +89,13 @@ docker context create rootless --docker host=unix://$XDG_RUNTIME_DIR/docker.sock
 docker context use rootless
 ```
 
-選定的 context 記在 `~/.docker/config.json`，跨 shell 與重開機都有效，而且對所有會呼叫 docker 的工具生效，不只測試腳本。`DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock` 也可以，但那只在設了的那個 shell 裡有效，別的 session（例如 agent 開的新 shell）會再踩一次。
+context 已經存在時 `create` 會回非零（`context "rootless" already exists`），接著那行 `use` 仍然有效。要寫成腳本的話用 `docker context create … || docker context update …`，並且讓 CLI 自己建——`~/.docker/config.json` 裡的 `currentContext` 需要 `~/.docker/contexts/meta/` 底下對應的 metadata，只塞前者的話每一個 docker 指令都會硬失敗（`context not found`）。
+
+選定的 context 記在 `~/.docker/config.json`，**跟 shell 的種類無關**：任何 shell 的 docker CLI 都讀它，重開機也還在，而且對所有會呼叫 docker 的工具生效，不只測試腳本。
+
+`DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock` 看起來等效，其實補不到這個洞。環境變數要靠 shell 的 startup file 帶進來，而**非 login、非互動的 bash 不讀任何 startup file**——測試腳本就跑在那種 shell 裡。放進 `/etc/profile.d/` 也一樣，那只到得了 login shell。
+
+兩個都設的時候 **`DOCKER_HOST` 會蓋掉 context**（此時 `docker context show` 回 `default`）。這會長出一個很難查的不對稱：人在互動 shell 裡看 docker 是好的，agent 或 CI 在非 login shell 裡卻連不上。照這一節修好之後**要在跟出問題那個 shell 同一種的 shell 裡驗**——在互動 shell 裡驗，驗到的是 `DOCKER_HOST` 那條路，不是你剛設的 context。
 
 `scripts/test-in-container.sh` 在動手 build 之前會先確認 daemon 連得到，連不到時就把上面這兩行印出來。它**只診斷不代打**：socket 位置屬於容器引擎的設定，腳本自己去猜會把設錯的機器靜默修好，於是沒有人知道它是錯的。
 
