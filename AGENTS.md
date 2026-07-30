@@ -1,11 +1,16 @@
 # frond
 
-## 這是一個 workspace，兩個套件
+## 這是一個 workspace，兩個套件（**正在塌回一個**）
 
 ```
 packages/frond/         @yurenju/frond         核心，零相依（ADR-0005）
-packages/frond-react/   @yurenju/frond-react   unstyled React 元件（ADR-0011）
+packages/frond-react/   @yurenju/frond-react   unstyled React 元件（即將收掉，見下）
 ```
+
+**`@yurenju/frond-react` 已決定收掉，repo 塌回單一套件**——決定記在 ADR-0008 的修訂，
+ADR-0011 已 superseded。上面的目錄結構是現況（還沒搬），但**不要再往 frond-react 加東西**，
+也不要拿它當「政策可以放這裡」的落點：ADR-0002 的拒收現在是絕對的，frond 裡沒有任何一層
+擺得下預設的 UI 政策。
 
 `tests/`、`scripts/`、`site/`、`docs/` 在根目錄，**兩個 test runner 也在根目錄**
 ——ADR-0009 那一刀切的是 Node 與瀏覽器，不是套件，所以它沒有變成四個。

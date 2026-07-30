@@ -1,5 +1,21 @@
 # monorepo，以及 frond-react 這個 unstyled 元件層
 
+> **Status: superseded（2026-07-30）** —— `@yurenju/frond-react` 收掉，repo 塌回單一
+> 套件。取代它的是 [ADR-0008](0008-distribution-and-license.md) 的修訂與
+> [ADR-0002](0002-frond-owns-facts-spine-owns-policy.md) 的修訂。
+>
+> 這份 ADR 的立論靠兩個前提，兩個都不成立了：一是「frond 不只服務 spine」（現在的前提是
+> frond 就是為 spine 而做），二是「frond-react 是出貨面而不是消費端」——出貨面的價值在於
+> 有人收貨，而唯一的消費端 spine 從來沒有 import 過它一行。1137 行沒有真實使用者在守，
+> 而它的 `paging.ts` 與 spine 的 `navigator.ts` + `touch.ts` 是同一件事的兩份實作。
+>
+> 原文保留在下面，因為它記錄的那個推論本身是對的：**出貨面該跟核心住在一起，消費端不該。**
+> 錯的是把 frond-react 判給了前者。
+>
+> **〈兩個套件的邊界，機器守得住〉那一節仍然有效**，不在作廢範圍內。零相依的三道機制
+> （`"types": []`、`"paths": {}`、`finish-build.ts` 從宣告推導放行清單）守的是核心套件
+> 本身，塌回單一套件之後照樣要守——只有路徑會變。
+
 repo 改成 **npm workspaces 的 monorepo**，`packages/` 底下兩個套件：
 
 ```

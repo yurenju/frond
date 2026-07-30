@@ -158,6 +158,34 @@ EPUB 版本、頁面推進方向、TOC 讀自哪一份導覽文件、封面用�
 
 兩頁都有「怎麼裝、怎麼用」的說明，也互相連得過去。
 
+## 修訂（2026-07-30）：一個套件，前提改成「主要服務 spine」
+
+**這一節推翻的是這份 ADR 開頭那三段。** 原文保留。
+
+兩件事變了：
+
+**一、只出一個套件。** `@yurenju/frond-react` 收掉（理由見 ADR-0002 的修訂：唯一的消費端
+從來沒用它，而它的 `paging.ts` 與 spine 的 `navigator.ts` 是同一件事的兩份實作）。ADR-0011
+因此 superseded，repo 塌回單一套件。
+
+npm 上已經發出去的 `@yurenju/frond-react` 版本**用 `npm deprecate` 標示，不要 unpublish**
+——理由就是上面〈從 git dependency 改成發 npm〉那段記的那項代價：撤掉會弄壞已經裝了的人
+的 lockfile，而 deprecate 只是在安裝時印一行警告。
+
+**二、前提從「它不只服務 spine」改成「它就是為 spine 而做」。** 開源、MIT、繼續發 npm，
+別人要用歡迎，但不承諾相容性；`0.x` 這個主版號說的就是這句話。
+
+於是開頭第 10 行那個「明確拒絕併入 spine 的 monorepo」**失去了它原本的理由**，但結論
+仍然成立，換成兩個新理由：
+
+- **發版與資料的節奏不同。** frond 的變更靠 `npm publish` 傳到 spine，而 spine pin 精確
+  版號（現在是 `0.4.3`）。這條迴圈看起來比本地連結貴，但它換到的是「本機、容器、CI 跑
+  的永遠是同一份位元組」——而 spine 常以 worktree 開發、在多個 OS 之間輪替，`file:../frond`
+  在別台機器、別的 worktree 和測試容器裡都會斷。
+- **界線需要一道物理阻力。** ADR-0002 的界線現在只剩論證在守（前提那根柱子抽掉了），
+  而住在兩個 repo 裡意味著「把政策沉進 frond」至少要跨一次 release。抄近路要付的那點
+  成本，就是這條線剩下的執行機制。
+
 ## 授權
 
 **授權採 MIT**，與 foliate 一致。frond 會直接取用上游 `tests/epubcfi-tests.js` 的 280 行測試向量作為 CFI 驗收表（ADR-0001），那是實際的程式碼取用；MIT 對 MIT 最乾淨，attribution 照規矩標示。至於瀏覽器 quirk 知識（`docs/browser-quirks.md`）搬運的是知識而非程式碼，與授權無涉。
