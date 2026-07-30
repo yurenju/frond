@@ -172,13 +172,9 @@ npm 上已經發出去的 `@yurenju/frond-react` 版本**用 `npm deprecate` 標
 ——理由就是上面〈從 git dependency 改成發 npm〉那段記的那項代價：撤掉會弄壞已經裝了的人
 的 lockfile，而 deprecate 只是在安裝時印一行警告。
 
-> **待辦（registry 側，不在任何 commit 裡）：** `0.1.0`–`0.4.3` 尚未 deprecate。這是一次
-> 手動動作，要一顆有發佈權的 token，`release.yml` 不碰它——那份 workflow 現在只認得
-> `@yurenju/frond` 一個套件。做完把這段刪掉。
->
-> ```bash
-> npm deprecate "@yurenju/frond-react@<=0.4.3" "Retired; frond is a single package now. Use @yurenju/frond directly — see https://github.com/yurenju/frond/issues/70"
-> ```
+已經執行（2026-07-30），npm 上那五版——`0.3.0`、`0.4.0`、`0.4.1`、`0.4.2`、`0.4.3`——全部
+帶著同一行警告，指回 issue #70。上面那句「版本號從 `0.1.0` 起算」講的是 frond；
+**frond-react 上 registry 的第一版是 `0.3.0`**，所以沒有 `0.1.x` 與 `0.2.x` 要處理。
 
 **二、前提從「它不只服務 spine」改成「它就是為 spine 而做」。** 開源、MIT、繼續發 npm，
 別人要用歡迎，但不承諾相容性；`0.x` 這個主版號說的就是這句話。

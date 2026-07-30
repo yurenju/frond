@@ -59,7 +59,9 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    # Named explicitly rather than `ubuntu-latest`, for the reason spelled out in
+    # test.yml: that label moves, and this repo pins everything else CI stands on.
+    runs-on: ubuntu-24.04
     steps:
       # Actions are always pinned to a commit SHA, never a tag — the same reasoning as in
       # test.yml: a tag is a movable reference, and only a SHA is really pinned. The version
