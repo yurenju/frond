@@ -1,6 +1,6 @@
 {
   "name": "@yurenju/frond",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "description": "A TypeScript EPUB rendering library — vertical and horizontal writing, verified across Chromium, Firefox and WebKit",
   "license": "MIT",
   "author": "Yuren Ju <yurenju@gmail.com>",
