@@ -53,7 +53,7 @@ export interface SectionViewHooks {
    * container's coordinate system.
    *
    * Separate from the release because only the press can still decide what the browser
-   * makes of it — `RendererPointerDownEvent.preventTextSelection()`.
+   * makes of it — `RendererPointerDownEvent.preventTapDefault()`.
    */
   readonly onPointerDown: (event: RendererPointerDownEvent) => void;
   /** A pointer went up inside the iframe. */
@@ -90,6 +90,8 @@ export class SectionView {
   private insets: Insets;
   /** The text nodes flattened into document order. Measuring positions binary-searches it, so it is computed once. */
   private textNodes: readonly Text[];
+  /** The press in progress asked for the browser's own action to be cancelled (`preventTapDefault()`). */
+  private cancelTapDefault = false;
 
   private constructor(
     frame: HTMLIFrameElement,
@@ -485,25 +487,22 @@ export class SectionView {
       hooks.onSelectionChange();
     });
 
-    // Always `passive`: frond makes no decision about pointers or keys, and so has no
-    // default behaviour to prevent. A non-passive touch listener makes the browser wait for
-    // the listener to finish before deciding whether to scroll, every time, and that is
-    // exactly why selecting text and scrolling feel sluggish on phones.
-    //
-    // `preventTextSelection()` does not change that. It suppresses selection by making the
-    // document unselectable rather than by preventing the event's default, so the press
-    // keeps its default behaviour and this listener keeps its `passive`.
+    // Pointer and key listeners are `passive`: frond makes no decision about them, and so
+    // has nothing to prevent. The `touchend` below is the one exception, and it is a narrow
+    // one — see it for why the reason behind this rule does not reach that far.
     this.document.addEventListener(
       "pointerdown",
       (event) => {
         const facts = event as unknown as PointerFacts;
-        // A press starting settles the one before it, whatever became of it. Restoring on
-        // release alone is not enough: a finger that leaves the iframe before lifting takes
-        // its `pointerup` with it, and the document would stay unselectable for good.
-        this.restoreTextSelection();
+        // A press starting settles the one before it, whatever became of it. A finger that
+        // leaves the iframe before lifting takes its `touchend` with it, and an answer left
+        // standing would cancel a later tap the consumer never asked about.
+        this.cancelTapDefault = false;
         hooks.onPointerDown({
           ...this.describePointer(facts),
-          preventTextSelection: () => this.preventTextSelection(),
+          preventTapDefault: () => {
+            this.cancelTapDefault = true;
+          },
         });
       },
       { passive: true },
@@ -513,16 +512,33 @@ export class SectionView {
       "pointerup",
       (event) => {
         hooks.onPointerUp(this.describePointer(event as unknown as PointerFacts));
-        // After the consumer, so that a listener reading `hasSelection` sees the press as it
-        // was, not as it is once the document is selectable again.
-        this.restoreTextSelection();
       },
       { passive: true },
     );
 
-    this.document.addEventListener("pointercancel", () => this.restoreTextSelection(), {
+    this.document.addEventListener("pointercancel", () => (this.cancelTapDefault = false), {
       passive: true,
     });
+
+    // **The one non-passive listener**, and the mechanism behind `preventTapDefault()`.
+    //
+    // The rule above exists so the browser never waits on frond to decide whether to
+    // scroll — but that decision is made from `touchstart` and `touchmove`. By `touchend`
+    // the scrolling is long settled, so listening here costs the page nothing.
+    //
+    // Cancelling this event is what takes the tap's `click` away, and with it Chrome for
+    // Android's Touch to Search. It stays registered whether or not any consumer ever asks:
+    // a listener added later, once a press has already begun, would be too late for that
+    // press, and the flag is what makes it a no-op the rest of the time.
+    this.document.addEventListener(
+      "touchend",
+      (event) => {
+        if (!this.cancelTapDefault) return;
+        this.cancelTapDefault = false;
+        event.preventDefault();
+      },
+      { passive: false },
+    );
 
     for (const kind of ["keydown", "keyup"] as const) {
       this.document.addEventListener(
@@ -564,33 +580,6 @@ export class SectionView {
       hasSelection: this.selection() !== undefined,
       isLink: (element?.closest("a[href]") ?? null) !== null,
     };
-  }
-
-  /**
-   * Makes the document unselectable, for as long as the press that asked for it lasts.
-   *
-   * **Why unselectable rather than preventing the press's default.** What has to be stopped
-   * is a browser behaviour that is not a DOM default at all: Chrome for Android selects a
-   * word out of a plain tap and raises a search bar over it (Touch to Search), and the one
-   * page-side condition Chrome documents it as never firing on is text that cannot be
-   * selected. Preventing the default of `pointerdown` addresses the compatibility mouse
-   * events instead, which is a different mechanism and costs the press its click.
-   *
-   * It is written as an inline declaration rather than into frond's layout stylesheet
-   * because it has to win outright and be gone again within one press: the layout sheet is
-   * regenerated wholesale on every relayout, and a book's own rule could outrank it.
-   */
-  private preventTextSelection(): void {
-    const style = this.document.documentElement.style;
-    style.setProperty("-webkit-user-select", "none");
-    style.setProperty("user-select", "none");
-  }
-
-  /** Undoes the above. Harmless when no press asked for it — removing what is not there. */
-  private restoreTextSelection(): void {
-    const style = this.document.documentElement.style;
-    style.removeProperty("-webkit-user-select");
-    style.removeProperty("user-select");
   }
 
   /** The index of the first text node whose end is at or after `target`. */
