@@ -759,32 +759,53 @@ frond 的介入清單裡有一項是給溢出的盒子加 `max-block-size` 上�
 **這一條的證據是什麼**
 
 - 行為本身：消費端 spine 在實機（Android／Chrome）上觀察到，有截圖（spine #36）。
+- 各種擋法有沒有用：spine 用一頁只有一個變因的實驗頁，在 Android 10／Chrome 150 上
+  每種做法點十幾次，記錄冒出 bar 的比例（frond #80）。下面那張表就是。
 - 觸發與抑制的條件：Chrome 官方文件〈[Manage the triggering of touch to
-  search](https://developer.chrome.com/blog/tap-to-search)〉。**未經本專案量測**——這台
-  機器上沒有 Android 環境。
+  search](https://developer.chrome.com/blog/tap-to-search)〉。**這份文件說的話，量出來
+  跟實際行為對不上**——見下。
 
 依那份文件，會觸發的是「可選取、而且不可互動／不可聚焦的純文字」。不觸發的條件有四種：
 元素可聚焦（`tabindex=-1`）、有 widget 語意（`role=button` 那類）、click handler 呼叫
 了 `preventDefault()` 或改了 DOM／CSS、以及**文字不可選取**（`user-select: none`）。
-最後一種是唯一連長按都不觸發的。
+
+**量出來的結果**
+
+| 做法 | 冒/點 | |
+| --- | --- | --- |
+| 什麼都不擋 | 13/18 | 72%，這支手機的自然發生率 |
+| `user-select: none` 寫在 `documentElement`，放開就還原 | 5/10 | 50% |
+| 同上，但放開後 800ms 才還原 | 4/15 | 27% |
+| `*{user-select:none!important}` | 3/14 | 21% |
+| **`touchend` 呼叫 `preventDefault()`** | **0/15** | **0%** |
+| 段落加 `tabindex="-1"` | 0/11 | 0% |
+
+**文件上那條「文字不可選取就不會觸發」不成立**——`user-select: none` 只把機率壓低，
+沒有關掉它。在 72% 的底噪下連續 15 次都不冒，純機率大約是一億分之一，所以 0/15 那一
+格是真的。
 
 **繞法**
 
-前三種都要落在**被點到的那個元素**上，而書的內文在 iframe 裡、由書自己的標記構成，
-消費端碰不到，frond 也不該替書加 `role` 或 `tabindex`。剩下 `user-select: none`。
+`touchend` 的 `preventDefault()`。它取消的是那一下 tap 的 `click`，Touch to Search 跟著
+不發。可聚焦（`tabindex`）那條也量到 0，但它要掛在**書自己的標記**上、而且是整本永久
+生效，frond 不替書加 `role` 或 `tabindex`（ADR-0002），所以不走那條。
 
-但整份文件永久不可選會拿掉劃重點，所以範圍要縮到**一次按壓**：`pointerdown` 當下把
-`user-select: none` 寫上 `documentElement`，放開就拿掉。tap 選字的判定發生在手勢完成
-之後，來得及。
+範圍縮到**一次按壓**：消費端在 `pointerdown` 說這一下要擋，frond 記住，等它的 `touchend`
+到就取消。書的 CSS 一個字都沒有被碰到——這也是介入清單上不再有這一項的原因。
 
 **frond 是否需要處理**
 
-需要，但**只出機制，不做決定**：`RendererPointerDownEvent.preventTextSelection()`。
-哪些按壓該抑制（哪裡是翻頁區、這個消費端到底用不用 tap 翻頁、手指還是滑鼠）是政策，
-留在消費端（ADR-0002）。介入清單上是 `unselectable-during-press`。
+需要，但**只出機制，不做決定**：`RendererPointerDownEvent.preventTapDefault()`。
+哪些按壓該擋（哪裡是翻頁區、這個消費端到底用不用 tap 翻頁、手指還是滑鼠、底下是不是
+連結）是政策，留在消費端（ADR-0002）。
+
+代價要一起記著：**被取消的那一下沒有 `click`**，而 frond 的連結是靠 click 認出來的，
+所以那一下不會發 `linkactivate`。消費端要靠 `isLink` 把落在連結上的按壓排除掉。
 
 **哪個測試會抓到**
 
-`tests/browser/renderer/input-events.spec.ts` 的〈suppressing text selection for one
-press〉。它釘的是**機制**：按壓期間文件不可選、放開之後又可選、期間拖不出選取、以及
-連結照樣點得動。Touch to Search 本身只能在實機上手動確認。
+`tests/browser/renderer/input-events.spec.ts` 的〈cancelling the browser's own action for
+one press〉。它釘的是**機制**：要求擋的那次按壓，它的 `touchend` `defaultPrevented` 是
+true；沒要求的不是；答案不會延續到下一次按壓；按壓本身照樣送到消費端。三家引擎都照
+規範在 `touchend` 被取消時不發 click（那支連結測試三家都綠），所以這裡沒有引擎差異要
+記。Touch to Search 本身只能在實機上手動確認。
