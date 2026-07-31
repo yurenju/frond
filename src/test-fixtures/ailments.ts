@@ -456,7 +456,7 @@ body {
   {
     name: "scripted-content-in-body",
     description:
-      "a <script> and an <iframe> sit between two paragraphs of the body — removing them (ADR-0006) shifts the CFI index of every following sibling, and this file is what pins that",
+      "a <script> and an <iframe> sit between two paragraphs of the body — frond empties them where they stand (ADR-0006) so that the CFI index of every following sibling is left alone, and this file is what pins that",
     afflict: scriptedContentInBody,
   },
 ] as const satisfies readonly Ailment[];
@@ -746,16 +746,16 @@ function tableTallerThanPage(base: EpubSpec): EpubSpec {
  *
  * ## What it holds
  *
- * `stripScriptedContent` (ADR-0006) `remove()`s those elements, and that is the **only**
- * place frond changes the node count — every other intervention preserves it
- * (`link.replaceWith(style)` is 1:1, frond's own two `<style>` elements only append to
- * `<head>`). One removed element shifts the CFI index of every following sibling by two, and
- * the symptom of that is a reader's highlight silently landing somewhere else.
+ * `stripScriptedContent` (ADR-0006) empties those elements **where they stand** rather than
+ * removing them, so that the node count is left alone — as every other intervention leaves
+ * it (`link.replaceWith(style)` is 1:1, frond's own two `<style>` elements only append to
+ * `<head>`). Removing one would shift the CFI index of every following sibling by two, and
+ * the symptom of that is a reader's highlight silently landing somewhere else (#65).
  *
- * So this file exists to make that shift **visible to a test** (`isolation.spec.ts`'s "the
- * CFI of a following sibling"), not because the shape was measured. The two removed elements
- * sit **between** paragraphs rather than at the end for exactly that reason: at the end there
- * is no following sibling and the shift would have nothing to show.
+ * So this file exists to make that **visible to a test** (`isolation.spec.ts`'s "emptying in
+ * place leaves every CFI where the book put it"), not because the shape was measured. The
+ * two elements sit **between** paragraphs rather than at the end for exactly that reason: at
+ * the end there is no following sibling, and a shift would have nothing to show.
  *
  * The script is written inline rather than with a `src`: a `src` would need a resource in the
  * manifest, and "this book carries an extra resource" is a second axis this file must not

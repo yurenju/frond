@@ -253,19 +253,19 @@ function parseXhtml(source: string, path: string): Document {
 }
 
 /**
- * Removes everything inside the book that could run.
+ * Empties everything inside the book that could run.
  *
  * ADR-0006: frond **does not support** EPUB scripted content, and that is a security
  * decision rather than a feature trade-off. The iframe has to carry `allow-scripts` for the
  * parent to receive events (WebKit bug 218086, reproduced in #7), so the sandbox cannot
  * stop scripts inside the book — this step is the only thing that can.
  *
- * Three things are removed together, and missing any one leaves the defence with a hole:
+ * Three things are dealt with together, and missing any one leaves the defence with a hole:
  *
  * 1. **`<script>`**, in any namespace. Using `getElementsByTagNameNS("*", …)` rather than
  *    `getElementsByTagName`: a `<script>` inside SVG is in a different namespace, and SVG
  *    is an entirely legal part of an EPUB content document.
- * 2. **`on*` event attributes**. Removing only `<script>` leaves `<body onload="…">` open.
+ * 2. **`on*` event attributes**. Emptying only `<script>` leaves `<body onload="…">` open.
  * 3. **Nested browsing contexts** (`<iframe>` / `<object>` / `<embed>` / `<frame>`).
  *
  * The third is the easiest to miss and has the worst consequence: **a nested browsing
@@ -275,19 +275,48 @@ function parseXhtml(source: string, path: string): Document {
  * origin** — items 1 and 2 having never once been applied to that nested document, since
  * they only clean the outermost one.
  *
- * They are removed rather than rewritten to a safe origin: EPUB 3 permits `<iframe>`, but
+ * They are emptied rather than rewritten to a safe origin: EPUB 3 permits `<iframe>`, but
  * frond not supporting scripted content is a "will not do" set by ADR-0006 rather than a
  * "not yet", and to the reader an iframe whose content will not load is the same as no
  * iframe.
+ *
+ * ## Emptied, not removed — because a CFI is a sibling ordinal
+ *
+ * `element.remove()` would be the obvious spelling and is the wrong one. `childAt` in
+ * `cfi-dom.ts` numbers an element by its position **among its siblings**, so removing one
+ * takes two off the index of everything after it. The damage runs both ways and is silent
+ * either way: frond's own CFIs stop meaning what other readers think they mean, and a CFI
+ * written elsewhere resolves inside frond to a **different sentence** rather than failing.
+ * Progress and annotations are stored as CFIs, so that is the whole of what breaks (#65).
  */
 function stripScriptedContent(document: Document): void {
-  for (const element of [
-    ...document.getElementsByTagNameNS("*", "script"),
-    ...EMBEDDED_CONTEXTS.flatMap((name) => [
-      ...document.getElementsByTagNameNS("*", name),
-    ]),
-  ]) {
-    element.remove();
+  for (const script of [...document.getElementsByTagNameNS("*", "script")]) {
+    emptyInPlace(script);
+  }
+
+  for (const name of EMBEDDED_CONTEXTS) {
+    for (const context of [...document.getElementsByTagNameNS("*", name)]) {
+      emptyInPlace(context);
+
+      // Removal used to take the box away along with the element. These four are replaced
+      // elements: an `<iframe>` with no `src` still lays out at its default 300x150, which
+      // would put a hole in the text where the book had none. A style attribute is used
+      // rather than a rule in frond's own sheet because no stylesheet of the book's can
+      // outrank it, however it is written.
+      //
+      // **It has to survive `rewriteInlineStyles`, which runs after this step and rewrites
+      // every style attribute in the document.** It does today because `display` is not one
+      // of the properties `overriddenProperties` collects (`settings.ts`) — those are
+      // typography and theme. Should `display` ever join them, `demoteImportant` would drop
+      // the `!important` here and a book could take the hiding back.
+      context.setAttribute("style", "display: none !important");
+
+      // Belt to `emptyInPlace`'s braces, and only `<iframe>` honours the attribute. With no
+      // `src` it still gets an `about:blank`, same-origin and inheriting `allow-scripts`;
+      // nothing in the book can reach that document once items 1 and 2 above have run, but
+      // an empty `sandbox` is the strictest setting there is and costs nothing to write.
+      if (name === "iframe") context.setAttribute("sandbox", "");
+    }
   }
 
   for (const element of document.getElementsByTagName("*")) {
@@ -297,6 +326,23 @@ function stripScriptedContent(document: Document): void {
       }
     }
   }
+}
+
+/**
+ * Strips an element down to its name and its position: no attributes, no children.
+ *
+ * That is what makes the remaining element inert. A `<script>` is prepared once, when the
+ * document is parsed; with neither `src` nor text there is nothing to prepare. An
+ * `<iframe>` / `<object>` / `<embed>` addresses a document through `src` / `data` /
+ * `srcdoc`, and an `<object>` falls back to its children — all four are gone. Nothing is
+ * added back afterwards either: `rewriteResourceReferences` only rewrites attributes that
+ * are **already there**, and this step runs before it.
+ */
+function emptyInPlace(element: Element): void {
+  for (const attribute of [...element.attributes]) {
+    element.removeAttributeNode(attribute);
+  }
+  element.replaceChildren();
 }
 
 /**

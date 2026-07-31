@@ -66,8 +66,9 @@ const REQUIRED_BY_ADR_0007 = [
   "plate-taller-than-page",
   "table-taller-than-page",
   // The only one that plays a shape **measured at zero** (#54): scripted content in
-  // `<body>` never appeared in the sample, and this file exists so that the CFI shift
-  // `stripScriptedContent`'s `remove()` causes has a test holding it.
+  // `<body>` never appeared in the sample, and this file exists so that
+  // `stripScriptedContent` leaving the node count alone — and with it every following
+  // sibling's CFI — has a test holding it (#65).
   "scripted-content-in-body",
   // The first one ADR-0007's second layer found rather than the first (#35). A real
   // public-domain book turned it up; this is its synthetic copy, because the real book

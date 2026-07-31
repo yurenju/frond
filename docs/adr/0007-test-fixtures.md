@@ -34,7 +34,7 @@ writing-mode-behind-import.epub     <link> 的樣式表只有一行 @import 字�
 hidden-trailing-notes.epub          正文之後跟著 display:none 的註腳，最後一個文字節點畫不出來
 plate-taller-than-page.epub         圖版比一頁還高，包在一層沒宣告高度的 div 裡
 table-taller-than-page.epub         表格比一頁還高——三家分歧，Chromium 切欄、另兩家裁掉
-scripted-content-in-body.epub       <body> 兩段之間夾 <script> 與 <iframe>——移除它們會位移同層之後的 CFI
+scripted-content-in-body.epub       <body> 兩段之間夾 <script> 與 <iframe>——原地清空而不是移除，同層之後的 CFI 才不會位移
 nav-inside-section.epub             toc <nav> 包在 <section> 裡而不是直接掛在 <body> 底下
 ```
 
@@ -42,7 +42,9 @@ nav-inside-section.epub             toc <nav> 包在 <section> 裡而不是直�
 
 `writing-mode-behind-import` 起那四項來自**拿 34 本書實際跑一趟渲染**才量到的病症，見下節。
 
-**`scripted-content-in-body` 是表上唯一「量到 0 才做」的檔**。它演的形狀在 34 本 1638 節裡出現 0 次（`<script>` 全部在 `<head>`，`<body>` 一個都沒有），所以它不是為了守某個病症的回歸——它守的是 `stripScriptedContent` 的 `remove()` 造成的 CFI 位移**有一支會紅的測試**。理由與 `table-taller-than-page` 同一個形狀（釘住現況，讓改變有人知道），差別在那一格是三家分歧、這一格是 frond 自己的移除型介入（#54，規則寫在 ADR-0008）。
+**`scripted-content-in-body` 是表上唯一「量到 0 才做」的檔**。它演的形狀在 34 本 1638 節裡出現 0 次（`<script>` 全部在 `<head>`，`<body>` 一個都沒有），所以它不是為了守某個病症的回歸——它守的是「`stripScriptedContent` 不會動到節點數」這件事**有一支會紅的測試**。
+
+它進 repo 的時候（#54）守的是相反的一面：那時 `stripScriptedContent` 用 `remove()`，這份檔案釘的是移除造成的 CFI 位移。後來改成原地清空（#65），同一份檔案改守清空後 CFI 一格不動——**檔案的位元組沒動，`isolation.spec.ts` 的期望值換了邊**，這正是它當初被做出來的用途。
 
 **最後一項 `nav-inside-section` 是表上第一份來自第二層而不是第三層的。** 它照 `草枕` 的導覽文件縮小——那本書在 #35 進 repo 的第一天就讓 frond 把整份 TOC 讀成空的，詳情見下面第二層那節。
 

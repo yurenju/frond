@@ -736,9 +736,12 @@ const COLUMN_GAP = 40;
 /**
  * Elements with content but no text. They have to count when deciding "is this page empty".
  *
- * `<iframe>` / `<object>` / `<embed>` are not included: all three were removed entirely
- * while the document was still text (`document-source.ts`'s `stripScriptedContent`), and
- * listing them here would only make a reader think they can appear.
+ * `<iframe>` / `<object>` / `<embed>` are not included, and the reason is no longer "they
+ * are not in the document". `stripScriptedContent` now leaves them where they stand and
+ * empties them (ADR-0006, #65), so all three **can** appear — carrying
+ * `display: none !important`, whose bounding rectangle is all zeros. Adding them to this
+ * selector would therefore change nothing: the loop over it already skips a zero-sized
+ * rectangle. They are left out to say that on purpose rather than by accident.
  */
 const REPLACED_ELEMENTS = "img, svg, video, canvas";
 
