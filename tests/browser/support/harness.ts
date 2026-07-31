@@ -263,6 +263,12 @@ export interface FrondHarness {
   selectText(selector: string): void;
   /** Drops the selection through the renderer's own API, rather than by reaching into the iframe. */
   clearSelection(): void;
+  /** Makes the page's `pointerdown` listener call `preventTextSelection()` on every press from now on. */
+  preventTextSelectionOnPress(on: boolean): void;
+  /** How selectable the content document was during the last press. `null` before the first one. */
+  userSelectDuringPress(): string | null;
+  /** How selectable the content document is now — for checking that the press gave it back. */
+  userSelect(): string;
   /** Clicks a link, for the linkactivate tests. */
   clickLink(selector: string): void;
   destroy(): void;

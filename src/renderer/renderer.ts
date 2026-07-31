@@ -664,7 +664,8 @@ export class Renderer {
         {
           onLinkActivate: (href) => this.emitLinkActivate(href),
           onSelectionChange: () => this.emitSelection(),
-          onPointer: (kind, event) => this.emitter.emit(kind, event),
+          onPointerDown: (event) => this.emitter.emit("pointerdown", event),
+          onPointerUp: (event) => this.emitter.emit("pointerup", event),
           onKey: (kind, event) => this.emitter.emit(kind, event),
         },
         section.path,
