@@ -160,6 +160,100 @@ test.describe("pointer events", () => {
   });
 });
 
+/**
+ * `preventTextSelection()` — the one thing a press can decide while it is still happening.
+ *
+ * ## What is actually being defended against, and why it cannot be tested here
+ *
+ * Chrome for Android selects a word out of a plain tap on text and raises a search bar over
+ * the page (Touch to Search). The reader taps the edge to turn the page and gets a search
+ * bar; the selection can be dropped afterwards, but the bar belongs to the browser and no
+ * page script takes it back down. **No desktop engine does this**, so the behaviour itself
+ * is out of reach of this suite — what these tests pin is the mechanism Chrome documents as
+ * the way out of it: text that cannot be selected never triggers it.
+ *
+ * So the assertions are "the document was unselectable for exactly this press" and "a press
+ * cannot select text after asking not to". The phone behaviour is verified by hand, on a
+ * phone.
+ */
+test.describe("suppressing text selection for one press", () => {
+  test("a press that asks for it cannot select text; one that does not, can", async ({ page }) => {
+    await mountFixture(page, "vertical-japanese");
+
+    await page.evaluate(() => window.frond.preventTextSelectionOnPress(true));
+    await dragAcrossText(page);
+    expect(await selectedText(page)).toBe("");
+
+    // The same drag, with nothing suppressing it. Without this half the test would pass just
+    // as well if the drag never selected anything to begin with.
+    await page.evaluate(() => window.frond.preventTextSelectionOnPress(false));
+    await dragAcrossText(page);
+    expect((await selectedText(page)).length).toBeGreaterThan(0);
+  });
+
+  test("the document is unselectable during that press, and selectable again after it", async ({
+    page,
+  }) => {
+    await mountFixture(page, "vertical-japanese");
+    await page.evaluate(() => window.frond.preventTextSelectionOnPress(true));
+
+    await page.mouse.move(400, 300);
+    await page.mouse.down();
+    await page.mouse.up();
+
+    expect(await page.evaluate(() => window.frond.userSelectDuringPress())).toBe("none");
+    expect(await page.evaluate(() => window.frond.userSelect())).not.toBe("none");
+  });
+
+  /**
+   * The press that never ends inside the iframe.
+   *
+   * A finger can leave the frame before it lifts, and the `pointerup` goes wherever it went
+   * — so "restore on release" alone would leave the book unselectable for the rest of the
+   * session. Restoring at the start of the next press is what closes that hole, and the
+   * synthetic `pointerdown` here reproduces the missing release: it is dispatched without a
+   * matching `pointerup`, which a real mouse cannot do.
+   */
+  test("a press with no release does not leave the book unselectable for good", async ({
+    page,
+  }) => {
+    await mountFixture(page, "vertical-japanese");
+    await page.evaluate(() => window.frond.preventTextSelectionOnPress(true));
+
+    await page.evaluate(() => {
+      const frame = document.querySelector("#viewport iframe") as HTMLIFrameElement;
+      frame.contentDocument?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, clientX: 100, clientY: 100 }),
+      );
+    });
+    expect(await page.evaluate(() => window.frond.userSelect())).toBe("none");
+
+    await page.evaluate(() => window.frond.preventTextSelectionOnPress(false));
+    await page.mouse.click(400, 300);
+
+    expect(await page.evaluate(() => window.frond.userSelect())).not.toBe("none");
+  });
+
+  /**
+   * Only selection is suppressed, not the press.
+   *
+   * The consumer's tap zones sit over body text that can hold links, and a reader tapping a
+   * footnote marker means to follow it. If this ever went red the mechanism would have grown
+   * into "prevent the press's default", which costs the tap its click.
+   */
+  test("a link under the finger still activates", async ({ page }) => {
+    await mountFixture(page, "nested-toc");
+    const at = await prependLink(page);
+    await page.evaluate(() => window.frond.preventTextSelectionOnPress(true));
+
+    await page.mouse.click(at.x, at.y);
+
+    await expect
+      .poll(async () => (await events(page)).some((record) => record.name === "linkactivate"))
+      .toBe(true);
+  });
+});
+
 test.describe("key events", () => {
   /**
    * While focus is inside the iframe, the outer document's keyup receives nothing at all —
@@ -250,6 +344,56 @@ interface KeyPayload {
 
 function events(page: Page): Promise<readonly EventRecord[]> {
   return page.evaluate(() => window.frond.events());
+}
+
+/**
+ * Presses, drags across a paragraph and releases — the gesture a reader uses to choose a
+ * passage.
+ *
+ * The two points come from the paragraph's own first rectangle rather than from figures
+ * chosen against the viewport: the fixture is vertical, so "across the text" is down the
+ * screen there and along it in a horizontal book, and a drag that misses the glyphs selects
+ * nothing while looking exactly like a suppressed one.
+ *
+ * `steps` matters too — a single jump is one `mousemove`, and an engine extends a selection
+ * along the moves it receives.
+ */
+async function dragAcrossText(page: Page): Promise<void> {
+  const box = await page.evaluate(() => {
+    const frame = document.querySelector("#viewport iframe") as HTMLIFrameElement | null;
+    const contents = frame?.contentDocument;
+    const paragraph = contents?.querySelector("p");
+    if (frame == null || paragraph == null) return null;
+
+    // The first rectangle, not the bounding box: a paragraph broken over several columns
+    // has a bounding box spanning all of them, whose middle is white space between columns.
+    const rect = paragraph.getClientRects()[0];
+    if (rect === undefined) return null;
+
+    const frameRect = frame.getBoundingClientRect();
+    return {
+      x: frameRect.left + rect.left,
+      y: frameRect.top + rect.top,
+      width: rect.width,
+      height: rect.height,
+    };
+  });
+
+  expect(box).not.toBeNull();
+  const { x, y, width, height } = box!;
+
+  await page.mouse.move(x + width * 0.5, y + height * 0.1);
+  await page.mouse.down();
+  await page.mouse.move(x + width * 0.5, y + height * 0.9, { steps: 10 });
+  await page.mouse.up();
+}
+
+/** What is selected inside the content document right now. */
+function selectedText(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const frame = document.querySelector("#viewport iframe") as HTMLIFrameElement | null;
+    return frame?.contentDocument?.getSelection()?.toString() ?? "";
+  });
 }
 
 /**

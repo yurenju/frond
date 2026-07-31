@@ -165,6 +165,14 @@ export const INTERVENTIONS: readonly Intervention[] = [
     where: "src/renderer/document-source.ts",
     onlyWhenReaderOverrides: false,
   },
+  {
+    id: "unselectable-during-press",
+    what: "writes user-select: none (and the -webkit- prefixed form) onto documentElement while a press the consumer asked to suppress selection for is in progress, and removes it on release",
+    reason: "frond-own-layer",
+    why: "turning pages by tapping is a layer books never declared, and on a phone the browser competes for the same tap: Chrome for Android selects a word out of a plain tap and raises a search bar over the book, which no page script can take back down afterwards. Unselectable text is the one page-side condition Chrome documents it as not firing on. It only happens when the consumer calls preventTextSelection() in that press's pointerdown, it lasts until the press ends, and it changes nothing about how the book is laid out or painted",
+    where: "src/renderer/section-view.ts",
+    onlyWhenReaderOverrides: false,
+  },
 ];
 
 /**

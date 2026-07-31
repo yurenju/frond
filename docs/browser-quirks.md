@@ -744,3 +744,47 @@ frond 的介入清單裡有一項是給溢出的盒子加 `max-block-size` 上�
 **環境**
 
 `Dockerfile` 的映像（`mcr.microsoft.com/playwright:v1.61.1-noble`）。
+
+## Chrome for Android 一個 tap 就選字，並蓋出搜尋 bar（Touch to Search）
+
+**症狀**
+
+手機版 Chrome 上，手指在內文上輕點一下——沒有長按——瀏覽器就選走那個詞，並在畫面
+底部升起一條 Google 搜尋 bar。對用 tap 翻頁的閱讀器來說，讀者點頁面邊緣要翻頁，得到
+的是一個被選起來的詞加一條搜尋 bar。
+
+這條與本檔其他條目**不同類**：它不是三家排版行為的差異，是 Chrome for Android 特有的
+瀏覽器功能，而且**桌機引擎一家都不會做這件事**，所以測試套件抓不到它。
+
+**這一條的證據是什麼**
+
+- 行為本身：消費端 spine 在實機（Android／Chrome）上觀察到，有截圖（spine #36）。
+- 觸發與抑制的條件：Chrome 官方文件〈[Manage the triggering of touch to
+  search](https://developer.chrome.com/blog/tap-to-search)〉。**未經本專案量測**——這台
+  機器上沒有 Android 環境。
+
+依那份文件，會觸發的是「可選取、而且不可互動／不可聚焦的純文字」。不觸發的條件有四種：
+元素可聚焦（`tabindex=-1`）、有 widget 語意（`role=button` 那類）、click handler 呼叫
+了 `preventDefault()` 或改了 DOM／CSS、以及**文字不可選取**（`user-select: none`）。
+最後一種是唯一連長按都不觸發的。
+
+**繞法**
+
+前三種都要落在**被點到的那個元素**上，而書的內文在 iframe 裡、由書自己的標記構成，
+消費端碰不到，frond 也不該替書加 `role` 或 `tabindex`。剩下 `user-select: none`。
+
+但整份文件永久不可選會拿掉劃重點，所以範圍要縮到**一次按壓**：`pointerdown` 當下把
+`user-select: none` 寫上 `documentElement`，放開就拿掉。tap 選字的判定發生在手勢完成
+之後，來得及。
+
+**frond 是否需要處理**
+
+需要，但**只出機制，不做決定**：`RendererPointerDownEvent.preventTextSelection()`。
+哪些按壓該抑制（哪裡是翻頁區、這個消費端到底用不用 tap 翻頁、手指還是滑鼠）是政策，
+留在消費端（ADR-0002）。介入清單上是 `unselectable-during-press`。
+
+**哪個測試會抓到**
+
+`tests/browser/renderer/input-events.spec.ts` 的〈suppressing text selection for one
+press〉。它釘的是**機制**：按壓期間文件不可選、放開之後又可選、期間拖不出選取、以及
+連結照樣點得動。Touch to Search 本身只能在實機上手動確認。

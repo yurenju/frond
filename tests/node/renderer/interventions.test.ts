@@ -30,6 +30,7 @@ const REQUIRED_BY_ADR_0003 = [
   "resolve-generic-families",
   "strip-scripted-content",
   "unprefix-writing-mode",
+  "unselectable-during-press",
   "vertical-punctuation",
 ];
 

@@ -65,6 +65,23 @@ frond 介入的每一項都登記成封閉清單並寫在文件裡，加一項�
 
 只有前兩種要對照門檻。而 `reader-blocked` 那幾項全部只在**讀者實際設過那一項**時才發生——沒有讀者設定就沒有東西被擋住，門檻就不成立。那條規則在清單上是一個欄位（`onlyWhenReaderOverrides`），也就有東西斷言得到。
 
+### 清單上唯一一項會自己消失的介入（`unselectable-during-press`）
+
+其餘每一項都是「掛上去就一直在」，這一項不是：手指按下時把 `user-select: none` 寫上
+`documentElement`，放開就拿掉，活不過一次按壓。理由是一件 CSS 管不到的事——手機版
+Chrome 一個 tap 就選走一個詞並蓋出搜尋 bar（Touch to Search，`docs/browser-quirks.md`），
+而它不觸發的條件裡，消費端搆得到的只有「文字不可選取」。
+
+分類記成 `frond-own-layer`，跟 `column-width` 同一個依據：**用 tap 翻頁是書從來沒有
+宣告過的一層**。要誠實記下它與其他 `frond-own-layer` 項的不同——那幾項是 frond 為了
+把書排出來而必須寫的宣告，這一項是為了讓消費端的手勢不被瀏覽器搶走。兩者相同的地方
+才是分類的依據：書的排版與外觀一個像素都沒有被改。
+
+它也不對照門檻，因為門檻管的是「frond 要不要替書做主」，而這一項連做主的機會都沒有
+——**沒有消費端呼叫 `preventTextSelection()` 就什麼都不會發生**，這一點與
+`onlyWhenReaderOverrides` 那幾項是同一個形狀，只是說了算的人從讀者換成消費端。清單上
+那個欄位仍是 `false`：它問的是讀者設定，而這裡沒有讀者設定這回事。
+
 ### 讀者的字級要贏，光拿掉 `!important` 不夠
 
 上面的〈Consequences〉點名了 inline `!important` 打不贏這件事。實作時撞到的是**第二層**：書只要在任何一個後代上寫了絕對字級（`p { font-size: 12px }`，連 `!important` 都不必），那一段就脫離了讀者設在根元素上的繼承鏈。

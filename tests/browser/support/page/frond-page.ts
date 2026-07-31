@@ -39,6 +39,13 @@ let renderer: Renderer | undefined;
 let recorded: EventRecord[] = [];
 let indexed: Promise<number> | undefined;
 
+// Whether the `pointerdown` listener below asks frond to suppress selection for the press,
+// and what the document's selectability was at that instant. A test cannot read the second
+// from the outside: by the time `page.mouse.up()` has returned, the press is over and the
+// declaration has been taken off again.
+let preventSelectionOnPress = false;
+let pressUserSelect: string | null = null;
+
 const harness: FrondHarness = {
   async mount(fixture, options: MountOptions): Promise<Snapshot> {
     return attach(await loadBook(fixture), options);
@@ -239,6 +246,19 @@ const harness: FrondHarness = {
     renderer?.clearSelection();
   },
 
+  preventTextSelectionOnPress(on): void {
+    preventSelectionOnPress = on;
+    pressUserSelect = null;
+  },
+
+  userSelectDuringPress(): string | null {
+    return pressUserSelect;
+  },
+
+  userSelect(): string {
+    return computedUserSelect();
+  },
+
   clickLink(selector): void {
     const document = contentDocument();
     if (document === undefined) return;
@@ -292,7 +312,11 @@ async function attach(book: RenderableBook, options: MountOptions): Promise<Snap
       linkactivate: record("linkactivate"),
       error: record("error"),
       selection: record("selection"),
-      pointerdown: record("pointerdown"),
+      pointerdown: (event) => {
+        record("pointerdown")(event);
+        if (preventSelectionOnPress) event.preventTextSelection();
+        pressUserSelect = computedUserSelect();
+      },
       pointerup: record("pointerup"),
       keydown: record("keydown"),
       keyup: record("keyup"),
@@ -326,6 +350,23 @@ function snapshot(): Snapshot {
     atStart: location.atStart,
     atEnd: location.atEnd,
   };
+}
+
+/**
+ * Whether the content document can be selected right now, as the engine resolves it.
+ *
+ * Both spellings are read: `user-select` went unprefixed years ago, but WebKit still
+ * answers for the prefixed one in some builds, and a test that read only one of them would
+ * report "the declaration is not there" on an engine where it plainly is.
+ */
+function computedUserSelect(): string {
+  const document = contentDocument();
+  if (document === undefined) return "";
+
+  const style = document.defaultView?.getComputedStyle(document.documentElement);
+  if (style === undefined || style === null) return "";
+
+  return style.getPropertyValue("user-select") || style.getPropertyValue("-webkit-user-select");
 }
 
 function contentDocument(): Document | undefined {

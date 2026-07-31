@@ -31,7 +31,11 @@ import {
   type PageMetrics,
   type WritingMode,
 } from "./geometry.ts";
-import type { RendererKeyEvent, RendererPointerEvent } from "./events.ts";
+import type {
+  RendererKeyEvent,
+  RendererPointerDownEvent,
+  RendererPointerEvent,
+} from "./events.ts";
 import { LAYOUT_STYLE_ID, layoutStylesheet } from "./layout.ts";
 import { isElement, isTextLike } from "./node-type.ts";
 import type { ReaderSettings } from "./settings.ts";
@@ -44,11 +48,16 @@ export interface SectionViewHooks {
   readonly onLinkActivate: (href: string) => void;
   /** The selection inside the iframe changed. */
   readonly onSelectionChange: () => void;
-  /** A pointer went down or up inside the iframe. Coordinates are already converted to the container's coordinate system. */
-  readonly onPointer: (
-    kind: "pointerdown" | "pointerup",
-    event: RendererPointerEvent,
-  ) => void;
+  /**
+   * A pointer went down inside the iframe. Coordinates are already converted to the
+   * container's coordinate system.
+   *
+   * Separate from the release because only the press can still decide what the browser
+   * makes of it — `RendererPointerDownEvent.preventTextSelection()`.
+   */
+  readonly onPointerDown: (event: RendererPointerDownEvent) => void;
+  /** A pointer went up inside the iframe. */
+  readonly onPointerUp: (event: RendererPointerEvent) => void;
   /** A key inside the iframe. The outer page receives nothing while focus is in the iframe, so it has to come out through here. */
   readonly onKey: (kind: "keydown" | "keyup", event: RendererKeyEvent) => void;
 }
@@ -480,15 +489,40 @@ export class SectionView {
     // default behaviour to prevent. A non-passive touch listener makes the browser wait for
     // the listener to finish before deciding whether to scroll, every time, and that is
     // exactly why selecting text and scrolling feel sluggish on phones.
-    for (const kind of ["pointerdown", "pointerup"] as const) {
-      this.document.addEventListener(
-        kind,
-        (event) => {
-          hooks.onPointer(kind, this.describePointer(event as unknown as PointerFacts));
-        },
-        { passive: true },
-      );
-    }
+    //
+    // `preventTextSelection()` does not change that. It suppresses selection by making the
+    // document unselectable rather than by preventing the event's default, so the press
+    // keeps its default behaviour and this listener keeps its `passive`.
+    this.document.addEventListener(
+      "pointerdown",
+      (event) => {
+        const facts = event as unknown as PointerFacts;
+        // A press starting settles the one before it, whatever became of it. Restoring on
+        // release alone is not enough: a finger that leaves the iframe before lifting takes
+        // its `pointerup` with it, and the document would stay unselectable for good.
+        this.restoreTextSelection();
+        hooks.onPointerDown({
+          ...this.describePointer(facts),
+          preventTextSelection: () => this.preventTextSelection(),
+        });
+      },
+      { passive: true },
+    );
+
+    this.document.addEventListener(
+      "pointerup",
+      (event) => {
+        hooks.onPointerUp(this.describePointer(event as unknown as PointerFacts));
+        // After the consumer, so that a listener reading `hasSelection` sees the press as it
+        // was, not as it is once the document is selectable again.
+        this.restoreTextSelection();
+      },
+      { passive: true },
+    );
+
+    this.document.addEventListener("pointercancel", () => this.restoreTextSelection(), {
+      passive: true,
+    });
 
     for (const kind of ["keydown", "keyup"] as const) {
       this.document.addEventListener(
@@ -530,6 +564,33 @@ export class SectionView {
       hasSelection: this.selection() !== undefined,
       isLink: (element?.closest("a[href]") ?? null) !== null,
     };
+  }
+
+  /**
+   * Makes the document unselectable, for as long as the press that asked for it lasts.
+   *
+   * **Why unselectable rather than preventing the press's default.** What has to be stopped
+   * is a browser behaviour that is not a DOM default at all: Chrome for Android selects a
+   * word out of a plain tap and raises a search bar over it (Touch to Search), and the one
+   * page-side condition Chrome documents it as never firing on is text that cannot be
+   * selected. Preventing the default of `pointerdown` addresses the compatibility mouse
+   * events instead, which is a different mechanism and costs the press its click.
+   *
+   * It is written as an inline declaration rather than into frond's layout stylesheet
+   * because it has to win outright and be gone again within one press: the layout sheet is
+   * regenerated wholesale on every relayout, and a book's own rule could outrank it.
+   */
+  private preventTextSelection(): void {
+    const style = this.document.documentElement.style;
+    style.setProperty("-webkit-user-select", "none");
+    style.setProperty("user-select", "none");
+  }
+
+  /** Undoes the above. Harmless when no press asked for it — removing what is not there. */
+  private restoreTextSelection(): void {
+    const style = this.document.documentElement.style;
+    style.removeProperty("-webkit-user-select");
+    style.removeProperty("user-select");
   }
 
   /** The index of the first text node whose end is at or after `target`. */

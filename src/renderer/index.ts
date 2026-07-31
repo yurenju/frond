@@ -47,6 +47,7 @@ export type {
   RendererEvents,
   RendererFailure,
   RendererKeyEvent,
+  RendererPointerDownEvent,
   RendererPointerEvent,
   SectionLoadEvent,
   SelectionEvent,

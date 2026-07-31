@@ -202,6 +202,51 @@ export interface RendererPointerEvent {
 }
 
 /**
+ * A pointer press, which carries one thing a release cannot: the press has not finished
+ * yet, so what the browser will make of it is still open.
+ *
+ * ## Why the press needs a say at all
+ *
+ * A phone browser selects a word out of a plain tap on text, with no long press involved
+ * — Chrome for Android's Touch to Search, which then raises a search bar over the book.
+ * A reader tapping the edge to turn the page gets that bar, and no page turn is worth it.
+ *
+ * Undoing it afterwards does not work. The selection can be dropped through
+ * `clearSelection()`, but the browser's own bar is not part of the document and no page
+ * script can take it back down; by the time the consumer knows a tap happened, the bar is
+ * already up. So the only moment where anything can be done is before the browser decides,
+ * and this event is that moment.
+ *
+ * ## Why frond does not decide it
+ *
+ * Which presses should not select is policy: it depends on where the tap zones are, on
+ * whether that consumer turns pages by tapping at all, and on the device (ADR-0002). frond
+ * supplies the moment and the mechanism; the consumer supplies the "which".
+ */
+export interface RendererPointerDownEvent extends RendererPointerEvent {
+  /**
+   * Stops the browser from selecting text out of **this press** — the tap-selects-a-word
+   * behaviour above, and a long press that grows out of the same press.
+   *
+   * The document is made unselectable for the duration of the press and is restored on
+   * release, which is what Chrome documents as a condition Touch to Search will not fire
+   * on ("Manage the triggering of touch to search"). Nothing else about the press changes:
+   * a link under the finger still activates, and a caret still lands.
+   *
+   * Three things follow from "for the duration of the press":
+   *
+   * - It has to be called **synchronously** in the `pointerdown` listener. Later is after
+   *   the browser has already decided.
+   * - It says nothing about presses that come after. Each press asks again.
+   * - A selection that already exists is dropped by making the document unselectable, so a
+   *   consumer that means to leave one alone should look at `hasSelection` first.
+   *
+   * Calling it more than once during one press does nothing the first call did not.
+   */
+  preventTextSelection(): void;
+}
+
+/**
  * One key press inside the iframe.
  *
  * While focus is inside the iframe, the outer document's `keyup` receives nothing — which
@@ -232,7 +277,7 @@ export interface RendererEvents {
   indexed: IndexedEvent;
   linkactivate: LinkActivateEvent;
   error: RendererErrorEvent;
-  pointerdown: RendererPointerEvent;
+  pointerdown: RendererPointerDownEvent;
   pointerup: RendererPointerEvent;
   keydown: RendererKeyEvent;
   keyup: RendererKeyEvent;
