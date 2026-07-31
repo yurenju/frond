@@ -229,6 +229,75 @@ test.describe("cancelling the browser's own action for one press", () => {
   });
 
   /**
+   * Two fingers on the screen at once — a thumb resting on the page while the other hand
+   * taps the edge.
+   *
+   * The answer has to belong to the finger that asked for it, and a single flag cannot hold
+   * that. The resting thumb's `pointerdown` would clear the tapping finger's answer, and
+   * whichever `touchend` arrived first would spend it, cancelled or not. Both halves are
+   * wrong in a way the reader would feel: the search bar comes up anyway, or an innocent
+   * press quietly loses its click.
+   *
+   * The events are synthesized because Playwright drives one finger at a time. Each
+   * `dispatchEvent` returns false when the event was cancelled, which is the answer itself —
+   * no probe needed.
+   */
+  test("two fingers at once: each keeps its own answer", async ({ page, browserName }) => {
+    // WebKit's `Touch` constructor is not callable from page script ("Illegal constructor"),
+    // so this one engine cannot be asked. The behaviour being defended is Chrome for
+    // Android's to begin with, and the mechanism itself is pinned in all three above.
+    test.skip(browserName === "webkit", "WebKit cannot construct a Touch from page script");
+    await mountFixture(page, "vertical-japanese");
+
+    const answers = await page.evaluate(() => {
+      const frame = document.querySelector("#viewport iframe") as HTMLIFrameElement;
+      const view = frame.contentWindow as (Window & typeof globalThis) | null;
+      const contents = frame.contentDocument;
+      if (view === null || contents === null) return null;
+
+      const finger = (identifier: number): Touch =>
+        new view.Touch({ identifier, target: contents.body, clientX: identifier * 20, clientY: 40 });
+      const touch = (kind: string, changed: Touch[], down: Touch[]): boolean =>
+        contents.dispatchEvent(
+          new view.TouchEvent(kind, {
+            bubbles: true,
+            cancelable: true,
+            touches: down,
+            changedTouches: changed,
+          }),
+        );
+      const press = (x: number): void => {
+        contents.dispatchEvent(
+          new view.PointerEvent("pointerdown", {
+            bubbles: true,
+            pointerType: "touch",
+            clientX: x,
+            clientY: 40,
+          }),
+        );
+      };
+
+      const asking = finger(1);
+      const resting = finger(2);
+
+      window.frond.preventTapDefaultOnPress(true);
+      press(20);
+      touch("touchstart", [asking], [asking]);
+
+      window.frond.preventTapDefaultOnPress(false);
+      press(40);
+      touch("touchstart", [resting], [asking, resting]);
+
+      // The finger that never asked lifts first, and must take nothing with it.
+      const restingCancelled = !touch("touchend", [resting], [asking]);
+      const askingCancelled = !touch("touchend", [asking], []);
+      return { restingCancelled, askingCancelled };
+    });
+
+    expect(answers).toEqual({ restingCancelled: false, askingCancelled: true });
+  });
+
+  /**
    * Cancelling the tap's default must not cost the consumer the tap itself.
    *
    * The point of suppressing it is that the press turns a page instead. A consumer that
