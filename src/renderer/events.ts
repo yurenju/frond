@@ -219,31 +219,39 @@ export interface RendererPointerEvent {
  *
  * ## Why frond does not decide it
  *
- * Which presses should not select is policy: it depends on where the tap zones are, on
- * whether that consumer turns pages by tapping at all, and on the device (ADR-0002). frond
- * supplies the moment and the mechanism; the consumer supplies the "which".
+ * Which presses the browser should not act on is policy: it depends on where the tap zones
+ * are, on whether that consumer turns pages by tapping at all, and on the device (ADR-0002).
+ * frond supplies the moment and the mechanism; the consumer supplies the "which".
  */
 export interface RendererPointerDownEvent extends RendererPointerEvent {
   /**
-   * Stops the browser from selecting text out of **this press** — the tap-selects-a-word
-   * behaviour above, and a long press that grows out of the same press.
+   * Cancels the browser's own action for **this press**: the `click` it would produce, and
+   * with it the tap-selects-a-word behaviour above.
    *
-   * The document is made unselectable for the duration of the press and is restored on
-   * release, which is what Chrome documents as a condition Touch to Search will not fire
-   * on ("Manage the triggering of touch to search"). Nothing else about the press changes:
-   * a link under the finger still activates, and a caret still lands.
+   * frond does that by preventing the default of the `touchend` that ends the press. Which
+   * mechanism to use was decided by measurement rather than by reading the documentation.
+   * Chrome names unselectable text as a condition Touch to Search does not fire on, and
+   * making the document unselectable for the press only made the bar **rarer** — 21% of
+   * taps raised it anyway, against 72% with nothing at all. Cancelling the touch stopped it
+   * outright, 0 times in 15, on an Android phone (#80).
    *
-   * Three things follow from "for the duration of the press":
+   * Four things follow:
    *
    * - It has to be called **synchronously** in the `pointerdown` listener. Later is after
    *   the browser has already decided.
-   * - It says nothing about presses that come after. Each press asks again.
-   * - A selection that already exists is dropped by making the document unselectable, so a
-   *   consumer that means to leave one alone should look at `hasSelection` first.
+   * - **The press loses its `click`**, and frond's link handling is built on that click, so
+   *   `linkactivate` does not fire for a press that asked. `isLink` says whether that is
+   *   about to matter, and a consumer whose tap zones lie over body text should read it.
+   * - **Only a touch has this default to cancel.** For a mouse press the call does nothing.
+   * - It says nothing about presses that come after. Each press asks again, and a press
+   *   that ends outside the iframe takes its answer with it rather than leaving it armed.
+   *
+   * Selection is left alone, deliberately: a long press still selects, and a selection
+   * already in progress survives a press that asked.
    *
    * Calling it more than once during one press does nothing the first call did not.
    */
-  preventTextSelection(): void;
+  preventTapDefault(): void;
 }
 
 /**

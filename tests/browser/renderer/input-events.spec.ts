@@ -161,7 +161,7 @@ test.describe("pointer events", () => {
 });
 
 /**
- * `preventTextSelection()` — the one thing a press can decide while it is still happening.
+ * `preventTapDefault()` — the one thing a press can decide while it is still happening.
  *
  * ## What is actually being defended against, and why it cannot be tested here
  *
@@ -169,56 +169,51 @@ test.describe("pointer events", () => {
  * the page (Touch to Search). The reader taps the edge to turn the page and gets a search
  * bar; the selection can be dropped afterwards, but the bar belongs to the browser and no
  * page script takes it back down. **No desktop engine does this**, so the behaviour itself
- * is out of reach of this suite — what these tests pin is the mechanism Chrome documents as
- * the way out of it: text that cannot be selected never triggers it.
+ * is out of reach of this suite.
  *
- * So the assertions are "the document was unselectable for exactly this press" and "a press
- * cannot select text after asking not to". The phone behaviour is verified by hand, on a
- * phone.
+ * ## Why the mechanism is this one
+ *
+ * It used to make the document unselectable for as long as the press lasted — the condition
+ * Chrome's own documentation names as one Touch to Search will not fire on. Measured on a
+ * phone, that only made the bar rarer: 21% of taps raised it anyway, against 72% with
+ * nothing at all. Cancelling the touch that ends the press is what actually stopped it, 0
+ * times in 15 (#80).
+ *
+ * So what is pinned here is that mechanism — the `touchend` of a press that asked is
+ * cancelled, the press still reaches the consumer, and no answer carries into the next
+ * press. Whether the bar is really gone is confirmed by hand, on a phone.
  */
-test.describe("suppressing text selection for one press", () => {
-  test("a press that asks for it cannot select text; one that does not, can", async ({ page }) => {
-    await mountFixture(page, "vertical-japanese");
+test.describe("cancelling the browser's own action for one press", () => {
+  // The whole subject is a touch sequence: without one there is no `touchend` to cancel.
+  test.use({ hasTouch: true });
 
-    await page.evaluate(() => window.frond.preventTextSelectionOnPress(true));
-    await dragAcrossText(page);
-    expect(await selectedText(page)).toBe("");
-
-    // The same drag, with nothing suppressing it. Without this half the test would pass just
-    // as well if the drag never selected anything to begin with.
-    await page.evaluate(() => window.frond.preventTextSelectionOnPress(false));
-    await dragAcrossText(page);
-    expect((await selectedText(page)).length).toBeGreaterThan(0);
-  });
-
-  test("the document is unselectable during that press, and selectable again after it", async ({
+  test("the touch that ends a press which asked is cancelled — and only that press", async ({
     page,
   }) => {
     await mountFixture(page, "vertical-japanese");
-    await page.evaluate(() => window.frond.preventTextSelectionOnPress(true));
 
-    await page.mouse.move(400, 300);
-    await page.mouse.down();
-    await page.mouse.up();
+    await page.evaluate(() => window.frond.preventTapDefaultOnPress(true));
+    await page.touchscreen.tap(400, 300);
+    expect(await page.evaluate(() => window.frond.touchEndDefaultPrevented())).toBe(true);
 
-    expect(await page.evaluate(() => window.frond.userSelectDuringPress())).toBe("none");
-    expect(await page.evaluate(() => window.frond.userSelect())).not.toBe("none");
+    // The other half. Without it the test would pass just as well on an implementation that
+    // cancelled every touch it saw, which is a different mechanism with a different cost.
+    await page.evaluate(() => window.frond.preventTapDefaultOnPress(false));
+    await page.touchscreen.tap(400, 300);
+    expect(await page.evaluate(() => window.frond.touchEndDefaultPrevented())).toBe(false);
   });
 
   /**
    * The press that never ends inside the iframe.
    *
-   * A finger can leave the frame before it lifts, and the `pointerup` goes wherever it went
-   * — so "restore on release" alone would leave the book unselectable for the rest of the
-   * session. Restoring at the start of the next press is what closes that hole, and the
-   * synthetic `pointerdown` here reproduces the missing release: it is dispatched without a
-   * matching `pointerup`, which a real mouse cannot do.
+   * A finger can leave the frame before it lifts, and the `touchend` goes wherever it went.
+   * An answer left standing would then cancel a later tap the consumer never asked about —
+   * one that might be on a link. The synthetic `pointerdown` reproduces the missing release:
+   * it arrives with no touch sequence at all, which a real finger cannot do.
    */
-  test("a press with no release does not leave the book unselectable for good", async ({
-    page,
-  }) => {
+  test("a press with no release does not cancel the next one", async ({ page }) => {
     await mountFixture(page, "vertical-japanese");
-    await page.evaluate(() => window.frond.preventTextSelectionOnPress(true));
+    await page.evaluate(() => window.frond.preventTapDefaultOnPress(true));
 
     await page.evaluate(() => {
       const frame = document.querySelector("#viewport iframe") as HTMLIFrameElement;
@@ -226,31 +221,78 @@ test.describe("suppressing text selection for one press", () => {
         new PointerEvent("pointerdown", { bubbles: true, clientX: 100, clientY: 100 }),
       );
     });
-    expect(await page.evaluate(() => window.frond.userSelect())).toBe("none");
 
-    await page.evaluate(() => window.frond.preventTextSelectionOnPress(false));
-    await page.mouse.click(400, 300);
+    await page.evaluate(() => window.frond.preventTapDefaultOnPress(false));
+    await page.touchscreen.tap(400, 300);
 
-    expect(await page.evaluate(() => window.frond.userSelect())).not.toBe("none");
+    expect(await page.evaluate(() => window.frond.touchEndDefaultPrevented())).toBe(false);
   });
 
   /**
-   * Only selection is suppressed, not the press.
+   * Cancelling the tap's default must not cost the consumer the tap itself.
    *
-   * The consumer's tap zones sit over body text that can hold links, and a reader tapping a
-   * footnote marker means to follow it. If this ever went red the mechanism would have grown
-   * into "prevent the press's default", which costs the tap its click.
+   * The point of suppressing it is that the press turns a page instead. A consumer that
+   * stopped hearing about the press would have nothing left to turn on, and the symptom
+   * would read as "tapping the edge does nothing" rather than as anything to do with a
+   * search bar.
    */
-  test("a link under the finger still activates", async ({ page }) => {
+  test("the press still reaches the consumer", async ({ page }) => {
+    await mountFixture(page, "vertical-japanese");
+    await page.evaluate(() => window.frond.preventTapDefaultOnPress(true));
+
+    await page.touchscreen.tap(400, 300);
+
+    expect((await waitForEvent(page, "pointerdown")).pointerType).toBe("touch");
+    expect((await waitForEvent(page, "pointerup")).pointerType).toBe("touch");
+  });
+
+  /**
+   * What this mechanism, unlike the one before it, does not take away.
+   *
+   * Making the document unselectable cost the reader every selection that grew out of a
+   * suppressed press: a long press inside the consumer's tap zone selected nothing, and a
+   * selection already in progress was dropped where the press landed. Cancelling a touch
+   * takes none of that — and a mouse, which has no touch sequence at all, is untouched even
+   * while every press is asking.
+   */
+  test("a mouse drag still selects text, whatever the presses ask for", async ({ page }) => {
+    await mountFixture(page, "vertical-japanese");
+    await page.evaluate(() => window.frond.preventTapDefaultOnPress(true));
+
+    await dragAcrossText(page);
+
+    expect((await selectedText(page)).length).toBeGreaterThan(0);
+  });
+
+  /**
+   * The cost, written down as a test.
+   *
+   * A cancelled touch takes the tap's `click` with it, and frond's link handling is built on
+   * that click — so a press that asks for this cannot also activate a link. Which presses
+   * ask is policy (ADR-0002), and a consumer whose tap zones sit over body text has to leave
+   * the ones landing on links alone; `isLink` is there for exactly that, and spine's
+   * navigator reads it. What this pins is that "the footnote stopped working" traces back to
+   * a decision rather than to a surprise.
+   */
+  test("a link tapped in a cancelled press does not activate, though the same tap otherwise does", async ({
+    page,
+  }) => {
     await mountFixture(page, "nested-toc");
     const at = await prependLink(page);
-    await page.evaluate(() => window.frond.preventTextSelectionOnPress(true));
 
-    await page.mouse.click(at.x, at.y);
+    // The control first, so the negative half below is measured against a tap already known
+    // to reach the link.
+    await page.evaluate(() => window.frond.preventTapDefaultOnPress(false));
+    await page.touchscreen.tap(at.x, at.y);
+    await expect.poll(async () => await linkActivations(page)).toBe(1);
 
-    await expect
-      .poll(async () => (await events(page)).some((record) => record.name === "linkactivate"))
-      .toBe(true);
+    await page.evaluate(() => window.frond.preventTapDefaultOnPress(true));
+    await page.touchscreen.tap(at.x, at.y);
+
+    // The touch is recorded as it is cancelled, and a click follows a touch immediately —
+    // so once the second tap's own answer is in, an activation it caused would be in too.
+    await expect.poll(async () => await touchEndPrevented(page)).toBe(true);
+    expect(await linkActivations(page)).toBe(1);
   });
 });
 
@@ -344,6 +386,16 @@ interface KeyPayload {
 
 function events(page: Page): Promise<readonly EventRecord[]> {
   return page.evaluate(() => window.frond.events());
+}
+
+/** How many links have been activated so far — the link tests count rather than look. */
+async function linkActivations(page: Page): Promise<number> {
+  return (await events(page)).filter((record) => record.name === "linkactivate").length;
+}
+
+/** What became of the touch that ended the last press. */
+function touchEndPrevented(page: Page): Promise<boolean | null> {
+  return page.evaluate(() => window.frond.touchEndDefaultPrevented());
 }
 
 /**

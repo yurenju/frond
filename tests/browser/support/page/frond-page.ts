@@ -39,12 +39,12 @@ let renderer: Renderer | undefined;
 let recorded: EventRecord[] = [];
 let indexed: Promise<number> | undefined;
 
-// Whether the `pointerdown` listener below asks frond to suppress selection for the press,
-// and what the document's selectability was at that instant. A test cannot read the second
-// from the outside: by the time `page.mouse.up()` has returned, the press is over and the
-// declaration has been taken off again.
-let preventSelectionOnPress = false;
-let pressUserSelect: string | null = null;
+// Whether the `pointerdown` listener below asks frond to cancel the browser's own action for
+// the press, and what became of the touch that ended it. A test cannot read the second from
+// the outside: `defaultPrevented` belongs to an event that is gone by the time the tap has
+// returned.
+let cancelsTapDefault = false;
+let touchEndPrevented: boolean | null = null;
 
 const harness: FrondHarness = {
   async mount(fixture, options: MountOptions): Promise<Snapshot> {
@@ -246,17 +246,13 @@ const harness: FrondHarness = {
     renderer?.clearSelection();
   },
 
-  preventTextSelectionOnPress(on): void {
-    preventSelectionOnPress = on;
-    pressUserSelect = null;
+  preventTapDefaultOnPress(on): void {
+    cancelsTapDefault = on;
+    touchEndPrevented = null;
   },
 
-  userSelectDuringPress(): string | null {
-    return pressUserSelect;
-  },
-
-  userSelect(): string {
-    return computedUserSelect();
+  touchEndDefaultPrevented(): boolean | null {
+    return touchEndPrevented;
   },
 
   clickLink(selector): void {
@@ -307,15 +303,17 @@ async function attach(book: RenderableBook, options: MountOptions): Promise<Snap
     start: options.start,
     on: {
       relocate: record("relocate"),
-      load: record("load"),
+      load: (event) => {
+        record("load")(event);
+        watchTouchEnd();
+      },
       layout: record("layout"),
       linkactivate: record("linkactivate"),
       error: record("error"),
       selection: record("selection"),
       pointerdown: (event) => {
         record("pointerdown")(event);
-        if (preventSelectionOnPress) event.preventTextSelection();
-        pressUserSelect = computedUserSelect();
+        if (cancelsTapDefault) event.preventTapDefault();
       },
       pointerup: record("pointerup"),
       keydown: record("keydown"),
@@ -353,20 +351,20 @@ function snapshot(): Snapshot {
 }
 
 /**
- * Whether the content document can be selected right now, as the engine resolves it.
+ * Records what became of the `touchend` that ends a press.
  *
- * Both spellings are read: `user-select` went unprefixed years ago, but WebKit still
- * answers for the prefixed one in some builds, and a test that read only one of them would
- * report "the declaration is not there" on an engine where it plainly is.
+ * Registered from the `load` hook, which the renderer emits **after** the section view has
+ * wired its own listeners — so this one runs second and sees `defaultPrevented` as frond
+ * left it. Registered per section, because each one brings a new content document.
  */
-function computedUserSelect(): string {
+function watchTouchEnd(): void {
   const document = contentDocument();
-  if (document === undefined) return "";
+  if (document === undefined) return;
 
-  const style = document.defaultView?.getComputedStyle(document.documentElement);
-  if (style === undefined || style === null) return "";
-
-  return style.getPropertyValue("user-select") || style.getPropertyValue("-webkit-user-select");
+  touchEndPrevented = null;
+  document.addEventListener("touchend", (event) => {
+    touchEndPrevented = event.defaultPrevented;
+  });
 }
 
 function contentDocument(): Document | undefined {
