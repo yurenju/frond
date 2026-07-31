@@ -90,8 +90,10 @@ export class SectionView {
   private insets: Insets;
   /** The text nodes flattened into document order. Measuring positions binary-searches it, so it is computed once. */
   private textNodes: readonly Text[];
-  /** The press in progress asked for the browser's own action to be cancelled (`preventTapDefault()`). */
-  private cancelTapDefault = false;
+  /** The press that just went down asked for the browser's own action to be cancelled, and its touch has not arrived yet. */
+  private tapDefaultRequested = false;
+  /** The touches whose `touchend` is to be cancelled, by `Touch.identifier` — one entry per finger that asked. */
+  private readonly cancelledTouches = new Set<number>();
 
   private constructor(
     frame: HTMLIFrameElement,
@@ -494,14 +496,14 @@ export class SectionView {
       "pointerdown",
       (event) => {
         const facts = event as unknown as PointerFacts;
-        // A press starting settles the one before it, whatever became of it. A finger that
-        // leaves the iframe before lifting takes its `touchend` with it, and an answer left
-        // standing would cancel a later tap the consumer never asked about.
-        this.cancelTapDefault = false;
+        // What the press before this one asked is settled by now — either its touch ended
+        // and took the answer with it, or the answer never reached a touch at all (a mouse).
+        // Either way this press starts from no.
+        this.tapDefaultRequested = false;
         hooks.onPointerDown({
           ...this.describePointer(facts),
           preventTapDefault: () => {
-            this.cancelTapDefault = true;
+            this.tapDefaultRequested = true;
           },
         });
       },
@@ -516,9 +518,36 @@ export class SectionView {
       { passive: true },
     );
 
-    this.document.addEventListener("pointercancel", () => (this.cancelTapDefault = false), {
-      passive: true,
-    });
+    // **The answer is moved onto the finger that carries it**, and this is the only moment
+    // where the two can be matched up: Pointer Events requires `pointerdown` to be dispatched
+    // before the `touchstart` for the same contact, so the request the consumer just made
+    // belongs to the touch arriving here.
+    //
+    // A single flag would be wrong as soon as two fingers are on the screen — a thumb resting
+    // on the page while the other hand taps the edge. The second `pointerdown` would clear
+    // the first finger's answer, and the first `touchend` to arrive would spend it whether or
+    // not it was that finger's.
+    this.document.addEventListener(
+      "touchstart",
+      (event) => {
+        // A gesture starting from nothing cannot inherit anything: this bounds the set even
+        // if an engine somewhere loses a `touchend`.
+        if (event.touches.length === event.changedTouches.length) this.cancelledTouches.clear();
+        if (!this.tapDefaultRequested) return;
+
+        this.tapDefaultRequested = false;
+        for (const touch of event.changedTouches) this.cancelledTouches.add(touch.identifier);
+      },
+      { passive: true },
+    );
+
+    this.document.addEventListener(
+      "touchcancel",
+      (event) => {
+        for (const touch of event.changedTouches) this.cancelledTouches.delete(touch.identifier);
+      },
+      { passive: true },
+    );
 
     // **The one non-passive listener**, and the mechanism behind `preventTapDefault()`.
     //
@@ -529,13 +558,15 @@ export class SectionView {
     // Cancelling this event is what takes the tap's `click` away, and with it Chrome for
     // Android's Touch to Search. It stays registered whether or not any consumer ever asks:
     // a listener added later, once a press has already begun, would be too late for that
-    // press, and the flag is what makes it a no-op the rest of the time.
+    // press, and an empty set is what makes it a no-op the rest of the time.
     this.document.addEventListener(
       "touchend",
       (event) => {
-        if (!this.cancelTapDefault) return;
-        this.cancelTapDefault = false;
-        event.preventDefault();
+        let cancel = false;
+        for (const touch of event.changedTouches) {
+          if (this.cancelledTouches.delete(touch.identifier)) cancel = true;
+        }
+        if (cancel) event.preventDefault();
       },
       { passive: false },
     );

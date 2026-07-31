@@ -788,7 +788,8 @@ frond 的介入清單裡有一項是給溢出的盒子加 `max-block-size` 上�
 
 `touchend` 的 `preventDefault()`。它取消的是那一下 tap 的 `click`，Touch to Search 跟著
 不發。可聚焦（`tabindex`）那條也量到 0，但它要掛在**書自己的標記**上、而且是整本永久
-生效，frond 不替書加 `role` 或 `tabindex`（ADR-0002），所以不走那條。
+生效。替書加 `role` 或 `tabindex` 是改書自己的標記，要對照 ADR-0003 的介入門檻——為了一個
+手勢層的問題改掉整本書的無障礙語意，過不了那道門檻，所以不走那條。
 
 範圍縮到**一次按壓**：消費端在 `pointerdown` 說這一下要擋，frond 記住，等它的 `touchend`
 到就取消。書的 CSS 一個字都沒有被碰到——這也是介入清單上不再有這一項的原因。

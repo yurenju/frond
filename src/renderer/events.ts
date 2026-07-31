@@ -243,8 +243,9 @@ export interface RendererPointerDownEvent extends RendererPointerEvent {
    *   `linkactivate` does not fire for a press that asked. `isLink` says whether that is
    *   about to matter, and a consumer whose tap zones lie over body text should read it.
    * - **Only a touch has this default to cancel.** For a mouse press the call does nothing.
-   * - It says nothing about presses that come after. Each press asks again, and a press
-   *   that ends outside the iframe takes its answer with it rather than leaving it armed.
+   * - It says nothing about any other press. The answer is carried by the finger that asked,
+   *   so a second finger on the screen neither takes it nor loses its own, and each press
+   *   asks again.
    *
    * Selection is left alone, deliberately: a long press still selects, and a selection
    * already in progress survives a press that asked.
