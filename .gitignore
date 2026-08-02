@@ -10,6 +10,11 @@ tests/books/commercial/
 # still runs (docs/agents/pull-requests.md).
 tests/browser/evidence/
 
+# Where those specs write their images. A PR description embeds them from pr-image rather
+# than from the repo, so nothing here needs committing; the images a long-lived document
+# cites go in docs/evidence/<issue>/ instead (docs/agents/pull-requests.md).
+docs/evidence/tmp/
+
 # The shipped artifact. Produced by `npm run build` — committing it would only let it fall
 # out of sync with src/.
 dist/

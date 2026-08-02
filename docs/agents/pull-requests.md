@@ -40,29 +40,37 @@ frond 的正確性有一部分只有畫面看得出來——直排標點的位�
 
 **這是開 PR 前的作者側檢查，不是 CI 閘門。** 它不擋任何東西，也不守回歸——那個取捨與代價記在 ADR-0001。
 
-### 圖片可以放，但不能用網頁介面那條路
+### 圖片用 pr-image 託管，不 commit 進 repo
 
-GitHub 的 PR 說明與留言支援 Markdown 圖片，前提是圖片有一個公開取得的 URL。
+GitHub 的 PR 說明與留言支援 Markdown 圖片，前提是圖片有一個公開取得的 URL，**而 GitHub 自己不從命令列給你這種 URL**。網頁介面拖放上傳會產生 `https://github.com/user-attachments/assets/...`，那個 URL 只有瀏覽器 session 拿得到——`gh` 沒有上傳附件的指令，PAT 也打不到那個端點。CI 的 artifact 需要認證而且會過期，同樣不能內嵌。
 
-網頁介面拖放上傳會產生 `https://github.com/user-attachments/assets/...`，那個 URL 只有瀏覽器 session 拿得到——`gh` 沒有上傳附件的指令，PAT 也打不到那個端點。CI 的 artifact 需要認證而且會過期，同樣不能內嵌。
+所以圖用 [pr-image](https://github.com/yurenju/pr-image) 上傳：它把檔案放進 Cloudflare R2，印出一個公開的 URL。
 
-可行的做法是**把圖片 commit 進 repo，用 `raw.githubusercontent.com` 引用**。frond 是公開 repo，這個 URL 不需要認證。
+```bash
+pr-image upload --markdown docs/evidence/tmp/chromium-vertical.png docs/evidence/tmp/webkit-vertical.png
+```
+
+印出來的就是可以直接貼進 PR 內文的東西，一個檔一行：
+
+```
+![chromium-vertical](https://pr-image.yurenju.me/OjMjwaQH2zkR4ZXk68M4zA.png)
+![webkit-vertical](https://pr-image.yurenju.me/Bn4GAYpownDGz8Hz8CKZ-Q.png)
+```
+
+**alt text 取自檔名**，所以 spec 裡怎麼命名，PR 說明裡就長什麼樣——底下那支範例 spec 用 `${testInfo.project.name}-vertical` 本來就是對的，不要退成 `shot1.png`。不加 `--markdown` 就只印裸的 URL，`url=$(pr-image upload shot.png)` 接得住。
+
+**沒有 pr-image 就先裝**，步驟在 [README 的 Per-machine setup](https://github.com/yurenju/pr-image#per-machine-setup)。它要一個自己的 Cloudflare R2 bucket 加一個 1Password service account，不是 `npm install` 一行就有——這個工具不預設任何共用帳號。裝不起來的話把這件事在 PR 裡講出來，不要臨時改用別的圖床。
+
+**這批圖不 commit 進 repo，而且 30 天後會被 bucket 的 lifecycle rule 刪掉。** 那跟它們的用途是相稱的：一次判讀的證據，合併之後沒有人會再回去看。真正要活下來的是文字——判讀表，以及〈圖旁邊一定要附數字〉那些數字。圖本來就被定位成「給人看的證據，不是可以被否證的斷言」，可以被否證的那一半從來都在文字裡。
+
+這一節以前寫的是「commit 進 `docs/evidence/<issue 編號>/`，用釘 SHA 的 `raw.githubusercontent.com` URL 引用」。那條路技術上仍然通——frond 是公開 repo，那個 URL 不需要認證——但代價是每次判讀往 git 歷史裡塞一批永遠拿不掉的 PNG，而其中絕大多數只被讀過一次。**只有一種圖現在還要 commit**：長期文件會引用的那幾張，見〈哪些圖留在 repo 裡〉。
 
 ### 流程
 
 1. **在容器裡產生截圖**：`npm run evidence -- <spec 路徑>`。做法見下面〈截圖怎麼從容器裡出來〉——這一步不能在 host 上做，host 沒有瀏覽器也沒有那套釘死的字型。
-2. 裁切、縮到夠看就好，存成 PNG，放在 `docs/evidence/<issue 編號>/` 底下。
-3. 跟著這次變更一起 commit 並 push。
-4. 取得 commit SHA：`git rev-parse HEAD`。
-5. PR 內文用這個形式引用：
-
-```
-![WebKit 直排下句點留在左下](https://raw.githubusercontent.com/yurenju/frond/<SHA>/docs/evidence/3/webkit-vertical-fullstop.png)
-```
-
-6. `gh pr create --body-file <檔案>`。
-
-**URL 一定要釘 commit SHA，不要用分支名。** 分支名指向的內容會隨著後續 commit 改變，分支在合併後被刪掉時整個 URL 就死了——而 PR 說明是要留著給人回頭看的。
+2. 裁切、縮到夠看就好，存成 PNG。spec 把檔案寫進 `docs/evidence/tmp/`（已 gitignore）。
+3. `pr-image upload --markdown docs/evidence/tmp/*.png`。
+4. 把印出來的那幾行貼進 PR 內文，`gh pr create --body-file <檔案>`。
 
 ### 截圖怎麼從容器裡出來
 
@@ -75,7 +83,7 @@ npm run evidence -- tests/browser/evidence/vertical.spec.ts
 npm run evidence -- tests/browser/evidence/vertical.spec.ts --project=webkit
 ```
 
-它與 `test:container` 走同一套引擎判斷與同一個映像，差別只有兩件事：只跑你指定的那一支 spec，以及把 `docs/evidence/` 掛成可寫。**spec 要把檔案寫進 `docs/evidence/<issue 編號>/`**，那是唯一活得下來的路徑。
+它與 `test:container` 走同一套引擎判斷與同一個映像，差別只有兩件事：只跑你指定的那一支 spec，以及把 `docs/evidence/` 掛成可寫。**spec 要把檔案寫進 `docs/evidence/` 底下**，那是唯一活得下來的路徑：一次判讀用的圖寫 `docs/evidence/tmp/`（gitignore，傳完就可以刪），長期文件要引用的才寫 `docs/evidence/<issue 編號>/`。
 
 一次性的 spec 放 `tests/browser/evidence/`：
 
@@ -90,14 +98,14 @@ import { mkdir } from "node:fs/promises";
 import { test } from "@playwright/test";
 
 test("直排下的句點位置", async ({ page }, testInfo) => {
-  await mkdir("docs/evidence/29", { recursive: true });
+  await mkdir("docs/evidence/tmp", { recursive: true });
   await page.setContent(`<!doctype html>
 <html lang="ja"><body style="margin:0;writing-mode:vertical-rl;font-family:'Noto Serif CJK JP';font-size:32px">
 <p style="margin:0">朝の光。</p></body></html>`);
   // 檔名帶瀏覽器名字：三家的圖要並排比較，混在一起就分不出誰是誰。
   await page
     .locator("p")
-    .screenshot({ path: `docs/evidence/29/${testInfo.project.name}-vertical.png` });
+    .screenshot({ path: `docs/evidence/tmp/${testInfo.project.name}-vertical.png` });
 });
 ```
 
@@ -112,12 +120,20 @@ test("直排下的句點位置", async ({ page }, testInfo) => {
 ```
 | Chromium | WebKit |
 | --- | --- |
-| ![](https://raw.githubusercontent.com/.../chromium.png) | ![](https://raw.githubusercontent.com/.../webkit.png) |
+| ![](https://pr-image.yurenju.me/OjMjwaQH2zkR4ZXk68M4zA.png) | ![](https://pr-image.yurenju.me/Bn4GAYpownDGz8Hz8CKZ-Q.png) |
 ```
 
 **圖旁邊一定要附數字。** 這個專案的立場是視覺判讀不可省略但也不可單獨採信——截圖是給人看的證據，不是可以被否證的斷言。所以放圖的同時要寫出量到的值（墨水重心座標、矩形、頁數），並指出是哪一條測試在守著它。只有圖沒有數字的 PR 說明，等於把「我看起來覺得對」寫進紀錄。
 
-**圖片會永遠留在 git 歷史裡。** 只放真正解釋得了東西的圖，裁掉沒有資訊的留白。同一張圖如果也值得長期保存，`docs/browser-quirks.md` 之類的文件可以用相對路徑引用它——repo 內的 Markdown 檔案吃相對路徑，PR 說明不吃，所以兩邊寫法不同但可以共用同一個檔案。
+**只放真正解釋得了東西的圖，裁掉沒有資訊的留白。** PR 說明裡的圖 30 天後就沒了，但讀的人是現在在讀它，一張看不出重點的圖當下就已經是浪費。
+
+### 哪些圖留在 repo 裡
+
+`docs/browser-quirks.md` 之類的長期文件會引用圖（現在有 `evidence/3/`、`evidence/4/`、`evidence/7/` 三組），**那幾張要 commit**：文件是要長期讀的，不能指著一個 30 天後就消失的 URL。
+
+判準是**這張圖有沒有一份長期文件在引用它**，不是它有多好看。有，spec 就寫進 `docs/evidence/<issue 編號>/`，跟著這次變更一起 commit，文件用相對路徑引用它（repo 內的 Markdown 吃相對路徑，PR 說明不吃，所以同一個檔案兩邊寫法不同）；沒有，就寫 `docs/evidence/tmp/`，傳上去，不進 repo。
+
+同一張圖兩者都要的時候，commit 它、也照樣 `pr-image upload` 一份貼進 PR 說明——不要為了省一步而在 PR 內文放 `raw.githubusercontent.com` 的連結，那又回到「先 push 才有 SHA」那套順序，而順序錯一次連結就是死的。
 
 **不要截版權內的書。** ADR-0007 禁止把商業書 commit 進 repo，截圖同樣適用——這是公開 repo，截圖等於發佈內容。要示範實際書籍的排版就用 `tests/books/public/` 底下那兩本公版書（ADR-0007 的第二層）：
 
