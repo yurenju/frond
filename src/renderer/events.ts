@@ -27,6 +27,26 @@ export interface RenderLocation {
   /** The current position's CFI, already serialized as `epubcfi(…)`. */
   readonly cfi: string;
   /**
+   * **What is on the screen right now**, as a range CFI covering this page from its first
+   * character to its last.
+   *
+   * `cfi` above is a **point**: where the reader is. This is the **stretch** they can see,
+   * and the two are different questions. A consumer asking "explain the passage I am looking
+   * at" needs this one, and no amount of arithmetic recovers it from the point — a page is a
+   * product of layout, so its extent depends on the viewport and the type size, and only the
+   * renderer is holding those.
+   *
+   * That is also why it is worth carrying on every `relocate` rather than offering a method
+   * to ask later: the extent is knowable **while this page is on screen** and not afterwards.
+   * A consumer that stores it as the reader turns pages can answer the question offline, from
+   * a different device, or in a Worker (which can turn the range back into text with
+   * `ContentDocument`); one that means to ask later has nothing to ask.
+   *
+   * `undefined` for a section with no text at all — a range needs two positions, and an
+   * image-only section offers none. `cfi` still falls back to a point at the whole section.
+   */
+  readonly pageRange: string | undefined;
+  /**
    * Whole-book progress, 0 to 1. **`undefined` until the whole-book index is built**
    * (user story 25) — a position slider should be disabled until then, rather than drawn
    * with a wrong value.

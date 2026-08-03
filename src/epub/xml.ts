@@ -125,7 +125,7 @@ export function parseContentTree(source: string, failure: XmlParseFailure): Tree
   // `document()` fails rather than returning when there is no root element, so the wrapper
   // it returns always has exactly one element child.
   const root = document.children.find((child): child is Node => typeof child !== "string")!;
-  return buildNode(root, null);
+  return buildElement(root);
 }
 
 /**
@@ -165,19 +165,18 @@ class XmlTreeNode implements TreeNode {
 
 const NO_ATTRIBUTES: ReadonlyMap<string, string> = new Map();
 
-function buildNode(node: Node, parent: XmlTreeNode | null): XmlTreeNode {
+function buildElement(node: Node): XmlTreeNode {
   const built = new XmlTreeNode(NODE_TYPE.element, null, node.name, node.attributes);
-  built.parentNode = parent;
 
   for (const child of node.children) {
     // An empty run of text is dropped rather than becoming a zero-length node: a browser
     // creates nothing there, and a node with no characters would still occupy an ordinal.
-    if (typeof child === "string" && child === "") continue;
+    if (child === "") continue;
 
     const builtChild =
       typeof child === "string"
         ? new XmlTreeNode(NODE_TYPE.text, child, undefined, NO_ATTRIBUTES)
-        : buildNode(child, built);
+        : buildElement(child);
     builtChild.parentNode = built;
 
     const previous = built.childNodes[built.childNodes.length - 1];
@@ -235,6 +234,28 @@ function textOf(node: Node): string {
     .join("");
 }
 
+/**
+ * XML 1.0 §2.11: `\r\n` and a lone `\r` are translated to `\n` **before the application sees
+ * the document**.
+ *
+ * This is required of every conforming parser, and the reason it is required is portability:
+ * the same document written on a different platform has to read back as the same characters.
+ * Skipping it does not merely leave stray characters lying around — it makes frond's idea of
+ * a document's text differ from a browser's, and once the two disagree about how many
+ * characters there are, every position after the first CRLF disagrees too. That is how it was
+ * found: a real book's poem block (`kusamakura`, written with CRLF) was four characters
+ * longer here than in the browser, and so was every CFI past it
+ * (`tests/browser/renderer/cfi-cross-implementation.spec.ts`).
+ *
+ * Done to the whole source before scanning, so it covers attribute values and CDATA as well —
+ * the spec applies it to the document, not to a particular construct.
+ */
+function normaliseLineEnds(source: string): string {
+  // Cheap enough to be worth checking: most documents contain no carriage return at all, and
+  // this runs over every XML file in every book that is opened.
+  return source.includes("\r") ? source.replace(/\r\n?/g, "\n") : source;
+}
+
 /** These five are defined by XML itself and need no DTD declaration. Other named entities are left verbatim (see `entity`). */
 const PREDEFINED_ENTITIES = new Map([
   ["amp", "&"],
@@ -261,7 +282,7 @@ class Reader {
   private at = 0;
 
   constructor(source: string, failure: XmlParseFailure) {
-    this.source = source;
+    this.source = normaliseLineEnds(source);
     this.failure = failure;
   }
 

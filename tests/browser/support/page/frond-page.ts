@@ -1,5 +1,5 @@
-import { parseCfi } from "../../../../src/epub/cfi.ts";
-import { rangeForCfi } from "../../../../src/renderer/cfi-dom.ts";
+import { parseCfi, serializeCfi } from "../../../../src/epub/cfi.ts";
+import { cfiForRange, rangeForCfi } from "../../../../src/renderer/cfi-dom.ts";
 import {
   MemoryBook,
   Renderer,
@@ -7,8 +7,13 @@ import {
   type RenderableBook,
 } from "../../../../src/renderer/index.ts";
 import { LAYOUT_STYLE_ID, READER_STYLE_ID } from "../../../../src/renderer/layout.ts";
-import { textNodesIn } from "../../../../src/renderer/text-index.ts";
+import {
+  charactersBefore,
+  positionAtCharacter,
+  textNodesIn,
+} from "../../../../src/renderer/text-index.ts";
 import type {
+  AddressedSection,
   EventRecord,
   FrondHarness,
   MountOptions,
@@ -173,6 +178,61 @@ const harness: FrondHarness = {
     }
 
     return text.slice(0, length);
+  },
+
+  textInRange(cfi): string | null {
+    const document = contentDocument();
+    if (document === undefined) return null;
+
+    const range = rangeForCfi(document, parseCfi(cfi));
+    if (range === undefined) return null;
+
+    const nodes = textNodesIn(document);
+    const text = nodes.map((node) => node.data).join("");
+
+    return text.slice(
+      charactersBefore(nodes, range.startContainer, range.startOffset),
+      charactersBefore(nodes, range.endContainer, range.endOffset),
+    );
+  },
+
+  addressEveryCharacter(xml, sectionIndex): AddressedSection {
+    // Nothing is mounted. The question is what the browser's XML parser builds and what the
+    // addressing walk makes of it; rendering the section would only add layout as a variable,
+    // and layout has no say in where a CFI points.
+    const document = new DOMParser().parseFromString(xml, "application/xhtml+xml");
+    const nodes = textNodesIn(document);
+    const text = nodes.map((node) => node.data).join("");
+
+    const cfis: string[] = [];
+    const resolved: [number, number][] = [];
+
+    for (let at = 0; at < text.length; at += 1) {
+      const from = positionAtCharacter(nodes, at);
+      const to = positionAtCharacter(nodes, at + 1);
+      if (from === undefined || to === undefined) break;
+
+      const range = document.createRange();
+      range.setStart(from.node, from.offset);
+      range.setEnd(to.node, to.offset);
+
+      const cfi = serializeCfi(cfiForRange(range, sectionIndex));
+      cfis.push(cfi);
+
+      // Round-tripped through the string, so this measures what a consumer actually stores
+      // and hands back, rather than an object that never left the process.
+      const back = rangeForCfi(document, parseCfi(cfi));
+      resolved.push(
+        back === undefined
+          ? [-1, -1]
+          : [
+              charactersBefore(nodes, back.startContainer, back.startOffset),
+              charactersBefore(nodes, back.endContainer, back.endOffset),
+            ],
+      );
+    }
+
+    return { text, cfis, resolved };
   },
 
   rectsFor(cfi): readonly Rect[] {
@@ -344,6 +404,9 @@ function snapshot(): Snapshot {
     page: location.page,
     pageCount: location.pageCount,
     cfi: location.cfi,
+    // `undefined` disappears entirely across `page.evaluate`'s boundary, so the absence has
+    // to be carried as a value the spec can still see.
+    pageRange: location.pageRange ?? null,
     fraction: location.fraction ?? null,
     atStart: location.atStart,
     atEnd: location.atEnd,

@@ -319,6 +319,22 @@ export class SectionView {
     return range;
   }
 
+  /**
+   * A `Range` spanning two positions of this document.
+   *
+   * Same reason as `rangeAt` for living here rather than at the caller: only this document
+   * may build a `Range` over its own nodes.
+   */
+  rangeBetween(
+    start: { readonly node: Node; readonly offset: number },
+    end: { readonly node: Node; readonly offset: number },
+  ): Range {
+    const range = this.document.createRange();
+    range.setStart(start.node, start.offset);
+    range.setEnd(end.node, end.offset);
+    return range;
+  }
+
   /** A `Range` covering a whole element — the one needed when jumping to an anchor. */
   rangeOfNode(node: Node): Range {
     const range = this.document.createRange();

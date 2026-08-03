@@ -283,7 +283,7 @@ function parseXhtml(source: string, path: string): Document {
  * ## Emptied, not removed — because a CFI is a sibling ordinal
  *
  * `element.remove()` would be the obvious spelling and is the wrong one. `childAt` in
- * `cfi-dom.ts` numbers an element by its position **among its siblings**, so removing one
+ * `epub/cfi-tree.ts` numbers an element by its position **among its siblings**, so removing one
  * takes two off the index of everything after it. The damage runs both ways and is silent
  * either way: frond's own CFIs stop meaning what other readers think they mean, and a CFI
  * written elsewhere resolves inside frond to a **different sentence** rather than failing.

@@ -190,9 +190,28 @@ export interface Snapshot {
   readonly page: number;
   readonly pageCount: number;
   readonly cfi: string;
+  /** The range CFI covering the current page. `null` for a section with no text. */
+  readonly pageRange: string | null;
   readonly fraction: number | null;
   readonly atStart: boolean;
   readonly atEnd: boolean;
+}
+
+/**
+ * What one implementation makes of a whole section.
+ *
+ * Every character rather than a sample, because the failures worth catching are off-by-one at
+ * a seam — the first character after an inline tag, the last before a comment, the join
+ * between two text nodes — and choosing which positions to check means guessing where the
+ * seams are, which is the same guess that put the bug there.
+ */
+export interface AddressedSection {
+  /** The section's text, flattened by the whole-book index's traversal. */
+  readonly text: string;
+  /** The CFI of each single character, serialized. */
+  readonly cfis: readonly string[];
+  /** The characters each of those CFIs resolves back to. `[-1, -1]` when it will not resolve. */
+  readonly resolved: readonly (readonly [number, number])[];
 }
 
 /** The page side's operating surface. Implemented in `tests/browser/support/page/frond-page.ts`. */
@@ -239,6 +258,26 @@ export interface FrondHarness {
   waitForIndex(): Promise<number>;
   /** The `length` characters following the position a CFI points at. `null` when the position cannot be reached. */
   textAt(cfi: string, length: number): string | null;
+  /**
+   * The text a **range** CFI covers, measured by the same flattening the whole-book index
+   * uses rather than by `Range.toString()`.
+   *
+   * The two differ: `toString()` includes the whitespace between blocks, which the index
+   * skips. Measuring the way the index does is what lets a test add up the pages of a section
+   * and compare the total against the section's own text.
+   */
+  textInRange(cfi: string): string | null;
+  /**
+   * Addresses **every character** of a section the way a browser does: `DOMParser`, the DOM
+   * types, and the shipped `cfi-dom.ts`.
+   *
+   * Its counterpart runs with no browser anywhere near it (`ContentDocument`, in
+   * `src/epub/content-document.ts`), and comparing the two is what
+   * `cfi-cross-implementation.spec.ts` exists for — the claim that one addressing walk can
+   * serve both a browser and a Worker is not something reasoning settles, because the
+   * question is what a real XML parser does with real markup.
+   */
+  addressEveryCharacter(xml: string, sectionIndex: number): AddressedSection;
   /** A CFI's rectangles in the container's coordinate system. */
   rectsFor(cfi: string): readonly Rect[];
   /** The container's current size — needed to decide whether a rectangle is on screen. */

@@ -14,14 +14,20 @@
  *
  * ## This module's boundary
  *
- * **Mapping between a CFI and a DOM position is not here.** That needs an actually
- * rendered document — walking a CFI into a `Range`, or writing a reader's selection
- * out as a CFI, both mean counting nodes, handling filtered-out nodes, and merging
- * adjacent text nodes. Those belong to `Renderer` (ADR-0005's two-layer split).
+ * **Mapping a CFI onto a position is not here.** Walking a CFI down to a node, or
+ * writing a position out as a CFI, means counting nodes, handling ones that do not
+ * count, and merging adjacent text — that is `cfi-tree.ts`, next door.
  *
- * What that cut buys is that this layer sits at the base of the test pyramid: zero
- * DOM, and Vitest runs it in Node (ADR-0009). It is also the blocker for the
- * `Renderer` positioning issue, so doing it early avoids waiting later.
+ * This header used to say that half "needs an actually rendered document", and put it
+ * in `Renderer` on that basis. It measured the wrong thing: what it needs is a
+ * **tree**, and a rendered document merely happens to be one, so the whole of it now
+ * sits at this layer too (ADR-0012). What genuinely needs a browser is `Range` itself,
+ * and that is all `renderer/cfi-dom.ts` still holds.
+ *
+ * The cut between this module and that one is unchanged: string ↔ structure here,
+ * structure ↔ nodes there, and neither knows what the other is doing. What that buys
+ * is that both sit at the base of the test pyramid — zero DOM, Vitest in Node
+ * (ADR-0009).
  *
  * ## The oracle is the spec, not foliate
  *
