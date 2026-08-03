@@ -800,10 +800,42 @@ export class Renderer {
     return cfiForRange(view.rangeAt(position), this.sectionIndex);
   }
 
+  /**
+   * The stretch of this section that the current page shows.
+   *
+   * The end boundary is **the start of the next page**, which is the first character the
+   * reader cannot see. Asking for a page past the last one lands at the end of the section
+   * (`positionAtPageStart`), so the final page needs no special case.
+   *
+   * Only the renderer can answer this: a page is a product of layout, and its extent moves
+   * with the viewport and the type size. Nothing downstream can recompute it, which is why it
+   * is emitted while the page is on screen rather than offered as a question to ask later.
+   */
+  private currentPageRange(): Cfi | undefined {
+    const view = this.view;
+    if (view === undefined) return undefined;
+
+    const start = view.positionAtPageStart(view.page);
+    const end = view.positionAtPageStart(view.page + 1);
+    // A section with not a single character. `currentCfi` still gives a point at the whole
+    // section, but a range has no two positions to be built from.
+    if (start === undefined || end === undefined) return undefined;
+
+    // The two coincide when **this page** holds no characters, even though the section does —
+    // a full-page image between two pages of prose. `cfiForRange` would serialize that as a
+    // point, and a consumer reading this field would have no way to tell it apart from a
+    // range: it would ask for "the text on this page" and be handed the whole rest of the
+    // section, or nothing, depending on how it read the point.
+    if (start.node === end.node && start.offset === end.offset) return undefined;
+
+    return cfiForRange(view.rangeBetween(start, end), this.sectionIndex);
+  }
+
   private describeLocation(): RenderLocation {
     const view = this.view;
     const section = this.book.readingOrder[this.sectionIndex];
     const cfi = this.currentCfi();
+    const pageRange = this.currentPageRange();
 
     return {
       sectionIndex: this.sectionIndex,
@@ -811,6 +843,7 @@ export class Renderer {
       page: view?.page ?? 0,
       pageCount: view?.pageCount ?? 1,
       cfi: cfi === undefined ? "" : serializeCfi(cfi),
+      pageRange: pageRange === undefined ? undefined : serializeCfi(pageRange),
       fraction: this.currentFraction(),
       atStart: this.sectionIndex === 0 && (view?.page ?? 0) === 0,
       atEnd:

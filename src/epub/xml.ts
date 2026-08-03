@@ -1,4 +1,5 @@
 import { EpubOpenError, type EpubOpenFailure } from "./errors.ts";
+import { NODE_TYPE, type TreeNode } from "./tree.ts";
 
 /**
  * The small amount of XML the EPUB packaging format requires.
@@ -98,6 +99,97 @@ export function parseXml(source: string, failure: XmlParseFailure): XmlElement {
   return element(new Reader(source, failure).document());
 }
 
+/**
+ * The same parse, seen as a **tree of nodes in document order** rather than as the query
+ * interface above, and returning the root element.
+ *
+ * `XmlElement` answers "which child elements have this name" — enough for the packaging
+ * documents, which is all this module was written for. Addressing a position inside a
+ * content document asks a different question: "what is the third node under this parent",
+ * text nodes included and in order. That is what CFI counts (`cfi-tree.ts`), and it cannot
+ * be reconstructed from the query interface.
+ *
+ * The shape is the DOM's, so the addressing walk runs here unmodified — see
+ * `tree.ts`. Two consequences of this parser are worth naming, because both are places
+ * where a browser's tree looks different and the addressing rule absorbs it:
+ *
+ * - **Comments and processing instructions are not in the tree at all.** A browser keeps
+ *   them; CFI does not count them, and does not let them break a run of text in two, so both
+ *   trees address identically.
+ * - **A run of text is one node even where it contains entity references.** A browser's XML
+ *   parser often leaves several adjacent text nodes there. Adjacent text merges into a
+ *   single chunk before anything is numbered, so again both trees agree.
+ */
+export function parseContentTree(source: string, failure: XmlParseFailure): TreeNode {
+  const document = new Reader(source, failure).document();
+  // `document()` fails rather than returning when there is no root element, so the wrapper
+  // it returns always has exactly one element child.
+  const root = document.children.find((child): child is Node => typeof child !== "string")!;
+  return buildElement(root);
+}
+
+/**
+ * A node of the tree above.
+ *
+ * The links are assigned during construction rather than being computed on demand: the
+ * addressing walk asks for `previousSibling` from inside a loop, and recomputing a position
+ * within the parent each time would turn walking one chunk of text into quadratic work on a
+ * document that is entirely text.
+ */
+class XmlTreeNode implements TreeNode {
+  readonly nodeType: number;
+  readonly nodeValue: string | null;
+  readonly localName: string | undefined;
+  readonly childNodes: XmlTreeNode[] = [];
+  parentNode: TreeNode | null = null;
+  previousSibling: TreeNode | null = null;
+  nextSibling: TreeNode | null = null;
+  private readonly attributes: ReadonlyMap<string, string>;
+
+  constructor(
+    nodeType: number,
+    nodeValue: string | null,
+    localName: string | undefined,
+    attributes: ReadonlyMap<string, string>,
+  ) {
+    this.nodeType = nodeType;
+    this.nodeValue = nodeValue;
+    this.localName = localName;
+    this.attributes = attributes;
+  }
+
+  getAttribute(name: string): string | null {
+    return this.attributes.get(name) ?? null;
+  }
+}
+
+const NO_ATTRIBUTES: ReadonlyMap<string, string> = new Map();
+
+function buildElement(node: Node): XmlTreeNode {
+  const built = new XmlTreeNode(NODE_TYPE.element, null, node.name, node.attributes);
+
+  for (const child of node.children) {
+    // An empty run of text is dropped rather than becoming a zero-length node: a browser
+    // creates nothing there, and a node with no characters would still occupy an ordinal.
+    if (child === "") continue;
+
+    const builtChild =
+      typeof child === "string"
+        ? new XmlTreeNode(NODE_TYPE.text, child, undefined, NO_ATTRIBUTES)
+        : buildElement(child);
+    builtChild.parentNode = built;
+
+    const previous = built.childNodes[built.childNodes.length - 1];
+    if (previous !== undefined) {
+      previous.nextSibling = builtChild;
+      builtChild.previousSibling = previous;
+    }
+    built.childNodes.push(builtChild);
+  }
+
+  return built;
+}
+
 /** An element node. A text node is just a string, without another wrapper. */
 interface Node {
   readonly name: string;
@@ -142,6 +234,28 @@ function textOf(node: Node): string {
     .join("");
 }
 
+/**
+ * XML 1.0 §2.11: `\r\n` and a lone `\r` are translated to `\n` **before the application sees
+ * the document**.
+ *
+ * This is required of every conforming parser, and the reason it is required is portability:
+ * the same document written on a different platform has to read back as the same characters.
+ * Skipping it does not merely leave stray characters lying around — it makes frond's idea of
+ * a document's text differ from a browser's, and once the two disagree about how many
+ * characters there are, every position after the first CRLF disagrees too. That is how it was
+ * found: a real book's poem block (`kusamakura`, written with CRLF) was four characters
+ * longer here than in the browser, and so was every CFI past it
+ * (`tests/browser/renderer/cfi-cross-implementation.spec.ts`).
+ *
+ * Done to the whole source before scanning, so it covers attribute values and CDATA as well —
+ * the spec applies it to the document, not to a particular construct.
+ */
+function normaliseLineEnds(source: string): string {
+  // Cheap enough to be worth checking: most documents contain no carriage return at all, and
+  // this runs over every XML file in every book that is opened.
+  return source.includes("\r") ? source.replace(/\r\n?/g, "\n") : source;
+}
+
 /** These five are defined by XML itself and need no DTD declaration. Other named entities are left verbatim (see `entity`). */
 const PREDEFINED_ENTITIES = new Map([
   ["amp", "&"],
@@ -168,7 +282,7 @@ class Reader {
   private at = 0;
 
   constructor(source: string, failure: XmlParseFailure) {
-    this.source = source;
+    this.source = normaliseLineEnds(source);
     this.failure = failure;
   }
 

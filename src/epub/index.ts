@@ -33,6 +33,12 @@ export type {
   CfiSegment,
   CfiStep,
 } from "./cfi.ts";
+// Reading one section as text, and pointing back into it, with no browser in sight. The
+// `Renderer` half of ADR-0005 answers the same two questions for a document it has actually
+// laid out; this answers them from the bytes, which is the only option a consumer outside a
+// browser has.
+export { ContentDocument } from "./content-document.ts";
+export type { TextRange } from "./content-document.ts";
 export { EpubOpenError, EpubResourceError } from "./errors.ts";
 export type { EpubOpenFailure, EpubResourceFailure } from "./errors.ts";
 export type { Resource, ResourceLocation } from "./resources.ts";

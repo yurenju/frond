@@ -56,6 +56,95 @@ test.describe("the current position's CFI", () => {
   });
 });
 
+/**
+ * What is **on the screen**, as opposed to where the reader is.
+ *
+ * `cfi` is a point; this is the stretch. The distinction only matters to a consumer that has
+ * to hand the page's content to something else — "explain the passage I am looking at" — and
+ * it cannot be recovered afterwards: a page is a product of layout, so it exists as a fact
+ * only while it is on screen.
+ */
+test.describe("the range the current page covers", () => {
+  test("is a range, not a point", async ({ page }) => {
+    const location = await mountFixture(page, "vertical-japanese", { settings: LARGE });
+
+    expect(location.pageRange).not.toBeNull();
+    expect(parseCfi(location.pageRange!).kind).toBe("range");
+  });
+
+  test("begins where the position does", async ({ page }) => {
+    const location = await mountFixture(page, "vertical-japanese", { settings: LARGE });
+
+    const [fromPoint, fromRange] = await page.evaluate(
+      ([point, range, length]) =>
+        [
+          window.frond.textAt(point as string, length as number),
+          window.frond.textInRange(range as string)?.slice(0, length as number) ?? null,
+        ] as const,
+      [location.cfi, location.pageRange!, SAMPLE] as const,
+    );
+
+    expect(fromRange).toBe(fromPoint);
+  });
+
+  test("the pages of a section add up to the section, with nothing dropped or repeated", async ({
+    page,
+  }) => {
+    // The invariant worth having: **every character is on exactly one page**. A range that is
+    // one character short at each boundary, or one character long, passes every "it looks
+    // right" check and fails this one. Large type so the section takes several pages.
+    const first = await mountFixture(page, "vertical-japanese", { settings: LARGE });
+    expect(first.pageCount).toBeGreaterThan(1);
+
+    const pieces: string[] = [];
+    let current = first;
+    for (let page_ = 0; page_ < first.pageCount; page_ += 1) {
+      // Never a point, on any page. A consumer reading this field must not have to check
+      // which of the two notations it was handed — a page with nothing on it says so with
+      // `null` instead (see `currentPageRange`).
+      expect(parseCfi(current.pageRange!).kind, `page ${page_}`).toBe("range");
+
+      const piece = await page.evaluate(
+        (cfi) => window.frond.textInRange(cfi as string),
+        current.pageRange!,
+      );
+      pieces.push(piece ?? "");
+      if (page_ < first.pageCount - 1) current = await page.evaluate(() => window.frond.next());
+    }
+
+    const whole = await page.evaluate(
+      ([cfi, length]) => window.frond.textAt(cfi as string, length as number),
+      [first.cfi, 100_000] as const,
+    );
+
+    expect(pieces.join("")).toBe(whole);
+  });
+
+  test("moves when the type size does, because a page is a product of layout", async ({
+    page,
+  }) => {
+    // The whole reason this is reported rather than computed by the consumer: the same
+    // position on the same device shows a different amount of the book at a different type
+    // size, and nothing downstream is holding the numbers that decide it.
+    const large = await mountFixture(page, "vertical-japanese", { settings: LARGE });
+    const small = await page.evaluate(() => window.frond.applySettings({ fontSize: 16 }));
+
+    expect(small.pageRange).not.toBe(large.pageRange);
+  });
+
+  test("a section with no text has no range, while the position still has a CFI", async ({
+    page,
+  }) => {
+    // A range needs two positions and this section offers none. The point falls back to the
+    // whole section, which is a real position; a made-up range would not be.
+    await mountFixture(page, "empty-and-image-only-sections");
+    const location = await page.evaluate(() => window.frond.goToSection(1));
+
+    expect(location.pageRange).toBeNull();
+    expect(location.cfi).not.toBe("");
+  });
+});
+
 test.describe("returning to a position from a CFI", () => {
   test("CFI → go there → CFI is the identity", async ({ page }) => {
     await mountFixture(page, "vertical-japanese", { settings: LARGE });

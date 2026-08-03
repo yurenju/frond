@@ -226,6 +226,22 @@ describe("text", () => {
   test("a comment is not text", () => {
     expect(parse(`<a>前<!-- 註解 -->後</a>`).child("a")!.text()).toBe("前後");
   });
+
+  test("a carriage return is normalised away, as XML 2.11 requires of every parser", () => {
+    // Not cosmetic, and not optional: the spec says a parser must translate `\r\n` and a lone
+    // `\r` into `\n` **before the application sees the document**, so that every conforming
+    // parser reports the same characters no matter which platform wrote the file.
+    //
+    // Found by comparing against a browser on a real book — `kusamakura`'s sections are
+    // written with CRLF, and its poem block read back four characters longer here than in the
+    // browser. Four characters is enough: every character offset after them disagrees, and so
+    // does every CFI. The same leak reaches metadata and TOC titles, where a title written
+    // across two lines comes back with a stray `\r` in the middle of it.
+    expect(parse(`<a>上\r\n下</a>`).child("a")!.text()).toBe("上\n下");
+    expect(parse(`<a>上\r下</a>`).child("a")!.text()).toBe("上\n下");
+    expect(parse(`<a>一\r\n\r\n二</a>`).child("a")!.text()).toBe("一\n\n二");
+    expect(parse(`<a b="上\r\n下"/>`).child("a")!.attribute("b")).toBe("上\n下");
+  });
 });
 
 describe("entities and character references", () => {

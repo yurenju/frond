@@ -1,59 +1,30 @@
 /**
- * Node type tests, in one place.
+ * The node type tests, narrowed to the DOM.
  *
- * ## Why the numbers are hard-coded rather than using `Node.ELEMENT_NODE`
+ * The numbers themselves, and the reasoning about which node types count as what, live in
+ * `src/epub/tree.ts` — they are properties of the addressing rule rather than of the DOM, and
+ * that is the layer the rule now runs at.
  *
- * `Renderer`'s code runs in the **outer page's realm**, while the nodes it handles come
- * from the iframe. The two realms each have their own `Node`, and the constants have
- * the same **values**, so comparing against the outer one does in fact work — but only
- * by coincidence, and the same intuition applied to `instanceof` is simply wrong (an
- * element inside the iframe is not an instance of the outer `Element`, and the symptom
- * is that events are never delivered, without any error). Hard-coding removes the need
- * to tell the two apart.
- *
- * ## Why it is a module rather than each file writing its own
- *
- * `cfi-dom.ts`, `text-index.ts` and `section-view.ts` all ask the same set of
- * questions. Written separately, a decision like "does CDATA count as text" would have
- * one answer in each of three places — and CFI's addressing rule says explicitly that
- * it does (spec 2.2), so whichever copy missed it would give the same position
- * different ordinals in different modules.
+ * What is left here is the one thing TypeScript needs and the tree layer cannot give:
+ * `isElement` as a **type guard**. `section-view.ts` writes `isElement(target) ? target :
+ * target.parentElement`, and `text-index.ts` reads `child.localName`; both need `Element`,
+ * not "some node reporting type 1". The guard cannot be written at the tree layer because
+ * there is no `Element` there to narrow to — a tree that is not a DOM has no such type.
  */
 
-const ELEMENT = 1;
-const TEXT = 3;
-const CDATA = 4;
-const PROCESSING_INSTRUCTION = 7;
-const COMMENT = 8;
-const DOCUMENT = 9;
+import { isElement as isElementNode, isTextLike as isTextLikeNode } from "../epub/tree.ts";
 
+/**
+ * The parameter is `Node`, not `TreeNode`, and that is load-bearing rather than tidiness:
+ * widening it would let this guard assert that a node from the **other** tree is a DOM
+ * `Element`, which is a lie the compiler would then propagate to `.parentElement` and
+ * `.localName`. Callers that hold a `TreeNode` want `isElement` from `../epub/tree.ts`, which
+ * answers the question without claiming a type it cannot know.
+ */
 export function isElement(node: Node): node is Element {
-  return node.nodeType === ELEMENT;
+  return isElementNode(node);
 }
 
-/**
- * The nodes that count as "text" for addressing and traversal.
- *
- * **CDATA counts** (CFI spec 2.2 treats it on a par with text nodes). CDATA is rare in
- * real books, but it is entirely legal in XHTML, and missing it would make that stretch
- * of content vanish from character counting and CFI addressing.
- */
 export function isTextLike(node: Node): boolean {
-  return node.nodeType === TEXT || node.nodeType === CDATA;
-}
-
-/**
- * The nodes that **do not count at all** when addressing — comments and processing
- * instructions.
- *
- * "Do not count" is stronger than "are skipped": they do not even occupy a position, so
- * after a line of comment is added to a document, every existing CFI still points at the
- * same place.
- */
-export function isIgnored(node: Node): boolean {
-  return node.nodeType === COMMENT || node.nodeType === PROCESSING_INSTRUCTION;
-}
-
-export function isDocument(node: Node): boolean {
-  return node.nodeType === DOCUMENT;
+  return isTextLikeNode(node);
 }
