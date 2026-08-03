@@ -276,6 +276,12 @@ export interface FrondHarness {
    * `cfi-cross-implementation.spec.ts` exists for — the claim that one addressing walk can
    * serve both a browser and a Worker is not something reasoning settles, because the
    * question is what a real XML parser does with real markup.
+   *
+   * **No way to ask for fewer characters**, deliberately. A one-off scan across the whole
+   * commercial shelf wanted sampling and got it by editing this for the duration
+   * (AGENTS.md's `scan:books`; that spec does not stay in the repository, and neither does
+   * this knob). An option nothing committed exercises is one more way for what is run to
+   * drift from what is read.
    */
   addressEveryCharacter(xml: string, sectionIndex: number): AddressedSection;
   /** A CFI's rectangles in the container's coordinate system. */
