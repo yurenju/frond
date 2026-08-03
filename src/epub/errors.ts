@@ -53,7 +53,21 @@ export type EpubOpenFailure =
   /** A manifest href resolves outside the package root — non-conforming, and also the shape of a path traversal. */
   | "resource-outside-container"
   /** readingOrder points at an id the manifest does not have, so that item's content does not exist. */
-  | "unknown-reading-order-item";
+  | "unknown-reading-order-item"
+  /**
+   * A **content** document — a section's own XHTML — is not well-formed.
+   *
+   * The odd one out in this list: every other case is a way `EpubBook.open` fails, and when
+   * one happens there is no book. This one is thrown later, by `ContentDocument.parse`, and
+   * the book around it is fine. It lives here anyway because the failure is the same failure
+   * (`xml.ts` refusing the same way it refuses a package document) and a second error
+   * taxonomy for one variant would cost more than the mismatch does.
+   *
+   * A consumer's response is not "this book is broken" but "this section cannot be read" —
+   * which is also what a browser does with the same bytes, reporting `not-well-formed` and
+   * rendering an error page for that section only.
+   */
+  | "malformed-content-document";
 
 /**
  * Opening the book failed. **An explicit error rather than a silent failure or a
