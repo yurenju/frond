@@ -39,6 +39,13 @@ export type {
 // browser has.
 export { ContentDocument } from "./content-document.ts";
 export type { TextRange } from "./content-document.ts";
+// Which section a CFI belongs to — the question that comes **before** `ContentDocument`,
+// since parsing one means knowing which one to parse. A consumer holding a stored CFI (a
+// reading position, an annotation's anchor) has only the string, and the alternative to this
+// is reading `/6/N` out of the parsed structure by hand — which is this function's body,
+// written again on the far side of the package boundary and pinned to a step layout that is
+// this layer's to know.
+export { sectionIndexOf } from "./cfi-tree.ts";
 export { EpubOpenError, EpubResourceError } from "./errors.ts";
 export type { EpubOpenFailure, EpubResourceFailure } from "./errors.ts";
 export type { Resource, ResourceLocation } from "./resources.ts";
