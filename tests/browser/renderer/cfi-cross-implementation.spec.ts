@@ -67,6 +67,17 @@ const SHAPES: readonly { readonly name: string; readonly body: string }[] = [
   { name: "a comment between two elements", body: "<p>一</p><!--c--><p>二</p>" },
   { name: "a processing instruction between two elements", body: "<p>一</p><?pi x?><p>二</p>" },
   { name: "CDATA next to ordinary text", body: "<p>a<![CDATA[<b>]]>c</p>" },
+  {
+    // The shape the real book taught us, kept here as a shape of its own. Found in
+    // `kusamakura`, whose sections are CRLF: XML 1.0 §2.11 makes every parser normalise
+    // `\r\n` and a lone `\r` to `\n` before the document is seen, and `xml.ts` was not doing
+    // it — four characters of difference, and every offset past them disagreed.
+    //
+    // Leaving the real book as this bug's only guard would mean the regression depends on
+    // which book happens to be committed. A shape of its own does not.
+    name: "CRLF line ends, which XML 2.11 requires every parser to normalise",
+    body: "<p>上\r\n下</p>\r\n<p>次\r段</p>",
+  },
   { name: "an empty element between two runs of text", body: "<p>上<br/>下</p>" },
   { name: "nested inline markup carrying ids", body: '<p id="p1">前<em id="e1">強<b>調</b></em>後</p>' },
   {

@@ -12,14 +12,11 @@
  */
 
 import {
-  bodyOf,
   charactersBeforeIn,
   countCharactersIn,
   positionAtCharacterIn,
   textNodesUnder,
 } from "../epub/text-nodes.ts";
-
-export { bodyOf };
 
 /**
  * The text nodes in this document, in document order.

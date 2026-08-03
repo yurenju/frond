@@ -113,12 +113,16 @@ export function isDocument(node: TreeNode): boolean {
   return node.nodeType === DOCUMENT;
 }
 
-/** The node type numbers, for a tree that is built rather than parsed by a browser. */
+/**
+ * The node type numbers a tree that is **built** rather than parsed by a browser has to stamp
+ * on its nodes.
+ *
+ * Only the two `xml.ts` produces. The others exist as constants above because the predicates
+ * need them, but nothing in this package constructs a comment or a processing instruction —
+ * `xml.ts` drops both, which the addressing rule permits (`isIgnored`). Exporting numbers
+ * with no producer would invite one.
+ */
 export const NODE_TYPE = {
   element: ELEMENT,
   text: TEXT,
-  cdata: CDATA,
-  comment: COMMENT,
-  processingInstruction: PROCESSING_INSTRUCTION,
-  document: DOCUMENT,
 } as const;

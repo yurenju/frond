@@ -42,8 +42,10 @@ export interface RenderLocation {
    * a different device, or in a Worker (which can turn the range back into text with
    * `ContentDocument`); one that means to ask later has nothing to ask.
    *
-   * `undefined` for a section with no text at all — a range needs two positions, and an
-   * image-only section offers none. `cfi` still falls back to a point at the whole section.
+   * `undefined` when **this page** holds no characters — an image-only section, or a
+   * full-page image between two pages of prose. A range needs two positions and there are
+   * none; it is never a point, so a consumer never has to check which of the two it got.
+   * `cfi` still answers, falling back to a point at the whole section.
    */
   readonly pageRange: string | undefined;
   /**

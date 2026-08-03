@@ -32,8 +32,8 @@ import type { Cfi } from "./cfi.ts";
 import { cfiForPositions, positionsForCfi, sectionIndexOf } from "./cfi-tree.ts";
 import {
   bodyOf,
-  charactersBeforeIn,
-  lengthOf,
+  charactersAt,
+  countCharactersIn,
   positionAtCharacterIn,
   textNodesUnder,
 } from "./text-nodes.ts";
@@ -118,9 +118,15 @@ export class ContentDocument {
    * A point CFI gives a range whose `start` and `end` are equal — the caller keeps whatever
    * distinction it needs; this answers "where", not "what kind".
    *
-   * Returns `undefined` when the CFI belongs to **another section**, or when it will not walk
-   * this document. The first check is not defensiveness: without it a CFI written for section
-   * 3 resolves happily against section 5's tree and points confidently at the wrong words.
+   * Returns `undefined` in three cases, and each of them would otherwise be a confident wrong
+   * answer rather than a visible failure:
+   *
+   * - the CFI belongs to **another section** — without the check, a CFI written for section 3
+   *   resolves happily against section 5's tree and points at the wrong words
+   * - it will not walk this document at all
+   * - it walks, but **lands outside the text** — inside `<head>`, or on an `<img>`. There is
+   *   no character offset for that position, and the obvious stand-in (0) is indistinguishable
+   *   from the first character of the section
    */
   charactersForCfi(cfi: Cfi): TextRange | undefined {
     if (sectionIndexOf(cfi) !== this.sectionIndex) return undefined;
@@ -128,16 +134,15 @@ export class ContentDocument {
     const positions = positionsForCfi(this.root, cfi);
     if (positions === undefined) return undefined;
 
-    return {
-      start: charactersBeforeIn(this.nodes, positions.start.node, positions.start.offset),
-      end: charactersBeforeIn(this.nodes, positions.end.node, positions.end.offset),
-    };
+    const start = charactersAt(this.nodes, positions.start.node, positions.start.offset);
+    const end = charactersAt(this.nodes, positions.end.node, positions.end.offset);
+    if (start === undefined || end === undefined) return undefined;
+
+    return { start, end };
   }
 
   /** How many characters this section holds. */
   get characters(): number {
-    let total = 0;
-    for (const node of this.nodes) total += lengthOf(node);
-    return total;
+    return countCharactersIn(this.nodes);
   }
 }

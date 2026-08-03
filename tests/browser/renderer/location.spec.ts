@@ -99,6 +99,11 @@ test.describe("the range the current page covers", () => {
     const pieces: string[] = [];
     let current = first;
     for (let page_ = 0; page_ < first.pageCount; page_ += 1) {
+      // Never a point, on any page. A consumer reading this field must not have to check
+      // which of the two notations it was handed — a page with nothing on it says so with
+      // `null` instead (see `currentPageRange`).
+      expect(parseCfi(current.pageRange!).kind, `page ${page_}`).toBe("range");
+
       const piece = await page.evaluate(
         (cfi) => window.frond.textInRange(cfi as string),
         current.pageRange!,

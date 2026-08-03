@@ -141,6 +141,24 @@ describe("reading a CFI that was written elsewhere", () => {
     const document = ContentDocument.parse(xhtml("<p>本文</p>"), 0);
     expect(document.charactersForCfi(parseCfi("epubcfi(/6/2!/4/40/1:1)"))).toBeUndefined();
   });
+
+  test("refuses one that lands somewhere the text traversal does not go", () => {
+    // An `<img>` resolves fine as a node and holds no characters, so asking "which characters
+    // is this" has no answer. Answering 0 would be the worst kind of wrong: `charactersBefore`
+    // returns 0 for anything outside the traversal, and 0 is also the perfectly ordinary
+    // answer for the first character — so a consumer turning a CFI back into text would quote
+    // the opening of the section with no way to tell.
+    const document = ContentDocument.parse(
+      xhtml('<p>本文</p><p><img src="a.png" alt=""/></p>'),
+      0,
+    );
+    expect(document.charactersForCfi(parseCfi("epubcfi(/6/2!/4/4/2)"))).toBeUndefined();
+  });
+
+  test("refuses one pointing inside the head, which is not text the reader reads", () => {
+    const document = ContentDocument.parse(xhtml("<p>本文</p>"), 0);
+    expect(document.charactersForCfi(parseCfi("epubcfi(/6/2!/2/2/1:1)"))).toBeUndefined();
+  });
 });
 
 describe("nodes that do not count", () => {

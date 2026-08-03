@@ -85,7 +85,7 @@ function collect(element: TreeNode, into: TreeNode[]): void {
   }
 }
 
-export function lengthOf(node: TreeNode): number {
+function lengthOf(node: TreeNode): number {
   return node.nodeValue?.length ?? 0;
 }
 
@@ -97,17 +97,25 @@ export function countCharactersIn(nodes: readonly TreeNode[]): number {
 }
 
 /**
- * How many characters precede some position.
+ * How many characters precede some position, or `undefined` when the position is **outside
+ * this traversal** — inside `<head>`, inside a skipped element, or on a node holding no text
+ * at all such as an `<img>`.
  *
- * Returns 0 when the position is outside this document's traversal scope (for instance
- * inside `<head>` or inside a skipped element) — for progress purposes that position equals
- * the start of the document, and that is the only answer that does not lie.
+ * The two callers want opposite things from that case, which is why it is a distinct answer
+ * here rather than a number chosen for one of them:
+ *
+ * - **Progress** wants a number, and 0 is the only one that does not lie: a position outside
+ *   the read text is, for progress purposes, the start of the document. That is
+ *   `charactersBeforeIn`.
+ * - **Turning a CFI back into text** must not get 0, because 0 is also the perfectly ordinary
+ *   answer for the first character. A consumer would quote the opening of the section with
+ *   nothing to distinguish it from a real answer.
  */
-export function charactersBeforeIn(
+export function charactersAt(
   nodes: readonly TreeNode[],
   node: TreeNode,
   offset: number,
-): number {
+): number | undefined {
   let total = 0;
 
   for (const candidate of nodes) {
@@ -115,7 +123,16 @@ export function charactersBeforeIn(
     total += lengthOf(candidate);
   }
 
-  return 0;
+  return undefined;
+}
+
+/** How many characters precede some position, counting a position outside the traversal as the start. */
+export function charactersBeforeIn(
+  nodes: readonly TreeNode[],
+  node: TreeNode,
+  offset: number,
+): number {
+  return charactersAt(nodes, node, offset) ?? 0;
 }
 
 /**

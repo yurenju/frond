@@ -821,6 +821,13 @@ export class Renderer {
     // section, but a range has no two positions to be built from.
     if (start === undefined || end === undefined) return undefined;
 
+    // The two coincide when **this page** holds no characters, even though the section does —
+    // a full-page image between two pages of prose. `cfiForRange` would serialize that as a
+    // point, and a consumer reading this field would have no way to tell it apart from a
+    // range: it would ask for "the text on this page" and be handed the whole rest of the
+    // section, or nothing, depending on how it read the point.
+    if (start.node === end.node && start.offset === end.offset) return undefined;
+
     return cfiForRange(view.rangeBetween(start, end), this.sectionIndex);
   }
 
