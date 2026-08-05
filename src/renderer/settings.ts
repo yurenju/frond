@@ -22,7 +22,7 @@
  * covers only what the reader actually set.
  */
 
-import type { ColumnChoice, Margin } from "./geometry.ts";
+import type { ColumnChoice, Margin, Viewport, WritingMode } from "./geometry.ts";
 
 /** A theme's foreground and background. Any CSS colour value will do. */
 export interface Theme {
@@ -144,6 +144,78 @@ export function withSettings(
   patch: Partial<ReaderSettings>,
 ): ReaderSettings {
   return { ...base, ...patch };
+}
+
+/**
+ * What a layout is a function of, at the one moment they are all known and nothing has
+ * laid out yet.
+ *
+ * The writing mode is the reason this exists. It is declared in the book's stylesheet and
+ * settled by the browser, so **frond cannot answer it until the document is displayed**
+ * (`writing-mode.ts` — reading it any earlier means matching strings, which misses real
+ * books). A consumer whose margin depends on it therefore has nowhere to compute that
+ * margin: before `attach()` the fact does not exist, and after the first `load` the
+ * position has already been restored, so correcting it means a second layout — which
+ * moves the reader somewhere else in the section.
+ */
+export interface LayoutFacts {
+  readonly writingMode: WritingMode;
+  /**
+   * The container's size in CSS px, **before the margin is taken off** — the number the
+   * layout is divided up out of.
+   */
+  readonly viewport: Viewport;
+}
+
+/**
+ * The settings that may depend on `LayoutFacts`, and the only ones that can.
+ *
+ * The list is not a matter of taste. Every other setting is written into the document
+ * **while it is still text** (`css.ts`: the book's `!important` is demoted, absolute font
+ * sizes become `rem`, generic families are filled in), and that happens before there is a
+ * document to read a writing mode from. These two are the ones applied afterwards: the
+ * margin insets the iframe within its container, and the column count goes into the
+ * stylesheet frond injects.
+ *
+ * So a wider type would be a promise frond cannot keep — a `fontSize` returned from here
+ * could only be honoured by rebuilding the document and laying out a second time, which is
+ * exactly what a consumer comes here to avoid.
+ */
+export type LayoutSettings = Pick<ReaderSettings, "margin" | "columns">;
+
+/**
+ * Answers the layout settings from the facts. Called **once per layout**: every section
+ * mount, and every `relayout()`.
+ *
+ * Per layout rather than per book, because neither fact is a property of the book:
+ * sections of one book need not agree on the writing mode, and the viewport changes when
+ * the window does.
+ *
+ * **Exceptions are not caught.** One thrown here fails the section load and surfaces as an
+ * `error` event; the alternative — falling back to the base settings — would show a book
+ * laid out to a margin nobody asked for, with nothing anywhere saying why.
+ */
+export type ResolveLayout = (facts: LayoutFacts) => Partial<LayoutSettings>;
+
+/**
+ * Applies what the resolver answered on top of the reader's settings.
+ *
+ * **An `undefined` field means "no opinion" here**, which is the opposite of what it means
+ * in `withSettings`: there, `fontFamily: undefined` is a reader who set no font, and it has
+ * to be able to overwrite one that was set. Neither of these two fields has that state —
+ * every layout needs a margin and a column count — so an `undefined` coming out of the
+ * resolver can only be an omission, and `{ ...base, ...patch }` would turn it into a
+ * missing margin and a crash one frame later.
+ */
+export function withLayout(
+  base: ReaderSettings,
+  patch: Partial<LayoutSettings>,
+): ReaderSettings {
+  return {
+    ...base,
+    ...(patch.margin === undefined ? {} : { margin: patch.margin }),
+    ...(patch.columns === undefined ? {} : { columns: patch.columns }),
+  };
 }
 
 /**

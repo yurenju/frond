@@ -13,7 +13,7 @@ import { mountFixture, openHarness, type EventRecord } from "../support/harness.
  * | --- | --- | --- |
  * | a section loads | yes | yes |
  * | `applySettings()` | yes (the document is rebuilt) | de-duplicated away on page 0 |
- * | `resize()` | **no** — it only re-lays out | de-duplicated away on page 0 |
+ * | `relayout()` | **no** — it only lays out again | de-duplicated away on page 0 |
  *
  * The resize row is the fatal one, because resizing is what frond's own `ResizeObserver`
  * fires: opening a side panel over a highlight is a container resize, so "the interaction a

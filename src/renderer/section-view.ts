@@ -20,6 +20,7 @@
  */
 
 import {
+  COLUMN_GAP,
   marginInsets,
   pageAt,
   pageContaining,
@@ -38,10 +39,38 @@ import type {
 } from "./events.ts";
 import { LAYOUT_STYLE_ID, layoutStylesheet } from "./layout.ts";
 import { isElement, isTextLike } from "./node-type.ts";
-import type { ReaderSettings } from "./settings.ts";
+import { withLayout, type ReaderSettings, type ResolveLayout } from "./settings.ts";
 import type { SectionDocument } from "./document-source.ts";
 import { textNodesIn } from "./text-index.ts";
 import { readWritingMode } from "./writing-mode.ts";
+
+/**
+ * Where the settings a layout runs under come from: what the reader set, and the
+ * consumer's chance to answer the layout ones from facts that do not exist until the
+ * document is on screen (`settings.ts`'s `ResolveLayout`).
+ *
+ * The two travel as one value rather than as two parameters so that they cannot come
+ * apart. Every path that lays out has to consult the resolver — a path that quietly used
+ * the reader's settings alone would lay that section out to a different margin from its
+ * neighbours, and nothing would report it.
+ */
+export interface SettingsSource {
+  readonly reader: ReaderSettings;
+  /** Absent means the reader's settings stand as they are. */
+  readonly resolveLayout: ResolveLayout | undefined;
+}
+
+/** The settings this layout actually runs under. */
+function settleSettings(
+  source: SettingsSource,
+  writingMode: WritingMode,
+  host: HTMLElement,
+): ReaderSettings {
+  if (source.resolveLayout === undefined) return source.reader;
+
+  const viewport = { width: host.clientWidth, height: host.clientHeight };
+  return withLayout(source.reader, source.resolveLayout({ writingMode, viewport }));
+}
 
 export interface SectionViewHooks {
   /** The reader activated a link in the content. frond only prevents the default; the consumer decides whether to navigate (ADR-0002). */
@@ -119,7 +148,7 @@ export class SectionView {
   static async mount(
     host: HTMLElement,
     source: SectionDocument,
-    settings: ReaderSettings,
+    settings: SettingsSource,
     hooks: SectionViewHooks,
     path: string,
   ): Promise<SectionView> {
@@ -142,7 +171,12 @@ export class SectionView {
     // writing mode to map onto physical sides, and that cannot be read until the document
     // has laid out — so the real size is measured again below, after the mode is read. A
     // scalar margin computes the same both times, so that path has no second reflow.
-    sizeFrame(frame, host, marginInsets(settings.margin, "horizontal-tb"));
+    //
+    // The reader's own margin, not the resolver's: this sizing happens before the fact the
+    // resolver answers from exists. Nothing has been laid out at this point either, so what
+    // it decides is how large a frame the document loads into, not where a single line
+    // falls.
+    sizeFrame(frame, host, marginInsets(settings.reader.margin, "horizontal-tb"));
 
     await new Promise<void>((resolve, reject) => {
       frame.addEventListener("load", () => resolve(), { once: true });
@@ -169,9 +203,16 @@ export class SectionView {
     const reading = readWritingMode(document);
     if (reading.kind === "unreadable") throw new WritingModeUnreadableError(path);
 
+    // **This is the moment the layout settings are settled**, and it is the last one before
+    // anything is laid out: the writing mode has just been read, and not a line has been
+    // broken yet. A consumer whose margin is a function of the writing mode gets its answer
+    // in for this layout — so there is no second one, and nothing to move the reader away
+    // from the position `attach()` is about to restore.
+    const settled = settleSettings(settings, reading.writingMode, host);
+
     // Size it once more **before** measuring geometry: `metricsFor` reads the iframe's
     // client size, and only now is it known which two sides an axis-split margin subtracts.
-    const insets = marginInsets(settings.margin, reading.writingMode);
+    const insets = marginInsets(settled.margin, reading.writingMode);
     sizeFrame(frame, host, insets);
 
     const view = new SectionView(
@@ -180,8 +221,8 @@ export class SectionView {
       host,
       document,
       reading.writingMode,
-      settings,
-      metricsFor(frame, settings, reading.writingMode),
+      settled,
+      metricsFor(frame, settled, reading.writingMode),
       insets,
     );
     view.applyLayout();
@@ -243,11 +284,17 @@ export class SectionView {
    * reflow — recovering a position therefore does not have to go through a CFI string round
    * trip.
    */
-  relayout(settings: ReaderSettings): void {
-    this.settings = settings;
-    this.insets = marginInsets(settings.margin, this.writingMode);
+  relayout(settings: SettingsSource): void {
+    // Settled again rather than carried over from the mount: the viewport is one of the
+    // facts, and this is the path a resize arrives on. A consumer whose line length has a
+    // ceiling wants a different margin at a different container size, and a cached answer
+    // would hold the first one for as long as the section stays mounted.
+    const settled = settleSettings(settings, this.writingMode, this.host);
+
+    this.settings = settled;
+    this.insets = marginInsets(settled.margin, this.writingMode);
     sizeFrame(this.frame, this.host, this.insets);
-    this.metrics = metricsFor(this.frame, settings, this.writingMode);
+    this.metrics = metricsFor(this.frame, settled, this.writingMode);
     this.applyLayout();
   }
 
@@ -750,24 +797,9 @@ function metricsFor(
     writingMode,
     viewport,
     columns: resolveColumns(writingMode, settings.columns, viewport),
-    // The column gap is also the invisible gutter between two adjacent pages, which the
-    // reader never sees — so it need not be a setting, and a fixed value will do. 0 would
-    // work too; a positive value is chosen so that two columns have a real separation
-    // between them.
     gap: COLUMN_GAP,
   });
 }
-
-/**
- * The column gap.
- *
- * With one column it falls entirely off screen (between two pages); with two it is the
- * separator inside the page. 40px is chosen because two columns of text too close together
- * make the eye jump lines, and this value simultaneously sets the distance between two
- * pages in single-column mode — a stretch the reader never sees, so its size does not
- * affect the layout at all.
- */
-const COLUMN_GAP = 40;
 
 /**
  * Elements with content but no text. They have to count when deciding "is this page empty".

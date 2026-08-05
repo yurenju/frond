@@ -156,6 +156,29 @@ export interface MountOptions {
   readonly start?:
     | { readonly cfi: string }
     | { readonly sectionIndex: number; readonly fragment?: string };
+  /**
+   * A `RendererOptions.resolveLayout` expressed as data: one answer per writing mode.
+   *
+   * A function cannot cross `page.evaluate`'s boundary, and the shape a consumer really
+   * writes is a branch on the writing mode anyway (that is the fact it cannot get any
+   * other way), so the page side turns this table back into the function.
+   */
+  readonly resolveLayout?: {
+    readonly "horizontal-tb"?: LayoutPatch;
+    readonly "vertical-rl"?: LayoutPatch;
+  };
+}
+
+/** The two settings `resolveLayout` may answer, in serializable form. */
+export interface LayoutPatch {
+  readonly margin?: number | { readonly block: number; readonly inline: number };
+  readonly columns?: 1 | 2 | "auto";
+}
+
+/** One call of the resolver, recorded so a spec can assert on when and with what it ran. */
+export interface LayoutCall {
+  readonly writingMode: "horizontal-tb" | "vertical-rl";
+  readonly viewport: { readonly width: number; readonly height: number };
 }
 
 /** A serializable form of `ReaderSettings` — `page.evaluate` can only send plain data across. */
@@ -239,6 +262,10 @@ export interface FrondHarness {
   goToFraction(fraction: number): Promise<Snapshot>;
   applySettings(patch: SettingsPatch): Promise<Snapshot>;
   resize(width: number, height: number): Promise<Snapshot>;
+  /** Lays out again without touching the container size — the "an input to the resolver changed" route. */
+  relayout(): Promise<Snapshot>;
+  /** Every `resolveLayout` call since the mount, in order. */
+  layoutCalls(): readonly LayoutCall[];
   /**
    * Presses "next page" N times, **without waiting for the previous one to land**.
    *

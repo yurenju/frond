@@ -83,14 +83,14 @@ export interface SectionLoadEvent {
  * this — and recomputes.
  *
  * It is emitted on all three routes that change the geometry: a section finished loading,
- * `applySettings()` finished rebuilding, and `resize()` finished re-laying out. Sending it
- * on all three is the point: the consumer should not have to know which of frond's internal
- * routes it was, only that the geometry is valid again.
+ * `applySettings()` finished rebuilding, and `relayout()` finished laying out again.
+ * Sending it on all three is the point: the consumer should not have to know which of
+ * frond's internal routes it was, only that the geometry is valid again.
  *
  * **`load` is not replaced by it.** `load` answers "a new section is up" and `layout`
  * answers "the geometry is valid now"; those are two questions, and only the second one is
- * asked by a resize — `resize()` does not rebuild the document, so no `load` is emitted, and
- * a `relocate` need not be either (the reader stays on page 0 of the same CFI, and
+ * asked by a resize — `relayout()` does not rebuild the document, so no `load` is emitted,
+ * and a `relocate` need not be either (the reader stays on page 0 of the same CFI, and
  * `relocate`'s de-duplication correctly swallows that). Before this event existed, a resize
  * moved every rectangle and sent no signal at all.
  */
