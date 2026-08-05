@@ -153,6 +153,28 @@ const SUBPIXEL_TOLERANCE = 1;
  */
 const TWO_COLUMN_MIN_INLINE_SIZE = 700;
 
+/**
+ * The column gap frond lays out with.
+ *
+ * With one column it falls entirely off screen — it is the invisible gutter between two
+ * adjacent pages; with two it is the separator inside the page. 40px is chosen because two
+ * columns of text too close together make the eye jump lines, and the same value sets the
+ * distance between two pages in single-column mode, a stretch the reader never sees. So it
+ * does not have to be a reader setting, and a fixed value will do.
+ *
+ * ## Why it is on the public face
+ *
+ * A consumer deciding how much of the container the text may have does this arithmetic
+ * **backwards**: "lines of at most N ems, in two columns" needs
+ * `N × fontSize × 2 + COLUMN_GAP`, and the leftover is the margin. That is the shape of
+ * every line-length ceiling, and there is no way to write it without this number.
+ *
+ * Unexported, the only thing left to a consumer is copying the digits — and a copy does
+ * not break when the original changes. It goes on computing a slightly wrong line length,
+ * with nothing to say so.
+ */
+export const COLUMN_GAP = 40;
+
 export function pageAxisFor(writingMode: WritingMode): PageAxis {
   return writingMode === "vertical-rl" ? "y" : "x";
 }

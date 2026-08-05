@@ -340,7 +340,7 @@ function showPanel(which) {
   $("tab-read").setAttribute("aria-selected", String(reading));
   $("tab-inspect").setAttribute("aria-selected", String(!reading));
   // An iframe cannot be measured while hidden, so switching back requires a re-layout.
-  if (reading) void renderer?.resize();
+  if (reading) void renderer?.relayout();
 }
 
 $("tab-read").addEventListener("click", () => showPanel("read"));

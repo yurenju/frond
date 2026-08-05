@@ -55,9 +55,26 @@ export type {
 } from "./events.ts";
 
 export { DEFAULT_SETTINGS, withSettings } from "./settings.ts";
-export type { GenericFamilies, ReaderSettings, Theme } from "./settings.ts";
+export type {
+  GenericFamilies,
+  LayoutFacts,
+  LayoutSettings,
+  ReaderSettings,
+  ResolveLayout,
+  Theme,
+} from "./settings.ts";
 
-export type { ColumnChoice, Insets, Margin, WritingMode } from "./geometry.ts";
+// `COLUMN_GAP` is here because doing frond's column arithmetic **backwards** — how much of
+// the container may the text have, for lines of at most N ems — cannot be written without
+// it (`geometry.ts`).
+export { COLUMN_GAP } from "./geometry.ts";
+export type {
+  ColumnChoice,
+  Insets,
+  Margin,
+  Viewport,
+  WritingMode,
+} from "./geometry.ts";
 
 export { INTERVENTIONS } from "./interventions.ts";
 export type { Intervention, InterventionReason } from "./interventions.ts";

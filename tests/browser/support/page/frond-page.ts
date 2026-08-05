@@ -16,6 +16,7 @@ import type {
   AddressedSection,
   EventRecord,
   FrondHarness,
+  LayoutCall,
   MountOptions,
   Rect,
   SectionAtSnapshot,
@@ -42,6 +43,8 @@ const VIEWPORT_ID = "viewport";
 
 let renderer: Renderer | undefined;
 let recorded: EventRecord[] = [];
+/** The facts of every `resolveLayout` call since the mount. */
+let layoutCalls: LayoutCall[] = [];
 let indexed: Promise<number> | undefined;
 
 // Whether the `pointerdown` listener below asks frond to cancel the browser's own action for
@@ -150,8 +153,17 @@ const harness: FrondHarness = {
 
     container.style.width = `${width}px`;
     container.style.height = `${height}px`;
-    await active().resize();
+    await active().relayout();
     return snapshot();
+  },
+
+  async relayout(): Promise<Snapshot> {
+    await active().relayout();
+    return snapshot();
+  },
+
+  layoutCalls(): readonly LayoutCall[] {
+    return layoutCalls;
   },
 
   snapshot,
@@ -335,6 +347,7 @@ Object.defineProperty(window, "frond", { value: harness, configurable: true });
 async function attach(book: RenderableBook, options: MountOptions): Promise<Snapshot> {
   renderer?.destroy();
   recorded = [];
+  layoutCalls = [];
 
   const container = document.getElementById(VIEWPORT_ID);
   if (container === null) throw new Error("the shell page has no container element");
@@ -358,9 +371,24 @@ async function attach(book: RenderableBook, options: MountOptions): Promise<Snap
   // Hooked up through `options.on` rather than `on()` after attaching: the first section's
   // load and relocate are emitted inside attach, and a listener added afterwards misses
   // them.
+  const answers = options.resolveLayout;
+
   renderer = await Renderer.attach(book, container, {
     settings: toSettings(options.settings),
     start: options.start,
+    // No table, no resolver at all — that is the path every other spec runs on, and it has
+    // to stay the one frond sees rather than a resolver that answers nothing.
+    ...(answers === undefined
+      ? {}
+      : {
+          resolveLayout: (facts) => {
+            layoutCalls.push({
+              writingMode: facts.writingMode,
+              viewport: { width: facts.viewport.width, height: facts.viewport.height },
+            });
+            return answers[facts.writingMode] ?? {};
+          },
+        }),
     on: {
       relocate: record("relocate"),
       load: (event) => {

@@ -35,11 +35,12 @@ import {
 } from "./events.ts";
 import type { WritingMode } from "./geometry.ts";
 import { ProgressIndex } from "./progress.ts";
-import { SectionView } from "./section-view.ts";
+import { SectionView, type SettingsSource } from "./section-view.ts";
 import {
   DEFAULT_SETTINGS,
   withSettings,
   type ReaderSettings,
+  type ResolveLayout,
 } from "./settings.ts";
 import { charactersBefore, countCharacters, positionAtCharacter, textNodesIn } from "./text-index.ts";
 
@@ -81,6 +82,25 @@ export type RendererStart =
 
 export interface RendererOptions {
   readonly settings?: Partial<ReaderSettings>;
+  /**
+   * Answers the margin and the column count from the facts of each layout — the writing
+   * mode and the container's size (`settings.ts`'s `ResolveLayout`).
+   *
+   * ## Why this is not just `settings`
+   *
+   * The writing mode is the book's to declare and the browser's to settle, so frond has no
+   * answer for it until the document is on screen. A consumer whose margin depends on it
+   * (a line-length ceiling lands on the inline axis, which is horizontal in one mode and
+   * vertical in the other) is therefore stuck: `attach()` wants the settings before the
+   * fact exists, and the first `load` reports it after the reading position has been
+   * restored — so correcting it there costs a second layout, and a second layout under a
+   * restored position drops the reader somewhere else in the section.
+   *
+   * This closes that gap without moving the decision into frond: frond states the facts at
+   * the moment it has them, the consumer answers with its policy (ADR-0002), and the
+   * answer is in force for the layout that follows.
+   */
+  readonly resolveLayout?: ResolveLayout;
   /**
    * Listeners attached **before** the first section renders.
    *
@@ -125,6 +145,7 @@ export class Renderer {
   private readonly resizeObserver: ResizeObserver | undefined;
 
   private currentSettings: ReaderSettings;
+  private readonly resolveLayout: ResolveLayout | undefined;
   private resources: ResourceUrls;
   private view: SectionView | undefined;
   private sectionIndex = 0;
@@ -156,10 +177,12 @@ export class Renderer {
     book: RenderableBook,
     container: HTMLElement,
     settings: ReaderSettings,
+    resolveLayout: ResolveLayout | undefined,
   ) {
     this.book = book;
     this.container = container;
     this.currentSettings = settings;
+    this.resolveLayout = resolveLayout;
     this.resources = new ResourceUrls(book, settings);
 
     // The iframe is absolutely positioned (the margin comes from the inset), so the
@@ -181,7 +204,7 @@ export class Renderer {
 
     if (view !== null && typeof view.ResizeObserver === "function") {
       this.resizeObserver = new view.ResizeObserver(() => {
-        void this.resize();
+        void this.relayout();
       });
       this.resizeObserver.observe(container);
     }
@@ -204,6 +227,7 @@ export class Renderer {
       book,
       container,
       withSettings(DEFAULT_SETTINGS, options.settings ?? {}),
+      options.resolveLayout,
     );
 
     for (const [name, listener] of Object.entries(options.on ?? {})) {
@@ -254,8 +278,22 @@ export class Renderer {
     };
   }
 
+  /**
+   * The reader's settings, **as the consumer set them**.
+   *
+   * Not what the current layout ran under: with a `resolveLayout` in play the margin and
+   * the column count are answered per layout, and reporting one section's answer here
+   * would present a value that belongs to a moment rather than to the reader. What that
+   * layout settled on is visible where it matters — the `layout` event carries the writing
+   * mode and the page count, and `location` the position.
+   */
   get settings(): ReaderSettings {
     return this.currentSettings;
+  }
+
+  /** The settings and the resolver as one value, which is what every layout path needs. */
+  private get settingsSource(): SettingsSource {
+    return { reader: this.currentSettings, resolveLayout: this.resolveLayout };
   }
 
   /** The writing mode the current section laid out in. **Sections of one book are not guaranteed to agree.** */
@@ -438,15 +476,22 @@ export class Renderer {
   }
 
   /**
-   * Re-lays out after the container size changed, staying where the reader was (user story
-   * 32).
+   * Lays out again from the facts as they stand now, staying where the reader was (user
+   * story 32).
+   *
+   * Two occasions call for it, and they are the same operation: **the container changed
+   * size** (frond's own `ResizeObserver` calls this), and **an input to `resolveLayout`
+   * changed** — the reader moved a margin slider whose value the consumer turns into a
+   * margin itself. The second has no other route: those settings never pass through
+   * `applySettings`, so frond cannot see that anything moved.
    *
    * Unlike a settings change, this **does not rebuild the document**: the layout parameters
-   * only change the injected stylesheet, and the DOM is untouched. So the position is
-   * carried across with a `Range` directly, without even the CFI string round trip — one
-   * fewer round trip is one fewer set of edge cases that can fail to line up.
+   * only change the injected stylesheet and the iframe's inset, and the DOM is untouched.
+   * So the position is carried across with a `Range` directly, without even the CFI string
+   * round trip — one fewer round trip is one fewer set of edge cases that can fail to line
+   * up.
    */
-  async resize(): Promise<void> {
+  async relayout(): Promise<void> {
     // The coalesce key is kept separate from `applySettings`: when a window drag and a font
     // size slider drag happen at once, each should keep its own last call rather than the
     // two cancelling each other.
@@ -455,7 +500,7 @@ export class Renderer {
       if (view === undefined || this.destroyed) return Promise.resolve();
 
       const anchor = view.positionAtPageStart(view.page);
-      view.relayout(this.currentSettings);
+      view.relayout(this.settingsSource);
 
       if (anchor !== undefined) view.goToPage(view.pageOf(view.rangeAt(anchor)));
 
@@ -466,7 +511,7 @@ export class Renderer {
       this.emitLayout(view);
       this.emitRelocate();
       return Promise.resolve();
-    }, "resize");
+    }, "relayout");
   }
 
   /**
@@ -660,7 +705,7 @@ export class Renderer {
       view = await SectionView.mount(
         this.container,
         buildSectionDocument(this.book, section.path, this.currentSettings, this.resources),
-        this.currentSettings,
+        this.settingsSource,
         {
           onLinkActivate: (href) => this.emitLinkActivate(href),
           onSelectionChange: () => this.emitSelection(),

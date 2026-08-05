@@ -3,7 +3,9 @@ import {
   DEFAULT_SETTINGS,
   overriddenProperties,
   readerStylesheet,
+  withLayout,
   withSettings,
+  type LayoutSettings,
   type ReaderSettings,
 } from "../../../src/renderer/settings.ts";
 
@@ -151,5 +153,50 @@ describe("applying a partial setting", () => {
 
     expect(applied.fontSize).toBeUndefined();
     expect(readerStylesheet(applied)).toBe("");
+  });
+});
+
+/**
+ * What the layout resolver answered, landed on the settings that layout runs under.
+ *
+ * The one thing worth pinning is that this is **not** `withSettings`: there, `undefined` is
+ * a reader who set nothing and has to be able to cancel a setting. Here it can only be a
+ * resolver with no opinion, because neither of these two fields has a "nothing" state —
+ * every layout needs a margin and a column count. Merged the same way, an omitted margin
+ * becomes a missing one, and `marginInsets()` reads `.block` off it one frame later.
+ */
+describe("applying what the layout resolver answered", () => {
+  test("what it answers takes effect", () => {
+    const applied = withLayout(settings({ margin: 24, columns: 1 }), {
+      margin: { block: 10, inline: 60 },
+      columns: 2,
+    });
+
+    expect(applied.margin).toEqual({ block: 10, inline: 60 });
+    expect(applied.columns).toBe(2);
+  });
+
+  test("a field it left out keeps the reader's own value", () => {
+    const applied = withLayout(settings({ margin: 24, columns: 2 }), { columns: 1 });
+
+    expect(applied.margin).toBe(24);
+  });
+
+  test("an explicit undefined is an omission, not a cancellation", () => {
+    const applied = withLayout(settings({ margin: 24 }), { margin: undefined });
+
+    expect(applied.margin).toBe(24);
+  });
+
+  test("nothing outside those two fields can reach the settings from here", () => {
+    // The type says so, and a consumer writing JavaScript has no type. The other settings
+    // are written into the document while it is still text, before there is a writing mode
+    // to read — honouring one here would mean rebuilding the document and laying out a
+    // second time, which is what this API exists to avoid.
+    const applied = withLayout(settings({ fontSize: 18 }), {
+      fontSize: 32,
+    } as Partial<LayoutSettings>);
+
+    expect(applied.fontSize).toBe(18);
   });
 });
