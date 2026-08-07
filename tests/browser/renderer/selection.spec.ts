@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { parseCfi } from "../../../src/epub/cfi.ts";
-import { mountFixture, openHarness, type EventRecord } from "../support/harness.js";
+import { mountFixture, openHarness, type EventRecord, type Rect } from "../support/harness.js";
 
 /**
  * Selection and annotation geometry (user stories 47–51).
@@ -152,6 +152,82 @@ test.describe("annotation geometry", () => {
     }
   });
 
+  /**
+   * **The rectangles belong to the text, not to the paragraphs holding it.**
+   *
+   * `Range.getClientRects()` reads like the answer to "which rectangles does this range
+   * occupy" and answers a wider question: per CSSOM View it also returns the border box of
+   * every *element* the range fully contains, and a paragraph's border box is the width of
+   * the whole column. A highlight dragged across three paragraphs came back as the line
+   * boxes **plus** a column-wide slab for the middle one, and a consumer has no field to
+   * tell the two apart — it would be guessing from the size.
+   *
+   * The two properties below pin it without depending on a font metric, and neither can be
+   * satisfied by filtering the wide ones out afterwards.
+   */
+  test("a highlight across paragraphs gets no rectangle twice over", async ({ page }) => {
+    // A slab covers the very line boxes inside it, so a consumer painting a translucent
+    // colour gets a double coat over the middle paragraph and a single one at the ends. That
+    // shows up as a band of darker text, which is how this was found.
+    await mountFixture(page, "vertical-japanese");
+    const selection = await selectionFrom(page, () =>
+      page.evaluate(() => window.frond.selectAcross("p:nth-of-type(1)", "p:nth-of-type(3)")),
+    );
+    const rects = await rectsFor(page, selection.cfi!);
+
+    expect(rects.length).toBeGreaterThan(1);
+    for (const [index, rect] of rects.entries()) {
+      for (const other of rects.slice(index + 1)) {
+        // A square pixel of tolerance: line boxes on adjacent lines can share an edge, and
+        // touching is not covering.
+        expect(overlapArea(rect, other)).toBeLessThan(1);
+      }
+    }
+  });
+
+  test("selecting three paragraphs at once gives what selecting each of them gives", async ({
+    page,
+  }) => {
+    // The same property from the other side, and the one that says *which* rectangles are
+    // surplus rather than just that some are: a paragraph occupies the same lines whether it
+    // was selected alone or as the middle of a drag.
+    await mountFixture(page, "vertical-japanese");
+
+    const together = await selectionFrom(page, () =>
+      page.evaluate(() => window.frond.selectAcross("p:nth-of-type(1)", "p:nth-of-type(3)")),
+    );
+
+    let separately = 0;
+    for (const nth of [1, 2, 3]) {
+      const one = await selectionFrom(page, () =>
+        page.evaluate(
+          (index) => window.frond.selectText(`p:nth-of-type(${index as number})`),
+          nth,
+        ),
+      );
+      separately += (await rectsFor(page, one.cfi!)).length;
+    }
+
+    expect((await rectsFor(page, together.cfi!)).length).toBe(separately);
+  });
+
+  test("a highlight over a picture still has a rectangle", async ({ page }) => {
+    // The deliberate exception to "text only": an `<img>` has no text box at all, so taking
+    // strictly the text would leave a highlight crossing a plate with a hole where the plate
+    // is. Read off the event rather than from a CFI because this section has no text for a
+    // range CFI to address.
+    await mountFixture(page, "empty-and-image-only-sections");
+    await page.evaluate(() => window.frond.goToSection(2));
+
+    const selection = await selectionFrom(page, () =>
+      page.evaluate(() => window.frond.selectAcross("img", "img")),
+    );
+
+    expect(selection.rects.length).toBeGreaterThan(0);
+    expect(selection.rects[0]!.width).toBeGreaterThan(0);
+    expect(selection.rects[0]!.height).toBeGreaterThan(0);
+  });
+
   test("rectangles land in the right place on a vertical book too (user story 51)", async ({ page }) => {
     // A passage in a vertical layout is **tall**: greater in height than in width.
     // Horizontal is the reverse. This case separates "the rectangles were computed for the
@@ -206,6 +282,42 @@ interface SelectionPayload {
     readonly width: number;
     readonly height: number;
   }[];
+}
+
+/**
+ * Performs a selection and returns **the event that selection produced**.
+ *
+ * Counted rather than polled on the payload, because a spec that selects two things in a row
+ * cannot tell the second event from the first by looking at it: both carry a CFI, and reading
+ * "the last one" straight after the second call can still return the first.
+ */
+async function selectionFrom(
+  page: Page,
+  select: () => Promise<unknown>,
+): Promise<SelectionPayload> {
+  const before = await selectionCount(page);
+  await select();
+  await expect.poll(() => selectionCount(page)).toBeGreaterThan(before);
+
+  const payload = await lastSelection(page);
+  if (payload === undefined) throw new Error("no selection event arrived");
+  return payload;
+}
+
+async function selectionCount(page: Page): Promise<number> {
+  const events: readonly EventRecord[] = await page.evaluate(() => window.frond.events());
+  return events.filter((event) => event.name === "selection").length;
+}
+
+function rectsFor(page: Page, cfi: string): Promise<readonly Rect[]> {
+  return page.evaluate((value) => window.frond.rectsFor(value as string), cfi);
+}
+
+/** How much area two rectangles share. Zero when they merely touch. */
+function overlapArea(a: Rect, b: Rect): number {
+  const width = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+  const height = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+  return width > 0 && height > 0 ? width * height : 0;
 }
 
 /** Waits for a selection event carrying a CFI. `selectionchange` is asynchronous. */

@@ -398,6 +398,10 @@ export class SectionView {
    * A range's rectangles in the container's coordinate system — the geometry a consumer
    * needs to draw its own highlights (user stories 49 and 51).
    *
+   * **These are the boxes of the content itself: the text, and any replaced element.** Not
+   * the boxes of the elements containing it — see `contentRects` for why asking the range
+   * directly is the wrong question.
+   *
    * They are given **relative to the container** rather than to the iframe: the consumer
    * draws highlights on the container, and the iframe itself is offset by the margin.
    * Colour, style and animation are the consumer's decision; frond only supplies the
@@ -411,11 +415,7 @@ export class SectionView {
     // filtered out and the consumer receives an empty array.
     const resolved =
       measurable(range)
-        .map((candidate) =>
-          [...candidate.getClientRects()].filter(
-            (rect) => rect.width > 0 && rect.height > 0,
-          ),
-        )
+        .map((candidate) => contentRects(candidate))
         .find((rects) => rects.length > 0) ?? [];
 
     return resolved.map(
@@ -812,6 +812,82 @@ function metricsFor(
  * rectangle. They are left out to say that on purpose rather than by accident.
  */
 const REPLACED_ELEMENTS = "img, svg, video, canvas";
+
+/**
+ * The boxes of the **content** a range covers: its text, and any replaced element.
+ *
+ * `range.getClientRects()` is the obvious way to ask this and it answers a different
+ * question. Per CSSOM View it also includes the border box of every *element* the range
+ * fully contains, and a paragraph's border box is the width of the whole column. So a
+ * highlight spanning five paragraphs came back as four line boxes plus three column-wide
+ * slabs, and the consumer drawing them has no field to tell the two apart — it would be
+ * guessing from the width. Measured in chromium, a range over five 600px-wide paragraphs:
+ *
+ * | | `getClientRects()` | what the text occupies |
+ * | --- | --- | --- |
+ * | rectangles | 8 | 5 |
+ * | widths | 80, **600**, 80, **600**, 64, **600**, 64, 64 | 80, 80, 64, 64, 64 |
+ *
+ * The same rule fires on inline elements, where it is easier to miss and no less wrong: an
+ * `<em>` inside the range contributes its border box *and* its text's box at the same
+ * coordinates, so those characters get painted twice and read a shade darker than their
+ * neighbours.
+ *
+ * Walking to the text and asking each node for its own rectangles leaves no element boxes to
+ * filter out — there is no width heuristic here, and none is needed. Replaced elements are
+ * the deliberate exception: an `<img>` has no text box at all, and dropping it would leave a
+ * highlight crossing a picture with a hole in it.
+ */
+function contentRects(range: Range): readonly DOMRect[] {
+  const rects = coveredParts(range).flatMap((part) => [...part.getClientRects()]);
+  const own = rects.filter((rect) => rect.width > 0 && rect.height > 0);
+
+  // Content that is neither text nor a replaced element — a range over a single `<br>`, say
+  // — leaves nothing to measure. Falling back to the range's own rectangles keeps such a
+  // consumer no worse off than before, and it cannot reintroduce the slabs above: this line
+  // is only reached when the range contains no text for them to be wrong about.
+  if (own.length > 0) return own;
+  return [...range.getClientRects()].filter((rect) => rect.width > 0 && rect.height > 0);
+}
+
+/**
+ * The parts of a range that carry their own geometry, in document order: one clamped range
+ * per text node, and each replaced element as itself.
+ *
+ * The walk starts at `commonAncestorContainer` rather than at the body so that measuring a
+ * three-line highlight costs three lines of tree, not the whole section.
+ */
+function coveredParts(range: Range): readonly (Range | Element)[] {
+  const parts: (Range | Element)[] = [];
+  collectCovered(range.commonAncestorContainer, range, parts);
+  return parts;
+}
+
+function collectCovered(node: Node, range: Range, parts: (Range | Element)[]): void {
+  if (!range.intersectsNode(node)) return;
+
+  if (isTextLike(node)) {
+    parts.push(clampedToNode(range, node));
+    return;
+  }
+
+  // A replaced element is taken whole and not descended into: an `<svg>`'s own text nodes
+  // are inside the box already counted, and adding them would paint that area twice.
+  if (isElement(node) && node.matches(REPLACED_ELEMENTS)) {
+    parts.push(node);
+    return;
+  }
+
+  for (const child of node.childNodes) collectCovered(child, range, parts);
+}
+
+/** The part of a range that falls inside one text node. */
+function clampedToNode(range: Range, node: Node): Range {
+  const part = range.cloneRange();
+  if (node !== range.startContainer) part.setStart(node, 0);
+  if (node !== range.endContainer) part.setEnd(node, (node as CharacterData).length);
+  return part;
+}
 
 /**
  * A range's first rectangle **with any area**.
