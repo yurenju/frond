@@ -333,6 +333,11 @@ export interface FrondHarness {
   events(): readonly EventRecord[];
   /** Selects a run of text inside the iframe, for the selection event tests. */
   selectText(selector: string): void;
+  /**
+   * Selects everything from the first element to the second, the way a drag across several
+   * paragraphs does. Passing the same selector twice selects that one element whole.
+   */
+  selectAcross(startSelector: string, endSelector: string): void;
   /** Drops the selection through the renderer's own API, rather than by reaching into the iframe. */
   clearSelection(): void;
   /** Makes the page's `pointerdown` listener call `preventTapDefault()` on every press from now on. */

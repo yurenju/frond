@@ -520,6 +520,14 @@ export class Renderer {
    * frond supplies only the geometry — colour, style and animation are the consumer's
    * decision (ADR-0002).
    *
+   * ## What is measured
+   *
+   * **The content itself**: the boxes of the text, plus any replaced element such as an
+   * `<img>`. Never the box of an element containing it — a paragraph's box is the width of
+   * the whole column and has nothing to do with how much of it the CFI covers. So a
+   * highlight spanning paragraphs comes back as one rectangle per line, and none of them
+   * overlaps another (`section-view.ts`'s `contentRects`).
+   *
    * ## The coordinate system
    *
    * Relative to **the container element's top-left corner**, in CSS pixels, with the

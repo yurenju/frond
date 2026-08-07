@@ -314,6 +314,33 @@ const harness: FrondHarness = {
     selection?.addRange(range);
   },
 
+  selectAcross(startSelector, endSelector): void {
+    const document = contentDocument();
+    if (document === undefined) return;
+
+    const start = document.querySelector(startSelector);
+    const end = document.querySelector(endSelector);
+    if (start === null || end === null) return;
+
+    const range = document.createRange();
+    const first = firstTextIn(start);
+    const last = lastTextIn(end);
+
+    // Anchored **inside** the text wherever there is any, because that is the shape a
+    // reader's drag produces and the shape a range CFI round-trips back to. Wrapping the
+    // elements instead would make the first and last ones fully contained as well, which is
+    // a different range covering different rectangles. An element with no text at all (the
+    // image-only section) has nowhere inside to anchor, so there it is wrapped.
+    if (first === undefined) range.setStartBefore(start);
+    else range.setStart(first, 0);
+    if (last === undefined) range.setEndAfter(end);
+    else range.setEnd(last, last.data.length);
+
+    const selection = document.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  },
+
   clearSelection(): void {
     renderer?.clearSelection();
   },
@@ -462,6 +489,24 @@ function contentDocument(): Document | undefined {
   const frame = document.querySelector(`#${VIEWPORT_ID} iframe`);
   if (!(frame instanceof HTMLIFrameElement)) return undefined;
   return frame.contentDocument ?? undefined;
+}
+
+/** This element's first text node, or `undefined` when it holds no text (an `<img>`). */
+function firstTextIn(element: Element): Text | undefined {
+  const document = element.ownerDocument;
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  return (walker.nextNode() as Text | null) ?? undefined;
+}
+
+function lastTextIn(element: Element): Text | undefined {
+  const document = element.ownerDocument;
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+
+  let last: Text | undefined;
+  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+    last = node as Text;
+  }
+  return last;
 }
 
 /**
