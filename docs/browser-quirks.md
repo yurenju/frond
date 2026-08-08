@@ -810,3 +810,76 @@ one press〉。它釘的是**機制**：要求擋的那次按壓，它的 `touch
 true；沒要求的不是；答案不會延續到下一次按壓；按壓本身照樣送到消費端。三家引擎都照
 規範在 `touchend` 被取消時不發 click（那支連結測試三家都綠），所以這裡沒有引擎差異要
 記。Touch to Search 本身只能在實機上手動確認。
+
+---
+
+## WebKit 不認 `font-language-override`（#92）
+
+**症狀**
+
+一支泛 CJK 字型（Noto CJK 是常態）用 `locl` 依語言切換區域字形，觸發它的是元素的 `lang`。
+中文 epub 宣告 `lang="zh"` 很常見，而三家在 `zh` 底下都畫簡體字形——一本繁體書因此整本
+是簡體字形。`font-language-override` 是 CSS 用來蓋掉這個選擇的屬性，讀者設定
+（`settings.fontLanguage`）就是走這條路。
+
+**Chromium 與 Firefox 認，WebKit 完全不認**。WebKit 不是「條件式生效」，是連 parser 都不
+收這個屬性，宣告在進到 cascade 之前就被丟掉。
+
+**量測**（純瀏覽器：`page.setContent`，沒有 frond 參與）
+
+三個 `<div>`，同一段字 `骨返直`、同一個 `font-family: serif`、64px：
+
+| id | 標記 |
+| --- | --- |
+| a | `lang="zh"` |
+| b | `lang="zh"` + `font-language-override: 'ZHT'` |
+| c | `lang="zh-TW"`（對照組，字形由 `lang` 選出） |
+
+各自截圖後比 sha1：
+
+| | a（zh） | b（zh + override） | c（zh-TW） | b 有沒有生效 |
+| --- | --- | --- | --- | --- |
+| chromium | `b517e72dcdfa` | `12cccf14d2ec` | `12cccf14d2ec` | **有**，b 與對照組逐位元組相同 |
+| firefox | `d2a2bba93d33` | `e81a19f2b554` | `e81a19f2b554` | **有**，同上 |
+| webkit | `3512b0675fd3` | `3512b0675fd3` | `e3bfbfe6efaa` | **沒有**，b 與什麼都沒做的 a 相同 |
+
+`CSS.supports("font-language-override", '"ZHT"')` 與 `getComputedStyle` 講的是同一件事：
+
+| | `CSS.supports` | 計算值 |
+| --- | --- | --- |
+| chromium | `true` | `"ZHT"` |
+| firefox | `true` | `"ZHT"` |
+| webkit | **`false`** | 空字串 |
+
+> **這是 #92 內文那張表的更正。** 那張表寫「三家都認，WebKit 只在元素沒有 `lang` 時忽略」，
+> 在這個環境量到的不是這樣：WebKit 有沒有 `lang` 都一樣不認。
+
+**繞法**
+
+WebKit 有 `-webkit-locale`，收的是 BCP 47 語言標籤而不是 OpenType 的 langsys tag。同一組
+量測換成 `-webkit-locale: 'zh-TW'`，webkit 的 b 變成 `e3bfbfe6efaa`——與 `lang="zh-TW"` 的
+對照組逐位元組相同，**繞得過去**。
+
+**沒有採用**，理由是它需要一張 `ZHT → zh-TW` 的對照表，而那張表是「哪個語言標籤代表繁體
+中文」這種政策判斷，不是語法翻譯。要走這條路的話它會是介入清單上一項獨立的
+`syntax-translation`（形狀與 `unprefix-writing-mode` 相同：瀏覽器沒有照書做，換一個它認得
+的寫法說同一件事），值得單獨開一張票討論，不適合夾在 #92 裡順手做掉。
+
+**frond 是否需要處理**
+
+`settings.fontLanguage` 照樣發 `font-language-override`，三家一視同仁，不為 WebKit 分支。
+落在 WebKit 上時讀者拿到的是書自己的 `lang` 選出來的字形——也就是他們原本就在的地方，
+**功能是失效而不是壞掉**。這一點寫進了 `settings.ts` 的欄位註解，消費端讀得到。
+
+**哪個測試會抓到**
+
+`tests/browser/renderer/reader-settings.spec.ts` 的〈the glyph variant〉。「讀者的標籤到得了
+書的文字」那一條在 webkit 上 `test.skip` 並指回這一條；另外兩條（沒設就一個字元都不寫、
+書的 `lang` 屬性原封不動）三家都跑。WebKit 哪天實作了這個屬性，skip 不會自己變綠——要靠
+這一條記著它為什麼在那裡。
+
+**環境**
+
+`Dockerfile` 的映像（`mcr.microsoft.com/playwright:v1.61.1-noble`、`fonts-noto-cjk`
+`1:20230817+repack1-3`），三家都是 Linux 建置。**真 Safari 走 CoreText，未經驗證**
+（ADR-0004 明列不做 iOS 驗證）。

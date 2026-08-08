@@ -126,6 +126,17 @@ describe("the closed list of interventions", () => {
           // worth anything if what it collects is the **complete** injected surface, and a
           // field left out here is a rule this test never sees.
           theme: { foreground: "#eee", background: "#111", link: "#8ab4f8" },
+          // Likewise every field of a face — the descriptors inside an `@font-face` block
+          // are declarations too, and each one is a property this list has to name.
+          fontFaces: [
+            {
+              family: '"Reader Serif"',
+              src: "blob:http://reader.test/8d9a6c1e",
+              weight: "700",
+              style: "italic",
+            },
+          ],
+          fontLanguage: "ZHT",
         }),
       ),
     );

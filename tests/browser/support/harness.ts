@@ -83,6 +83,42 @@ export async function openHarness(page: Page): Promise<void> {
 }
 
 /**
+ * A real font's bytes, wrapped in a `Blob` **by the page** and named by its address.
+ *
+ * This is the consumer's side of `settings.fontFaces` played out for real: a reader with a
+ * font on the device has nothing but `createObjectURL` to hand it over with (#92 measured
+ * why — a `blob:` iframe is outside a service worker's control in Chromium, so serving the
+ * bytes from a worker leaves Chrome without them offline). Declaring the face with an
+ * address the page never fetches would test the string formatting and nothing else.
+ *
+ * The bytes are a Latin font from the test image rather than one of the CJK faces, and
+ * that is deliberate on two counts: it is small enough to hand across `page.evaluate`, and
+ * it shares not one glyph with the fixtures the geometry assertions are measured on, so a
+ * face left loaded cannot move any number in another spec.
+ */
+export async function supplyFontToPage(page: Page): Promise<string> {
+  const bytes = await readFile(PROBE_FONT_PATH).catch(() => {
+    throw new Error(
+      `${PROBE_FONT_PATH} is missing. The browser specs run inside the test image ` +
+        "(AGENTS.md: `npm run test:container`), and that is where this font comes from.",
+    );
+  });
+
+  return page.evaluate(
+    ([base64, type]) => window.frond.objectUrl(base64 as string, type as string),
+    [bytes.toString("base64"), "font/ttf"] as const,
+  );
+}
+
+/**
+ * Where that font is. Part of the base image (`mcr.microsoft.com/playwright:…`, pinned in
+ * the `Dockerfile`) rather than of what `Dockerfile` installs — the fonts frond pins are
+ * pinned because every geometric number in this suite is measured on them, and this one is
+ * measured on nothing.
+ */
+const PROBE_FONT_PATH = "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf";
+
+/**
  * Mounts a synthetic fixture and returns the position it lands at.
  *
  * The book is opened with `EpubBook` **on the Node side** and fed into the page file by
@@ -197,6 +233,13 @@ export interface SettingsPatch {
     readonly serif?: string;
     readonly sansSerif?: string;
   };
+  readonly fontFaces?: readonly {
+    readonly family: string;
+    readonly src: string;
+    readonly weight?: string;
+    readonly style?: string;
+  }[];
+  readonly fontLanguage?: string;
 }
 
 /**
@@ -317,6 +360,20 @@ export interface FrondHarness {
   containerSize(): { readonly width: number; readonly height: number };
   /** The computed style of a selector inside the current section's iframe. */
   computed(selector: string, property: string): string;
+  /**
+   * Wraps base64 bytes in a `Blob` and returns its address — the consumer's half of
+   * `settings.fontFaces`, done where a consumer would do it: **outside the book**.
+   */
+  objectUrl(base64: string, type: string): string;
+  /**
+   * Whether the book's own document can actually load a face by that name.
+   *
+   * Asked of the iframe's `FontFaceSet` rather than of the injected CSS text, because the
+   * question is not whether the rule was written but whether the bytes arrived: an
+   * `@font-face` whose address the book's document cannot reach fails silently, and the
+   * reader sees the fallback face with nothing reported anywhere.
+   */
+  faceLoads(family: string): Promise<boolean>;
   /** The outerHTML of the current section's iframe document — for inspecting rewrites. */
   html(): string;
   /**

@@ -135,9 +135,9 @@ export const INTERVENTIONS: readonly Intervention[] = [
   },
   {
     id: "reader-stylesheet",
-    what: "injects the reader's font-size, font-family, line-height, color, link color and background-color, all with !important",
+    what: "injects the reader's font-size, font-family, line-height, color, link color and background-color, all with !important; declares an @font-face (font-family, src, font-weight, font-style) for each face the reader supplied as bytes; and sets font-language-override where the reader named an OpenType language system",
     reason: "reader-blocked",
-    why: "ADR-0003 requires frond to provide an override surface. It covers only what the reader actually set — for an unset field not one character is injected",
+    why: "ADR-0003 requires frond to provide an override surface. It covers only what the reader actually set — for an unset field not one character is injected. The last two are more of that same surface rather than a further intervention: an @font-face supplies the bytes behind a name, which is the other half of resolve-generic-families' \"a bare serif names no face; it delegates the choice to the platform\", and font-language-override picks a glyph variant within whatever face is already in use. Neither replaces a face the book actually named, and neither touches the book's lang. Both have to come from frond because they are per-document and the book is in an iframe (ADR-0006) — a consumer declaring them on its own page reaches not one character of the book",
     where: "src/renderer/settings.ts",
     onlyWhenReaderOverrides: true,
   },

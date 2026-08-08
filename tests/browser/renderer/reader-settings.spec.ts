@@ -1,5 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mountFixture, openHarness, type SettingsPatch } from "../support/harness.js";
+import {
+  mountFixture,
+  openHarness,
+  supplyFontToPage,
+  type SettingsPatch,
+} from "../support/harness.js";
 
 /**
  * Reader settings, and their fight with the book's cascade.
@@ -434,6 +439,126 @@ test.describe("generic families", () => {
     await mount(page, { genericFamilies: { sansSerif: '"Noto Sans CJK JP"' } });
 
     expect(await computed(page, "p", "font-family")).toBe("serif");
+  });
+});
+
+/**
+ * Faces the reader hands over as bytes, and the glyph variant they are shaped with
+ * (`settings.fontFaces`, `settings.fontLanguage`).
+ *
+ * Both exist because the book is in an iframe (ADR-0006) and both properties are
+ * per-document: a consumer declaring `@font-face` on its own page reaches not one character
+ * of the book, and reaching into the iframe to declare it there is what that boundary
+ * exists to prevent. So what these cases measure is arrival — the bytes really decoded
+ * **inside the book's document**, and the tag really applied to the book's text.
+ *
+ * The face is supplied as a `blob:` address because that is the only storage a consumer
+ * that works offline can get its bytes back out of in all three engines (#92).
+ */
+test.describe("faces supplied as bytes", () => {
+  const FAMILY = '"Reader Supplied"';
+
+  const SECTION = `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh">
+  <head><title>t</title></head>
+  <body><p>朝の光が差す。</p></body>
+</html>`;
+
+  const mount = async (page: Page, settings: SettingsPatch): Promise<void> => {
+    await page.evaluate(
+      ([source, patch]) =>
+        window.frond.mountInline([source as string], { settings: patch as SettingsPatch }),
+      [SECTION, settings] as const,
+    );
+  };
+
+  test("with no face from the reader, the book's document declares none", async ({ page }) => {
+    await mount(page, {});
+
+    expect(await page.evaluate(() => window.frond.html())).not.toContain("@font-face");
+  });
+
+  test("the bytes the reader supplied are loaded inside the book's document", async ({
+    page,
+  }) => {
+    // The measurement the whole setting rests on: a `blob:` address minted by the consuming
+    // page is reachable from the book's own document, which is itself a `blob:` (ADR-0006).
+    // A face that fails to load fails **silently** — the text simply comes out in the
+    // fallback — so nothing but the `FontFace`'s own status answers this.
+    const src = await supplyFontToPage(page);
+    await mount(page, { fontFaces: [{ family: FAMILY, src }], fontFamily: FAMILY });
+
+    expect(await page.evaluate((family) => window.frond.faceLoads(family), FAMILY)).toBe(true);
+  });
+
+  test("supplying a face does not by itself change what anything is set in", async ({
+    page,
+  }) => {
+    // The division of labour the API rests on: `fontFaces` says where a name's bytes come
+    // from, `fontFamily` and `genericFamilies` say where the name is used. Without this, a
+    // consumer could not self-host the very face the book asks for by name without also
+    // overriding every face the book named.
+    const src = await supplyFontToPage(page);
+    await mount(page, { fontFaces: [{ family: FAMILY, src }] });
+
+    expect(await computed(page, "p", "font-family")).not.toContain("Reader Supplied");
+  });
+});
+
+/**
+ * The glyph variant (`settings.fontLanguage`).
+ *
+ * A pan-CJK face carries the Traditional, Simplified, Japanese and Korean shapes of the
+ * same code point and picks between them by the **book's** `lang` — and a Traditional
+ * Chinese book declaring a bare `lang="zh"` is common, at which point the engines draw it
+ * with Simplified glyphs. This setting is how a consumer that knows better says so without
+ * frond touching the book's `lang`, which line breaking and screen readers also go by.
+ *
+ * **WebKit does not implement `font-language-override`** (measured — `docs/browser-quirks.md`),
+ * so what these cases can assert there is that nothing else broke.
+ */
+test.describe("the glyph variant", () => {
+  const SECTION = `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh">
+  <head><title>t</title></head>
+  <body><p>骨返直</p></body>
+</html>`;
+
+  const mount = async (page: Page, settings: SettingsPatch): Promise<void> => {
+    await page.evaluate(
+      ([source, patch]) =>
+        window.frond.mountInline([source as string], { settings: patch as SettingsPatch }),
+      [SECTION, settings] as const,
+    );
+  };
+
+  test("unset, the book's own language declaration is all there is", async ({ page }) => {
+    await mount(page, {});
+
+    expect(await page.evaluate(() => window.frond.html())).not.toContain(
+      "font-language-override",
+    );
+  });
+
+  test("the reader's tag reaches the book's text", async ({ page, browserName }) => {
+    test.skip(
+      browserName === "webkit",
+      "WebKit does not implement font-language-override — docs/browser-quirks.md",
+    );
+
+    await mount(page, { fontLanguage: "ZHT" });
+
+    // Quoted in the computed value too: it is a string, not a keyword.
+    expect(await computed(page, "p", "font-language-override")).toBe('"ZHT"');
+  });
+
+  test("the book's own lang attribute is left exactly as it was", async ({ page }) => {
+    // The reason this is a CSS property rather than a rewrite of the book's markup. `lang`
+    // drives line breaking and what a screen reader announces, and changing it would be
+    // overriding a declaration the book actually made — which a glyph variant is not.
+    await mount(page, { fontLanguage: "ZHT" });
+
+    expect(await page.evaluate(() => window.frond.html())).toContain('lang="zh"');
   });
 });
 

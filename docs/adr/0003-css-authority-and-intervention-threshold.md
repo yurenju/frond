@@ -97,6 +97,32 @@ frond 拒絕自己修，就有義務讓上層修得動。因此公開的樣式�
 
 **明確不做**：對齊（左對齊／左右對齊）。**直排不支援多欄**——直排一律單欄，一欄等於一個 viewer 高。這是刻意的簡化假設，直排多欄會讓 paginator 幾何複雜度明顯上升。
 
+### 修訂（#92）：讀者可以交出字型的位元組，也可以指定字形變體
+
+覆寫面再補兩項——`settings.fontFaces`（把字型的位元組交進書裡，發成 `@font-face`）與
+`settings.fontLanguage`（指定用哪一套 OpenType 語言系統的字形，發成
+`font-language-override`）。
+
+**這兩項不是新的介入**，是 `reader-stylesheet` 那一項多兩個宣告，理由與上一節同一條線：
+
+- `@font-face` 補的是**書委派出去的那個決定的另一半**。`genericFamilies` 補的是名字，而
+  名字只有在那台機器裝了那個 face 時才算數；這一項補的是「那個名字的位元組從哪裡來」。書
+  **指名過**的 face 一個都沒有被換掉——交出位元組與套用字型是分開的兩件事。
+- `font-language-override` 決定的是**同一支字型裡的字形變體**，不是換字型。它取代不了任何
+  宣告：書自己從來不宣告這個屬性，而書真正宣告的 `lang` 屬性一個字都不動（那個屬性還管斷行
+  與螢幕閱讀器，改它才是真的覆寫書）。
+- 兩項都**沒設就一個字元都不寫**，與其他欄位同一條規則，所以正文那句「frond 不因為書醜就
+  介入」仍然字面成立。
+
+**只有 frond 做得到**，這也是它們該進覆寫面而不是留給消費端的理由：兩者都是 per-document
+的，而書在 iframe 裡（ADR-0006）——消費端在自己頁面宣告的 `@font-face`，書一個字都吃不到，
+而伸手進 iframe 正是那條界線存在的目的。
+
+代價記在這裡：**WebKit 不認 `font-language-override`**（實測，`docs/browser-quirks.md`）。
+落在那裡時讀者拿到的是書自己的 `lang` 選出來的字形，也就是他們原本就在的地方——失效而不是
+壞掉。繞法（`-webkit-locale`）量到可行但沒有採用，它需要一張語言標籤對照表，那是獨立一項
+`syntax-translation` 的形狀，要另外開票。
+
 ## Consequences
 
 **「讀者設定一定要贏」不是免費的。** 書可以寫 `font-size: 12px !important`，而外部 stylesheet 打不贏 inline `!important`。spine 就是因此讓 `zeroBodyPadding` 掛了一個永不 disconnect 的 MutationObserver 持續把值塞回去。frond 內部因此需要一套認真的 cascade 對抗機制，不是注入一段 CSS 就結束——這是 frond 相對 foliate 真正要多做的工程之一。
