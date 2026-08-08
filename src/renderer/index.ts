@@ -56,6 +56,7 @@ export type {
 
 export { DEFAULT_SETTINGS, withSettings } from "./settings.ts";
 export type {
+  FontFace,
   GenericFamilies,
   LayoutFacts,
   LayoutSettings,

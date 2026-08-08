@@ -274,6 +274,36 @@ const harness: FrondHarness = {
     return view.getComputedStyle(element).getPropertyValue(property);
   },
 
+  objectUrl(base64, type): string {
+    const binary = atob(base64);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    return URL.createObjectURL(new Blob([bytes], { type }));
+  },
+
+  async faceLoads(family): Promise<boolean> {
+    const document = contentDocument();
+    if (document === undefined) return false;
+
+    // The face's own `status`, not `fonts.check()`: `check` answers "is anything still
+    // pending for this text", which is `true` for a family that was never declared at all —
+    // it would pass whether or not the rule reached the document.
+    // Compared with the quotes stripped from both sides: whether a `FontFace` reports its
+    // family with the quotes it was declared with is each engine's own business.
+    const unquote = (name: string): string => name.replace(/^["']|["']$/g, "");
+    const face = [...document.fonts].find(
+      (candidate) => unquote(candidate.family) === unquote(family),
+    );
+    if (face === undefined) return false;
+
+    try {
+      await face.load();
+    } catch {
+      return false;
+    }
+
+    return face.status === "loaded";
+  },
+
   html(): string {
     return contentDocument()?.documentElement.outerHTML ?? "";
   },

@@ -29,6 +29,8 @@ describe("the defaults", () => {
     expect(DEFAULT_SETTINGS.fontSize).toBeUndefined();
     expect(DEFAULT_SETTINGS.lineHeight).toBeUndefined();
     expect(DEFAULT_SETTINGS.theme).toBeUndefined();
+    expect(DEFAULT_SETTINGS.fontFaces).toBeUndefined();
+    expect(DEFAULT_SETTINGS.fontLanguage).toBeUndefined();
   });
 
   test("the margin has a default — at 0 the text would sit against the screen edge", () => {
@@ -135,6 +137,131 @@ describe("the injected stylesheet", () => {
 
   test("the column count does not appear in the reader stylesheet — it is a parameter of the pagination layer", () => {
     expect(readerStylesheet(settings({ columns: 2 }))).toBe("");
+  });
+});
+
+/**
+ * Faces the reader hands over as bytes (`settings.fontFaces`).
+ *
+ * `@font-face` is per-document and does not inherit, and the book is in an iframe
+ * (ADR-0006) — so a consumer declaring the face on its own page reaches not one character
+ * of the book. This is the only route in, which is why the address is carried through
+ * verbatim: a `blob:` URL is the one form that survives offline (the issue's measurement:
+ * a `blob:` iframe is not under a service worker's control in Chromium at all).
+ */
+describe("faces supplied as bytes", () => {
+  const BLOB = "blob:http://reader.test/8d9a6c1e-1f2b-4d3c-9a7e-5b6c7d8e9f01";
+
+  test("an empty list is the same as saying nothing", () => {
+    expect(readerStylesheet(settings({ fontFaces: [] }))).toBe("");
+  });
+
+  test("a face becomes an @font-face rule carrying the address verbatim", () => {
+    const css = readerStylesheet(
+      settings({ fontFaces: [{ family: '"Reader Serif"', src: BLOB }] }),
+    );
+
+    expect(css).toBe(`@font-face { font-family: "Reader Serif"; src: url("${BLOB}"); }`);
+  });
+
+  test("weight and style are written only when the consumer gave them", () => {
+    const bare = readerStylesheet(
+      settings({ fontFaces: [{ family: '"Reader Serif"', src: BLOB }] }),
+    );
+    expect(bare).not.toContain("font-weight");
+    expect(bare).not.toContain("font-style");
+
+    const dressed = readerStylesheet(
+      settings({
+        fontFaces: [{ family: '"Reader Serif"', src: BLOB, weight: "700", style: "italic" }],
+      }),
+    );
+    expect(dressed).toContain("font-weight: 700;");
+    expect(dressed).toContain("font-style: italic;");
+  });
+
+  test("one family with two weights is two rules", () => {
+    const css = readerStylesheet(
+      settings({
+        fontFaces: [
+          { family: '"Reader Serif"', src: `${BLOB}-regular`, weight: "400" },
+          { family: '"Reader Serif"', src: `${BLOB}-bold`, weight: "700" },
+        ],
+      }),
+    );
+
+    expect(css.split("\n")).toHaveLength(2);
+    expect(css).toContain(`${BLOB}-regular`);
+    expect(css).toContain(`${BLOB}-bold`);
+  });
+
+  test("supplying the bytes does not also apply the face — naming it stays a separate act", () => {
+    // The division of labour this setting rests on: `fontFaces` says where a name's bytes
+    // come from, `fontFamily` and `genericFamilies` say where the name is used. Applying it
+    // here would make "self-host the book's own face" impossible to express — the reader
+    // would be unable to supply bytes without also overriding every face the book named.
+    const css = readerStylesheet(
+      settings({ fontFaces: [{ family: '"Reader Serif"', src: BLOB }] }),
+    );
+
+    expect(css).not.toContain(":root");
+  });
+
+  test("a quote in the address cannot break out of the rule", () => {
+    // A URL carries no unescaped `"` (it would be percent-encoded), so this guards a
+    // malformed input rather than a plausible one — but the cost of not guarding it is the
+    // rest of the reader's stylesheet being swallowed by an unterminated string.
+    const css = readerStylesheet(
+      settings({ fontFaces: [{ family: '"X"', src: 'blob:http://reader.test/a"; }' }] }),
+    );
+
+    expect(css).toBe('@font-face { font-family: "X"; src: url("blob:http://reader.test/a\\"; }"); }');
+  });
+
+  test("nothing is demoted for a face — no book declaration can block one", () => {
+    // A book cannot declare "do not load that face", so there is no `!important` to take
+    // away. Putting `font-family` in scope instead would strip the flag from every face the
+    // book named, which is the opposite of what this setting promises.
+    expect(
+      overriddenProperties(settings({ fontFaces: [{ family: '"X"', src: BLOB }] })).size,
+    ).toBe(0);
+  });
+});
+
+/**
+ * Which glyph variant the faces are shaped with (`settings.fontLanguage`).
+ *
+ * A pan-CJK face carries every CJK glyph and switches variants by language through `locl`,
+ * and what triggers it is the book's `lang` — which a Traditional Chinese book very often
+ * declares as a bare `zh`, at which point all three engines draw it with Simplified glyphs.
+ * The consumer usually knows better than the book, and this lets it say so **without
+ * touching the book's `lang` attribute**, which is also what hyphenation and screen readers
+ * go by.
+ */
+describe("the glyph variant", () => {
+  test("the tag is written as a quoted font-language-override on every element", () => {
+    const css = readerStylesheet(settings({ fontLanguage: "ZHT" }));
+
+    // Quoted because `font-language-override` takes a string, not a keyword: bare `ZHT` is
+    // an invalid value and the whole declaration would be dropped.
+    expect(css).toBe(':root, :root * { font-language-override: "ZHT" !important; }');
+  });
+
+  test("it rides in the same rule as the other per-element declarations", () => {
+    const css = readerStylesheet(
+      settings({ fontFamily: '"Reader Serif"', fontLanguage: "ZHT" }),
+    );
+
+    expect(css).toBe(
+      ':root, :root * { font-family: "Reader Serif" !important; font-language-override: "ZHT" !important; }',
+    );
+  });
+
+  test("nothing is demoted for a language tag", () => {
+    // Books do not declare `font-language-override`. The one lever they have is the `font`
+    // shorthand, which resets it — and demoting `font` would take the flag off the book's
+    // size, family and line height too, none of which this reader has set.
+    expect(overriddenProperties(settings({ fontLanguage: "ZHT" })).size).toBe(0);
   });
 });
 

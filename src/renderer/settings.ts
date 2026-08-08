@@ -101,6 +101,90 @@ export interface ReaderSettings {
    * "frond does not intervene because a book is ugly" remains literally true.
    */
   readonly genericFamilies: GenericFamilies | undefined;
+  /**
+   * Faces the consumer supplies as **bytes** rather than by name.
+   *
+   * Each one is emitted as an `@font-face` rule into the reader's stylesheet, so a name
+   * used in `fontFamily` or `genericFamilies` can resolve to a face the machine does not
+   * have installed. `genericFamilies` fills in the name the book delegated; this fills in
+   * where that name's bytes come from — the other half of the same delegation.
+   *
+   * ## Why the consumer cannot do this itself
+   *
+   * `@font-face` is per-document and does not inherit, and the book is in an iframe
+   * (ADR-0006): a rule declared on the consumer's own page reaches not one character of
+   * the book, and reaching into the iframe to add one is precisely what that boundary
+   * exists to prevent. frond already injects the reader's stylesheet into the book's
+   * document, so this is two more declarations on a route that is already open, not a new
+   * one.
+   *
+   * It is a named field rather than an arbitrary stylesheet entry point for the reason
+   * `Theme.link` gives: an arbitrary stylesheet would hand the intervention threshold
+   * itself to the consumer.
+   *
+   * ## Supplying a face is not applying it
+   *
+   * Nothing here changes which face anything is set in — that stays with `fontFamily`,
+   * `genericFamilies`, or the book's own declarations. Keeping the two apart is what lets
+   * a consumer self-host the very face the book asks for by name, without overriding a
+   * single one of the book's choices to do it.
+   */
+  readonly fontFaces: readonly FontFace[] | undefined;
+  /**
+   * Which OpenType language system the faces should be shaped with — the `ZHT` / `ZHS` /
+   * `JAN` / `KOR` tag, emitted as `font-language-override`.
+   *
+   * ## Why naming the face is not enough
+   *
+   * A pan-CJK face (Noto CJK, and it is the norm) carries the whole CJK glyph set in one
+   * file and switches between the regional forms with the `locl` feature — the Traditional
+   * Chinese, Simplified, Japanese and Korean shapes of the same code point are all in
+   * there. What selects between them is the **book's `lang`**, and a book saying `lang="zh"`
+   * is very common: all three engines then draw a Traditional Chinese book with Simplified
+   * glyphs (`docs/browser-quirks.md`).
+   *
+   * The consumer often knows the answer better than the book does — spine decides by
+   * counting characters in the text, because language metadata lies. This is how it says
+   * so **without frond touching the book's `lang` attribute**, which also drives line
+   * breaking and what a screen reader announces: overwriting that really would be
+   * overriding the book's declaration, while a glyph variant is not.
+   *
+   * **WebKit ignores this** — it does not implement the property at all (measured, see
+   * `docs/browser-quirks.md`). What a reader gets there is the book's own `lang`, which is
+   * where they already were, so the setting is inert rather than wrong.
+   */
+  readonly fontLanguage: string | undefined;
+}
+
+/**
+ * One face, supplied as bytes.
+ *
+ * ## Why `src` is an absolute URL, and why `blob:` has to be accepted
+ *
+ * A consumer that works offline has to keep the font's bytes on the device, and the
+ * measurement in #92 says there is only one way back out of that storage in all three
+ * engines: **a `blob:` iframe is not under a service worker's control in Chromium at
+ * all**, so "keep the font in the Cache API and let the worker serve it" leaves Chrome
+ * with missing glyphs offline. Bytes wrapped in a `Blob` and named by `createObjectURL`
+ * load in all three.
+ *
+ * That is also why the address is absolute: a relative path resolves against the book's
+ * document, which is itself a `blob:` (ADR-0006), and resolution there is not dependable.
+ * A `blob:` URL is absolute to begin with.
+ */
+export interface FontFace {
+  /**
+   * The family name to declare, as a CSS value — the same string the consumer would pass
+   * to `fontFamily`, quoting and all, so that one name can be written once and used in
+   * both places.
+   */
+  readonly family: string;
+  /** Where the bytes are. An absolute URL; `blob:` is the point (see above). */
+  readonly src: string;
+  /** The `font-weight` descriptor. Left out, the face answers for every weight. */
+  readonly weight?: string | undefined;
+  /** The `font-style` descriptor. Left out, the face answers for every style. */
+  readonly style?: string | undefined;
 }
 
 /**
@@ -136,6 +220,8 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   columns: "auto",
   theme: undefined,
   genericFamilies: undefined,
+  fontFaces: undefined,
+  fontLanguage: undefined,
 };
 
 /** Applies a partial set of settings. Fields not mentioned keep their current value. */
@@ -237,6 +323,16 @@ export function withLayout(
  * whatever weight it had, and only the platform's share of it is filled in. Adding
  * `font-family` to this set would instead strip the flag from every face the book named,
  * which is the opposite of what that setting promises.
+ *
+ * **`fontFaces` and `fontLanguage` add nothing here either**, for two different reasons.
+ * A face is *supplied*, not applied: there is no declaration in any book that can block an
+ * `@font-face`, so there is no `!important` to take away — and `font-family` would be the
+ * wrong thing to take it from, exactly as above. A language tag is a per-element
+ * declaration and could in principle be blocked, but only by the `font` shorthand, which
+ * resets `font-language-override` along with everything else it sets. Demoting `font` for
+ * that would take the flag off the book's size, family and line height as well, none of
+ * which this reader has set — a wider intervention than the setting asks for, in exchange
+ * for a shape no book in the sample has.
  */
 export function overriddenProperties(
   settings: ReaderSettings,
@@ -280,9 +376,25 @@ export function overriddenProperties(
  * `rem`. The face, line height and colour have no such concern — a reader saying "use
  * this face" means the whole book, so those are applied to every element directly, which
  * is the only way the book's declarations on descendant elements cannot win them back.
+ *
+ * ## The `@font-face` rules carry no `!important`, and no selector
+ *
+ * They are not in the fight with the book's cascade at all: an `@font-face` declares that
+ * a name has bytes, and nothing a book can write competes with that. They go first only
+ * because a face is easier to read above the rules that might use it.
  */
 export function readerStylesheet(settings: ReaderSettings): string {
   const rules: string[] = [];
+
+  for (const face of settings.fontFaces ?? []) {
+    const descriptors = [
+      `font-family: ${face.family};`,
+      `src: url(${cssString(face.src)});`,
+      ...(face.weight === undefined ? [] : [`font-weight: ${face.weight};`]),
+      ...(face.style === undefined ? [] : [`font-style: ${face.style};`]),
+    ];
+    rules.push(`@font-face { ${descriptors.join(" ")} }`);
+  }
 
   if (settings.fontSize !== undefined) {
     rules.push(`:root { font-size: ${settings.fontSize}px !important; }`);
@@ -291,6 +403,12 @@ export function readerStylesheet(settings: ReaderSettings): string {
   const everything: string[] = [];
   if (settings.fontFamily !== undefined) {
     everything.push(`font-family: ${settings.fontFamily} !important;`);
+  }
+  if (settings.fontLanguage !== undefined) {
+    // Quoted, because the value is a string rather than a keyword: `font-language-override:
+    // ZHT` is invalid and the whole declaration would be thrown away — silently, which is
+    // the failure mode worth spending a function call on.
+    everything.push(`font-language-override: ${cssString(settings.fontLanguage)} !important;`);
   }
   if (settings.lineHeight !== undefined) {
     everything.push(`line-height: ${settings.lineHeight} !important;`);
@@ -330,4 +448,19 @@ export function readerStylesheet(settings: ReaderSettings): string {
   }
 
   return rules.join("\n");
+}
+
+/**
+ * A consumer-supplied value written out as a CSS string.
+ *
+ * The rest of this module passes the reader's values through verbatim, because they are
+ * documented as CSS values — the consumer writes the quotes. These two are not: a `src` is
+ * a URL and a `fontLanguage` is an OpenType tag, so frond adds the quoting, and having
+ * added it has to make sure the value cannot end the string early. A URL percent-encodes
+ * its quotes and a language tag is four letters, so this guards a malformed input rather
+ * than a plausible one — but an unterminated string swallows every rule after it, and the
+ * reader would see their settings half-applied with nothing reported.
+ */
+function cssString(value: string): string {
+  return `"${value.replace(/[\\"]/g, "\\$&")}"`;
 }
