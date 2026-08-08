@@ -91,10 +91,11 @@ export async function openHarness(page: Page): Promise<void> {
  * bytes from a worker leaves Chrome without them offline). Declaring the face with an
  * address the page never fetches would test the string formatting and nothing else.
  *
- * The bytes are a Latin font from the test image rather than one of the CJK faces, and
- * that is deliberate on two counts: it is small enough to hand across `page.evaluate`, and
- * it shares not one glyph with the fixtures the geometry assertions are measured on, so a
- * face left loaded cannot move any number in another spec.
+ * The bytes are a Latin monospace font from the test image rather than one of the CJK
+ * faces, and that is deliberate on three counts: it is small enough to hand across
+ * `page.evaluate`, it shares not one glyph with the fixtures the geometry assertions are
+ * measured on, and monospace is the one Latin face that cannot be mistaken for whatever
+ * the engine resolved `serif` to — which is what makes the evidence screenshots readable.
  */
 export async function supplyFontToPage(page: Page): Promise<string> {
   const bytes = await readFile(PROBE_FONT_PATH).catch(() => {
@@ -116,7 +117,7 @@ export async function supplyFontToPage(page: Page): Promise<string> {
  * pinned because every geometric number in this suite is measured on them, and this one is
  * measured on nothing.
  */
-const PROBE_FONT_PATH = "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf";
+const PROBE_FONT_PATH = "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf";
 
 /**
  * Mounts a synthetic fixture and returns the position it lands at.
